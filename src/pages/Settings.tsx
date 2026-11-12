@@ -101,6 +101,82 @@ export default function SettingsPage() {
           Данные хранятся на телефоне и дублируются в ваш проект Supabase. Пока облако не настроено,
           приложение работает полностью офлайн.
         </div>
+
+        <details className="guide">
+          <summary>
+            <Icon name="doc" size={16} />
+            <span>Как настроить облако — подробная инструкция</span>
+          </summary>
+          <ol className="guide-steps">
+            <li>
+              Заведите бесплатную учётную запись:{' '}
+              <a
+                className="link"
+                href="https://supabase.com/dashboard/sign-up"
+                target="_blank"
+                rel="noreferrer"
+              >
+                supabase.com — регистрация
+              </a>
+              . Подойдёт вход через GitHub или почту.
+            </li>
+            <li>
+              В панели нажмите <b>New project</b>: любое имя, пароль базы (сохраните его), регион — ближе к
+              вам.{' '}
+              <a
+                className="link"
+                href="https://supabase.com/dashboard/projects"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Список проектов
+              </a>
+            </li>
+            <li>Дождитесь окончания создания проекта — это 1–2 минуты.</li>
+            <li>
+              Скопируйте два значения из раздела <b>Settings → API Keys</b>: <b>Project URL</b> и{' '}
+              <b>anon public key</b>. Вставьте их в поля «Адрес проекта» и «Ключ (anon)» ниже.{' '}
+              <a
+                className="link"
+                href="https://supabase.com/docs/guides/api/api-keys"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Где взять ключи
+              </a>
+            </li>
+            <li>
+              Откройте <b>SQL Editor → New query</b>, вставьте содержимое файла{' '}
+              <a
+                className="link"
+                href="https://github.com/vladimirgorodok/Avtotracker/blob/main/supabase/schema.sql"
+                target="_blank"
+                rel="noreferrer"
+              >
+                supabase/schema.sql
+              </a>{' '}
+              из репозитория и нажмите <b>Run</b>. Появятся таблицы и правила доступа к ним.
+            </li>
+            <li>
+              В разделе <b>Authentication → Providers</b> включите поставщика <b>Email</b>. Чтобы при входе
+              не требовалось подтверждать почту, выключите <b>Confirm email</b> (для личного пользования
+              удобнее).
+            </li>
+            <li>
+              Вернитесь в приложение, введите почту и пароль и нажмите <b>Создать запись</b>, затем{' '}
+              <b>Войти</b>.
+            </li>
+            <li>
+              Нажмите <b>Синхронизировать сейчас</b> — данные уедут в облако. Дальше отправлять изменения
+              можно кнопкой «Отправить» на главной.
+            </li>
+          </ol>
+          <div className="small muted">
+            Ключ (anon) можно хранить в приложении: сам по себе он не открывает чужие данные — доступ
+            ограничивают правила RLS из schema.sql. Пароль и токены входа хранятся только на телефоне.
+          </div>
+        </details>
+
         <Field label="Адрес проекта">
           <TextInput
             value={settings.supabase_url}

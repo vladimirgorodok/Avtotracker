@@ -542,6 +542,12 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
 
   const finance = summarizeFinance(month || null);
   const waybills = waybillRepo.list().filter((w) => !month || w.date_out.slice(0, 7) === month);
+  const monthTrips = tripRepo.all().filter((t) => {
+    if (!month) return true;
+    const wb = waybillRepo.get(t.waybill_id);
+    return (wb?.date_out ?? t.created_at).slice(0, 7) === month;
+  });
+  const monthRefuels = refuelRepo.list().filter((r) => !month || r.date.slice(0, 7) === month);
 
   autoTable.default(doc, {
     startY: 36,
@@ -550,7 +556,9 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
       ['Начислено', fmtMoney(finance.charged, settings.currency)],
       ['Оплачено', fmtMoney(finance.paid, settings.currency)],
       ['Остаток', fmtMoney(finance.balance, settings.currency)],
-      ['Путевых листов', String(waybills.length)],
+      ['Путевых листов, шт.', String(waybills.length)],
+      ['Перевозок, шт.', String(monthTrips.length)],
+      ['Заправок, шт.', String(monthRefuels.length)],
     ],
     styles: { fontSize: 9, font: 'DejaVu' },
   });
@@ -560,27 +568,33 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
     return [
       `${fmtDate(w.date_out)} — ${w.date_in ? fmtDate(w.date_in) : 'открыт'}`,
       s.vehicleTitle,
+      s.trailerTitle || '—',
       s.mileage === null ? '—' : fmtNumber(s.mileage),
       fmtNumber(s.refueled),
       s.avgConsumption === null ? '—' : fmtNumber(s.avgConsumption, 1),
       fmtMoney(s.charged, settings.currency),
     ];
   });
+  const mileageSum = waybills.reduce((s, w) => s + (summarizeWaybill(w).mileage ?? 0), 0);
+  const refuelSum = waybills.reduce((s, w) => s + summarizeWaybill(w).refueled, 0);
+  const chargedSum = waybills.reduce((s, w) => s + summarizeWaybill(w).charged, 0);
 
   autoTable.default(doc, {
     // @ts-expect-error lastAutoTable добавляется плагином
     startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 60,
-    head: [['Период', 'Автомобиль', 'Пробег, км', 'Заправлено, л', 'Расход, л/100', 'Начислено']],
-    body: rows.length > 0 ? rows : [['Нет данных', '', '', '', '', '']],
+    head: [['Период', 'Автомобиль', 'Прицеп', 'Пробег, км', 'Заправлено, л', 'Расход, л/100', 'Начислено']],
+    body: rows.length > 0 ? rows : [['Нет данных', '', '', '', '', '', '']],
+    foot:
+      rows.length > 0
+        ? [['Итого, л. ' + String(waybills.length), '', '', fmtNumber(mileageSum), fmtNumber(refuelSum), '', fmtMoney(chargedSum, settings.currency)]]
+        : undefined,
     styles: { fontSize: 8, font: 'DejaVu' },
-    columnStyles: { 1: { cellWidth: 45 } },
+    headStyles: { font: 'DejaVu' },
+    footStyles: { font: 'DejaVu', fontStyle: 'bold' },
+    columnStyles: { 1: { cellWidth: 38 }, 2: { cellWidth: 34 } },
   });
 
-  const trips = tripRepo.all().filter((t) => {
-    if (!month) return true;
-    const wb = waybillRepo.get(t.waybill_id);
-    return (wb?.date_out ?? t.created_at).slice(0, 7) === month;
-  });
+  const trips = monthTrips;
   const tripRows = trips.map((t) => {
     const s = summarizeTrip(t);
     return [
@@ -595,12 +609,29 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
   autoTable.default(doc, {
     // @ts-expect-error lastAutoTable добавляется плагином
     startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 120,
-    head: [['Дата', 'Маршрут', 'Точек', 'Вес, кг', 'Начислено']],
+    head: [['Дата', 'Маршрут', 'Точек, шт.', 'Вес, кг', 'Начислено']],
     body: tripRows.length > 0 ? tripRows : [['Нет данных', '', '', '', '']],
+    foot:
+      trips.length > 0
+        ? [
+            [
+              `Итого, перевозок ${trips.length}`,
+              '',
+              String(trips.reduce((s, t) => s + summarizeTrip(t).pointsCount, 0)),
+              fmtNumber(trips.reduce((s, t) => s + summarizeTrip(t).totalWeight, 0)),
+              fmtMoney(
+                trips.reduce((s, t) => s + summarizeTrip(t).amount, 0),
+                settings.currency,
+              ),
+            ],
+          ]
+        : undefined,
     styles: { fontSize: 8, font: 'DejaVu' },
+    headStyles: { font: 'DejaVu' },
+    footStyles: { font: 'DejaVu', fontStyle: 'bold' },
   });
 
-  const refuels = refuelRepo.list().filter((r) => !month || r.date.slice(0, 7) === month);
+  const refuels = monthRefuels;
   autoTable.default(doc, {
     // @ts-expect-error lastAutoTable добавляется плагином
     startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 160,
@@ -609,7 +640,13 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
       refuels.length > 0
         ? refuels.map((r) => [fmtDate(r.date), fmtNumber(r.volume), r.kind === 'barrel' ? 'Бочка' : 'АЗС'])
         : [['Нет данных', '', '']],
+    foot:
+      refuels.length > 0
+        ? [[`Итого, заправок ${refuels.length}`, fmtNumber(refuels.reduce((s, r) => s + r.volume, 0)), '']]
+        : undefined,
     styles: { fontSize: 8, font: 'DejaVu' },
+    headStyles: { font: 'DejaVu' },
+    footStyles: { font: 'DejaVu', fontStyle: 'bold' },
   });
 
   return new Uint8Array(doc.output('arraybuffer') as ArrayBuffer);

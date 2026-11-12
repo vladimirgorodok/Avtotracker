@@ -20,8 +20,8 @@ import { useApp } from '../store';
 import { insertRow, refs, softDelete, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
 import { autoTripAmount, summarizeTrip } from '../lib/calc';
 import { chargeTrip, deleteTrip, renumberPoints, refreshTripStatus, unchargeTrip } from '../lib/actions';
-import { fmtDate, fmtMoney, fmtNumber, mapLink, todayIso } from '../lib/format';
-import { LOAD_TYPES, loadTypeLabel, type Place, type Trip, type TripPoint, type TripPointKind } from '../types';
+import { fmtDate, fmtMoney, mapLink, addDays, todayIso } from '../lib/format';
+import { LOAD_TYPES, loadTypeLabel, type Id, type Place, type Trip, type TripPoint, type TripPointKind } from '../types';
 
 export default function TripDetail() {
   const { id = '' } = useParams();
@@ -36,6 +36,7 @@ export default function TripDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editPoint, setEditPoint] = useState<TripPoint | null>(null);
   const [pointDraft, setPointDraft] = useState<TripPoint | null>(null);
+  const [pointCompany, setPointCompany] = useState<Id | null>(null);
   const [pickerFor, setPickerFor] = useState<'draft' | null>(null);
 
   useEffect(() => {
@@ -97,17 +98,20 @@ export default function TripDetail() {
   }
 
   function newPoint(kind: TripPointKind) {
+    // Дата выгрузки по умолчанию — на день позже предыдущей точки (обычно погрузки).
+    const last = points[points.length - 1];
+    const base = last?.fact_date ?? last?.plan_date ?? todayIso();
     const draft: TripPoint = {
       id: uid(),
       trip_id: form!.id,
       seq: points.length + 1,
       kind,
       place_id: null,
-      plan_date: todayIso(),
+      plan_date: kind === 'unload' && points.length > 0 ? addDays(base, 1) : todayIso(),
       fact_date: null,
       load_type: null,
       cargo_type_id: form!.cargo_type_id,
-      weight: form!.weight,
+      weight: null,
       status: 'planned',
       note: '',
       created_at: '',
@@ -116,11 +120,23 @@ export default function TripDetail() {
     };
     setPointDraft(draft);
     setEditPoint(null);
+    setPointCompany(null);
   }
 
   function openPoint(p: TripPoint) {
     setPointDraft({ ...p });
     setEditPoint(p);
+    setPointCompany(refs.place(p.place_id)?.company_id ?? null);
+  }
+
+  /** Отметить точку выполненной сегодняшним днём. */
+  function markPointDone(p: TripPoint) {
+    updateRow('trip_points', p.id, { fact_date: todayIso(), status: 'done' });
+    refreshTripStatus(form!.id);
+    touch();
+    const after = tripRepo.get(form!.id);
+    if (after && after.status !== 'planned') notify('Все точки выполнены — сохраните начисление', 'ok');
+    else notify('Точка выполнена', 'ok');
   }
 
   function savePoint() {
@@ -171,6 +187,7 @@ export default function TripDetail() {
   }
 
   function applyPlace(place: Place) {
+    setPointCompany(place.company_id ?? null);
     setPointDraft((d) =>
       d
         ? {
@@ -184,6 +201,12 @@ export default function TripDetail() {
   }
 
   const autoAmount = autoTripAmount(settings, points.length);
+  const companies = refs.companies();
+  const allPlaces = refs.places();
+  // Места показываем только по выбранной фирме — так их проще выбрать.
+  const placesForCompany = pointCompany
+    ? allPlaces.filter((p) => p.company_id === pointCompany)
+    : allPlaces;
 
   return (
     <Page
@@ -336,9 +359,13 @@ export default function TripDetail() {
                   ) : null}
                   <div className="row wrap">
                     {p.load_type ? <Badge tone="warn">{loadTypeLabel(p.load_type)}</Badge> : null}
-                    {p.weight ? <Badge>Вес: {fmtNumber(p.weight)} кг</Badge> : null}
                     {place && (place.lat !== null || place.address) ? (
-                      <a className="badge badge-info" href={mapLink(place.lat, place.lon, place.address)} target="_blank" rel="noreferrer">
+                      <a
+                        className="badge badge-info"
+                        href={mapLink(place.lat, place.lon, place.address, place.name)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         <Icon name="nav" size={14} />
                         {place.lat !== null ? `${place.lat.toFixed(4)}, ${place.lon?.toFixed(4)}` : 'Маршрут'}
                       </a>
@@ -352,9 +379,14 @@ export default function TripDetail() {
                   </div>
 
                   <div className="divider" />
-                  <div className="row">
+                  <div className="row wrap">
                     <Button icon="up" onClick={() => movePoint(p, -1)} />
                     <Button icon="down" onClick={() => movePoint(p, 1)} />
+                    {p.status !== 'done' ? (
+                      <Button variant="success" icon="check" onClick={() => markPointDone(p)}>
+                        Выполнен
+                      </Button>
+                    ) : null}
                     <span style={{ flex: 1 }} />
                     <Button icon="edit" onClick={() => openPoint(p)}>
                       Изменить
@@ -410,13 +442,40 @@ export default function TripDetail() {
                 placeholder="Погрузка"
               />
             </Field>
+            <Field label="Фирма" hint="Сначала фирма — список мест отфильтруется по её привязке">
+              <Select
+                value={pointCompany}
+                onChange={(v) => {
+                  setPointCompany(v);
+                  const current = refs.place(pointDraft.place_id);
+                  if (current && current.company_id !== v) setPointDraft({ ...pointDraft, place_id: null });
+                }}
+                options={companies.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Все фирмы"
+              />
+            </Field>
             <Field label="Место" required>
               <div className="row">
-                <div className="input" style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                  {refs.place(pointDraft.place_id)?.name ?? 'Не выбрано'}
-                </div>
-                <Button icon="pin" onClick={() => setPickerFor('draft')}>
-                  Выбрать
+                <Select
+                  className=""
+                  value={pointDraft.place_id}
+                  onChange={(v) => {
+                    const place = refs.place(v);
+                    setPointDraft({
+                      ...pointDraft,
+                      place_id: v,
+                      load_type: place?.load_type ?? pointDraft.load_type,
+                      cargo_type_id: place?.cargo_type_id ?? pointDraft.cargo_type_id,
+                    });
+                  }}
+                  options={placesForCompany.map((p) => ({
+                    value: p.id,
+                    label: p.address ? `${p.name} · ${p.address}` : p.name,
+                  }))}
+                  placeholder="Не выбрано"
+                />
+                <Button icon="plus" onClick={() => setPickerFor('draft')}>
+                  Новое
                 </Button>
               </div>
             </Field>
@@ -464,9 +523,6 @@ export default function TripDetail() {
                 options={cargoTypes.map((c) => ({ value: c.id, label: c.name }))}
                 placeholder="Не выбран"
               />
-            </Field>
-            <Field label="Вес, кг">
-              <NumberInput value={pointDraft.weight} onValue={(v) => setPointDraft({ ...pointDraft, weight: v })} />
             </Field>
             <Field label="Примечания">
               <textarea

@@ -11,11 +11,13 @@ import {
   StatCard,
 } from '../ui/components';
 import { useApp } from '../store';
-import { financeRepo, refs, tripRepo, waybillRepo } from '../db/repo';
-import { fmtDate, fmtMoney, fmtNumber, monthKey } from '../lib/format';
-import { summarizeTrip, summarizeWaybill } from '../lib/calc';
+import { financeRepo, refs, tripRepo, updateRow, waybillRepo } from '../db/repo';
+import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../lib/format';
+import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
+import { refreshTripStatus } from '../lib/actions';
 import { runSync, syncState } from '../lib/sync';
+import type { TripPoint } from '../types';
 
 export default function Home({ onCreate }: { onCreate: () => void }) {
   const navigate = useNavigate();
@@ -37,7 +39,8 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     const charged = financeOps.filter((o) => o.kind === 'charge').reduce((s, o) => s + o.amount, 0);
     const paid = financeOps.filter((o) => o.kind === 'payment').reduce((s, o) => s + o.amount, 0);
 
-    const trips = tripRepo.all().map(summarizeTrip);
+    const trips = sortTrips(tripRepo.all().map(summarizeTrip));
+    const current = trips.find((t) => !t.completed && t.nextPoint) ?? null;
     const needle = search.trim().toLowerCase();
     const filtered = trips.filter((t) => {
       if (month) {
@@ -52,9 +55,23 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
       );
     });
 
-    return { openWaybill, lastWaybill, openSummary, charged, paid, trips: filtered };
+    return { openWaybill, lastWaybill, openSummary, charged, paid, trips: filtered, current };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, month, search]);
+
+  /** Закрыть точку «сегодня»; после последней точки открываем карточку поездки для начисления. */
+  function completePoint(point: TripPoint, tripId: string) {
+    updateRow('trip_points', point.id, { fact_date: todayIso(), status: 'done' });
+    refreshTripStatus(tripId);
+    touch();
+    const after = tripRepo.get(tripId);
+    if (after && after.status !== 'planned') {
+      notify('Поездка выполнена — сохраните начисление', 'ok');
+      navigate(`/trips/${tripId}`);
+    } else {
+      notify('Точка выполнена', 'ok');
+    }
+  }
 
   const vehicle = refs.vehicle(data.lastWaybill?.vehicle_id ?? null);
   const trailer = refs.vehicle(data.lastWaybill?.trailer_id ?? null);
@@ -111,6 +128,14 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
               {syncing ? 'Отправка…' : 'Отправить'}
             </Button>
           </div>
+        ) : null}
+
+        {data.current?.nextPoint ? (
+          <NextPointCard
+            summary={data.current}
+            onOpen={() => navigate(`/trips/${data.current!.trip.id}`)}
+            onDone={(p) => completePoint(p, data.current!.trip.id)}
+          />
         ) : null}
 
         <Card
@@ -221,10 +246,9 @@ export function TripCard({ summary, onOpen }: { summary: TripSummary; onOpen: ()
   const settings = useApp((s) => s.settings);
   const wb = waybillRepo.get(summary.trip.waybill_id);
   const cargo = refs.cargoType(summary.trip.cargo_type_id ?? summary.firstLoad?.cargo_type_id ?? null);
-  const statusTone =
-    summary.status === 'charged' ? 'ok' : summary.status === 'done' ? 'info' : 'warn';
-  const statusLabel =
-    summary.status === 'charged' ? 'Начислена' : summary.status === 'done' ? 'Выполнена' : 'В плане';
+  // Значок отражает ход поездки, а деньги — отдельная плашка: «Начислено» или «К начислению».
+  const statusTone = summary.completed ? 'info' : 'warn';
+  const statusLabel = summary.completed ? 'Выполнена' : 'В плане';
 
   return (
     <Card className="clickable" onClick={onOpen}>
@@ -275,7 +299,95 @@ export function TripCard({ summary, onOpen }: { summary: TripSummary; onOpen: ()
         <Badge>{cargo?.name ?? 'Груз не указан'}</Badge>
         <span className="small muted">Вес: {fmtNumber(summary.totalWeight)} кг</span>
         <span style={{ flex: 1 }} />
-        <Badge tone="warn">К начислению · {fmtMoney(summary.amount, settings.currency)}</Badge>
+        <Badge tone={summary.charged ? 'ok' : 'warn'}>
+          {summary.charged ? 'Начислено' : 'К начислению'} · {fmtMoney(summary.amount, settings.currency)}
+        </Badge>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Следующая точка текущей поездки: фирма с логотипом, данные места
+ * (адрес, координаты, контакт, примечания — всё кликабельное) и кнопка «Выполнен».
+ */
+export function NextPointCard({
+  summary,
+  onOpen,
+  onDone,
+}: {
+  summary: TripSummary;
+  onOpen: () => void;
+  onDone: (point: TripPoint) => void;
+}) {
+  const point = summary.nextPoint;
+  if (!point) return null;
+  const place = refs.place(point.place_id);
+  const company = refs.company(place?.company_id ?? null);
+  const left = summary.pointsCount - summary.doneCount;
+
+  return (
+    <Card
+      title="Следующая точка"
+      actions={
+        <Badge tone={point.kind === 'load' ? 'info' : 'err'}>
+          {point.kind === 'load' ? 'Погрузка' : 'Выгрузка'}
+        </Badge>
+      }
+    >
+      <div className="row">
+        <span className="avatar">
+          {company?.logo ? <img src={company.logo} alt="" /> : <Icon name="box" />}
+        </span>
+        <div className="li-main">
+          <div className="li-title">{place?.name ?? 'Место не выбрано'}</div>
+          <div className="li-sub">{company?.name ?? 'Фирма не указана'}</div>
+        </div>
+        <div className="li-side">
+          <span className="small muted">из {left}</span>
+        </div>
+      </div>
+
+      <div className="grid-2">
+        <div className="kv">
+          <div className="kv-label">Плановая дата</div>
+          <div className="kv-value">{fmtDate(point.plan_date)}</div>
+        </div>
+        <div className="kv">
+          <div className="kv-label">Поездка</div>
+          <div className="kv-value small">{summary.title}</div>
+        </div>
+      </div>
+
+      <div className="row wrap">
+        {place?.address ? (
+          <a
+            className="badge badge-info"
+            href={mapLink(place.lat, place.lon, place.address, place.name)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Icon name="nav" size={14} />
+            {place.address}
+          </a>
+        ) : null}
+        {place?.contact ? (
+          <a className="badge badge-ok" href={`tel:${place.contact}`}>
+            <Icon name="phone" size={14} />
+            {place.contact}
+          </a>
+        ) : null}
+        {place?.note ? <span className="small muted">{place.note}</span> : null}
+        {point.note ? <span className="small muted">{point.note}</span> : null}
+      </div>
+
+      <div className="row">
+        <Button variant="success" icon="check" onClick={() => onDone(point)}>
+          Выполнен
+        </Button>
+        <Button icon="route" onClick={onOpen}>
+          Открыть поездку
+        </Button>
       </div>
     </Card>
   );

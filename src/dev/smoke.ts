@@ -239,7 +239,12 @@ async function main() {
   eq('точек в перевозке', summary.pointsCount, 2);
   eq('выполнено точек', summary.doneCount, 2);
   eq('маршрут', summary.title, 'Склад А → Склад Б');
-  eq('вес по точкам', summary.totalWeight, 40000);
+  // Вес указывается у поездки; вес точек суммируется только если у поездки пусто.
+  eq('вес по поездке', summary.totalWeight, 20000);
+  eq('следующая точка', summary.nextPoint, null);
+  repo.updateRow('trips', tripId, { weight: null });
+  eq('вес по точкам как запасной вариант', summarizeTrip(repo.tripRepo.get(tripId)!).totalWeight, 40000);
+  repo.updateRow('trips', tripId, { weight: 20000 });
   check('точки сохранены', Boolean(pointLoad && pointUnload));
 
   console.log('\n4. Заправки и расчёт топлива');
@@ -1108,6 +1113,88 @@ async function main() {
     eq('месяц из полной даты', si.parseMonthValue('2026-11-12'), '2026-11');
     eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
     eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
+  }
+
+  console.log('\n19. Текущая поездка: статусы, порядок и навигация');
+  {
+    const { refreshTripStatus } = await import('../lib/actions');
+    const { sortTrips, summarizeTrip: summarize } = await import('../lib/calc');
+    const { mapLink, addDays } = await import('../lib/format');
+
+    const wb = repo.waybillRepo.list()[0]!;
+
+    function makeTrip(statusValue: 'planned' | 'done' | 'charged', date: string, done: boolean) {
+      const id = repo.insertRow('trips', {
+        waybill_id: wb.id,
+        cargo_type_id: null,
+        weight: 15000,
+        amount: 10500,
+        note: '',
+        status: statusValue,
+      });
+      repo.insertRow('trip_points', {
+        trip_id: id,
+        seq: 1,
+        kind: 'load',
+        place_id: null,
+        plan_date: date,
+        fact_date: done ? date : null,
+        load_type: null,
+        cargo_type_id: null,
+        weight: null,
+        status: done ? 'done' : 'planned',
+        note: '',
+      });
+      return id;
+    }
+
+    const oldDone = makeTrip('done', '2026-01-10', true);
+    const newPlanned = makeTrip('planned', '2026-11-12', false);
+    const charged = makeTrip('charged', '2026-06-05', true);
+    repo.insertRow('finance_ops', {
+      date: '2026-06-05',
+      kind: 'charge',
+      amount: 10500,
+      pay_month: '2026-06',
+      trip_id: charged,
+      waybill_id: wb.id,
+      note: 'Начислено за перевозку',
+      auto: 1,
+    });
+
+    const done = summarize(repo.tripRepo.get(oldDone)!);
+    eq('законченная поездка считается выполненной', done.completed, true);
+    eq('без начисления плашка «начислить»', done.charged, false);
+    eq('у выполненной поездки нет следующей точки', done.nextPoint, null);
+
+    const current = summarize(repo.tripRepo.get(newPlanned)!);
+    eq('текущая поездка не выполнена', current.completed, false);
+    eq('следующая точка найдена', current.nextPoint?.status, 'planned');
+    eq('порядковый номер точки', current.nextPoint?.seq, 1);
+
+    const withCharge = summarize(repo.tripRepo.get(charged)!);
+    eq('начисленная поездка выполнена', withCharge.completed, true);
+    eq('начисление найдено в финансах', withCharge.charged, true);
+
+    const order = sortTrips([
+      summarize(repo.tripRepo.get(oldDone)!),
+      summarize(repo.tripRepo.get(charged)!),
+      summarize(repo.tripRepo.get(newPlanned)!),
+    ]);
+    eq('текущая поездка выше законченных', order[0]?.trip.id, newPlanned);
+    eq('свежая законченная выше старой', order[1]?.trip.id, charged);
+    eq('самая старая внизу', order[2]?.trip.id, oldDone);
+
+    // Точка, отмеченная «Выполнен», закрывает поездку
+    const point = repo.tripRepo.points(newPlanned)[0]!;
+    repo.updateRow('trip_points', point.id, { fact_date: todayIso(), status: 'done' });
+    refreshTripStatus(newPlanned);
+    eq('после всех точек поездка выполнена', repo.tripRepo.get(newPlanned)?.status, 'done');
+    eq('следующей точки больше нет', summarize(repo.tripRepo.get(newPlanned)!).nextPoint, null);
+
+    eq('выгрузка по умолчанию — на день позже', addDays('2026-11-12', 1), '2026-11-13');
+    check('в браузере координаты ведут на Яндекс.Карты', mapLink(55.75, 37.61, 'Склад').includes('yandex.ru'));
+    check('адрес без координат тоже открывает карту', mapLink(null, null, 'Москва, Ленина 1').includes('yandex.ru'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

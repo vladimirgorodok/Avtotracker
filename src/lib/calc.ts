@@ -10,6 +10,8 @@ export interface TripSummary {
   unloads: TripPoint[];
   firstLoad: TripPoint | null;
   lastUnload: TripPoint | null;
+  /** Следующая невыполненная точка маршрута */
+  nextPoint: TripPoint | null;
   dateLoad: string | null;
   dateUnload: string | null;
   placeLoadName: string;
@@ -21,6 +23,12 @@ export interface TripSummary {
   progress: number;
   title: string;
   status: Trip['status'];
+  /** Поездка закончена (выполнена или начислена) */
+  completed: boolean;
+  /** По поездке есть начисление в финансах */
+  charged: boolean;
+  /** Дата для сортировки: загрузка, выгрузка или момент создания */
+  sortKey: string;
 }
 
 export function summarizeTrip(trip: Trip): TripSummary {
@@ -31,11 +39,13 @@ export function summarizeTrip(trip: Trip): TripSummary {
   const lastUnload = unloads[unloads.length - 1] ?? null;
   const placeLoadName = refs.place(firstLoad?.place_id ?? null)?.name ?? '';
   const placeUnloadName = refs.place(lastUnload?.place_id ?? null)?.name ?? '';
-  const totalWeight =
-    points.reduce((s, p) => s + (p.weight ?? 0), 0) || (trip.weight ?? 0);
+  // Вес указывается у самой поездки; вес точек берём в расчёт только как запасной вариант.
+  const totalWeight = trip.weight ?? (points.reduce((s, p) => s + (p.weight ?? 0), 0) || 0);
   const doneCount = points.filter((p) => p.status === 'done').length;
   const dateLoad = firstLoad?.fact_date ?? firstLoad?.plan_date ?? null;
   const dateUnload = lastUnload?.fact_date ?? lastUnload?.plan_date ?? null;
+  const completed = trip.status !== 'planned';
+  const charged = financeRepo.byTrip(trip.id).some((o) => o.kind === 'charge');
 
   return {
     trip,
@@ -44,6 +54,7 @@ export function summarizeTrip(trip: Trip): TripSummary {
     unloads,
     firstLoad,
     lastUnload,
+    nextPoint: points.find((p) => p.status !== 'done') ?? null,
     dateLoad,
     dateUnload,
     placeLoadName,
@@ -55,7 +66,18 @@ export function summarizeTrip(trip: Trip): TripSummary {
     progress: points.length === 0 ? 0 : doneCount / points.length,
     title: `${placeLoadName || '—'} → ${placeUnloadName || '—'}`,
     status: trip.status,
+    completed,
+    charged,
+    sortKey: dateLoad ?? dateUnload ?? (trip.created_at ?? '').slice(0, 10),
   };
+}
+
+/** Порядок перевозок: сначала текущие (незаконченные), затем свежие по дате. */
+export function sortTrips(list: TripSummary[]): TripSummary[] {
+  return [...list].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    return b.sortKey.localeCompare(a.sortKey);
+  });
 }
 
 /** Начисление за перевозку: базовая сумма плюс доплата за точки сверх базовых */

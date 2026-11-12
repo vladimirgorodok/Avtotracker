@@ -132,10 +132,27 @@ export function fmtCoords(lat: number | null, lon: number | null): string {
   return `${lat.toFixed(6)},${lon.toFixed(6)}`;
 }
 
-/** Ссылка на карту для навигатора */
-export function mapLink(lat: number | null, lon: number | null, address?: string): string {
-  if (lat !== null && lon !== null) return `https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`;
-  return `https://yandex.ru/maps/?text=${encodeURIComponent(address ?? '')}`;
+/** Нативная оболочка (Android) — открываем приложения навигации через geo: */
+function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  return Boolean(cap?.isNativePlatform?.());
+}
+
+/**
+ * Ссылка на навигацию по координатам или адресу.
+ * На телефоне открывает приложения навигации (Яндекс, 2ГИС, Google и т. п.),
+ * в браузере — карту Яндекс.Карт.
+ */
+export function mapLink(lat: number | null, lon: number | null, address?: string, label?: string): string {
+  const name = label ? `(${encodeURIComponent(label)})` : '';
+  if (lat !== null && lon !== null) {
+    return isNativeApp()
+      ? `geo:${lat},${lon}?q=${lat},${lon}${name}`
+      : `https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`;
+  }
+  const query = encodeURIComponent(address ?? label ?? '');
+  return isNativeApp() ? `geo:0,0?q=${query}` : `https://yandex.ru/maps/?text=${query}`;
 }
 
 export function plural(n: number, one: string, few: string, many: string): string {

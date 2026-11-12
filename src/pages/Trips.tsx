@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card, Empty, MonthPicker, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { refs, tripRepo, waybillRepo } from '../db/repo';
-import { summarizeTrip } from '../lib/calc';
+import { summarizeTrip, sortTrips } from '../lib/calc';
 import { monthKey, plural } from '../lib/format';
 import { TripCard } from './Home';
 
@@ -18,21 +18,29 @@ export default function Trips() {
 
   const items = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return tripRepo
-      .all()
-      .map(summarizeTrip)
-      .filter((t) => {
-        const wb = waybillRepo.get(t.trip.waybill_id);
-        if (month && monthKey(wb?.date_out ?? t.trip.created_at) !== month) return false;
-        if (tab !== 'all' && t.status !== tab) return false;
-        if (!needle) return true;
-        const cargo = refs.cargoType(t.trip.cargo_type_id)?.name ?? '';
-        return (
-          t.title.toLowerCase().includes(needle) ||
-          cargo.toLowerCase().includes(needle) ||
-          t.points.some((p) => (refs.place(p.place_id)?.name ?? '').toLowerCase().includes(needle))
-        );
-      });
+    const matchesTab = (t: ReturnType<typeof summarizeTrip>) => {
+      if (tab === 'all') return true;
+      if (tab === 'planned') return !t.completed;
+      if (tab === 'done') return t.completed;
+      return t.charged;
+    };
+    return sortTrips(
+      tripRepo
+        .all()
+        .map(summarizeTrip)
+        .filter((t) => {
+          const wb = waybillRepo.get(t.trip.waybill_id);
+          if (month && monthKey(wb?.date_out ?? t.trip.created_at) !== month) return false;
+          if (!matchesTab(t)) return false;
+          if (!needle) return true;
+          const cargo = refs.cargoType(t.trip.cargo_type_id)?.name ?? '';
+          return (
+            t.title.toLowerCase().includes(needle) ||
+            cargo.toLowerCase().includes(needle) ||
+            t.points.some((p) => (refs.place(p.place_id)?.name ?? '').toLowerCase().includes(needle))
+          );
+        }),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, month, search, tab]);
 

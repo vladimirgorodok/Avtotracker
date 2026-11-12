@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Фон адаптивного значка: тот же тёмно-синий градиент, что и в assets/icon.svg -->
+<!-- Фон адаптивного значка: тот же тёмный фон, что и вокруг плитки в assets/logo-source.png -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="290"
-        android:startColor="#16456B"
-        android:centerColor="#0B2540"
-        android:endColor="#04101E"
+        android:startColor="#0B2540"
+        android:centerColor="#061420"
+        android:endColor="#01070C"
         android:type="linear" />
 </shape>
