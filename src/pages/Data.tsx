@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Confirm, Icon, KV, MonthPicker, Page } from '../ui/components';
 import { useApp } from '../store';
@@ -26,7 +26,8 @@ export default function DataPage() {
   const [overwrite, setOverwrite] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
-  const stats = dbStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stats = useMemo(() => dbStats(), [revision]);
 
   async function run(name: string, fn: () => Promise<void>) {
     setBusy(name);

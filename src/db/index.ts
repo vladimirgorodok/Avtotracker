@@ -18,6 +18,7 @@ export class Db {
   private persister: Persister;
   private saving = false;
   private dirty = false;
+  private inTx = false;
 
   private constructor(db: Database, persister: Persister) {
     this.db = db;
@@ -100,14 +101,17 @@ export class Db {
   /** Пакет изменений одной транзакцией */
   tx(fn: () => void): void {
     this.db.run('BEGIN');
+    this.inTx = true;
     try {
       fn();
       this.db.run('COMMIT');
-      this.touch();
     } catch (e) {
       this.db.run('ROLLBACK');
       throw e;
+    } finally {
+      this.inTx = false;
     }
+    this.touch();
   }
 
   export(): Uint8Array {
@@ -116,6 +120,8 @@ export class Db {
 
   private touch() {
     this.dirty = true;
+    // во время транзакции базу на диск не пишем: дождёмся коммита
+    if (this.inTx) return;
     if (persistTimer) clearTimeout(persistTimer);
     persistTimer = setTimeout(() => {
       void this.flush().catch((e) => console.error('Не удалось сохранить базу', e));

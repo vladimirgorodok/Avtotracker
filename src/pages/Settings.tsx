@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
 import { applyTheme, useApp } from '../store';
@@ -12,7 +13,8 @@ export default function SettingsPage() {
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
   const revision = useApp((s) => s.revision);
-  const stats = dbStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stats = useMemo(() => dbStats(), [revision]);
 
   return (
     <Page title="Настройки" onBack={() => navigate('/more')}>
