@@ -37,6 +37,31 @@ export class SupabaseError extends Error {
   }
 }
 
+/**
+ * Что не так с адресом проекта. Пустая строка — адрес выглядит правдоподобно.
+ * Частая ошибка — вставить адрес сайта supabase.com вместо адреса своего проекта.
+ */
+export function urlProblem(url: string): string {
+  const value = url.trim();
+  if (!value) return '';
+  if (!/^https?:\/\//i.test(value)) return 'Адрес должен начинаться с https://';
+  const host = value.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+  if (host === 'supabase.com' || host === 'www.supabase.com' || host === 'app.supabase.com') {
+    return 'Это адрес сайта Supabase, а не вашего проекта. Нужен адрес вида https://xxxx.supabase.co — его видно в проекте: Settings → API.';
+  }
+  if (!/\.supabase\.(co|in)$/.test(host)) {
+    return 'Адрес проекта обычно выглядит так: https://xxxx.supabase.co';
+  }
+  return '';
+}
+
+/** Понятное объяснение вместо «Failed to fetch» */
+function networkHint(url: string): string {
+  const problem = urlProblem(url);
+  if (problem) return problem;
+  return `Не удалось связаться с ${url}: нет интернета или адрес проекта указан неверно.`;
+}
+
 async function request(
   path: string,
   options: { method?: string; body?: unknown; headers?: Record<string, string>; token?: string | null; raw?: boolean } = {},
@@ -45,16 +70,21 @@ async function request(
   if (!cfg) throw new SupabaseError('Не указаны адрес и ключ проекта Supabase');
   const token = options.token ?? useApp.getState().settings.supabase_access_token;
 
-  const res = await fetch(`${cfg.url}${path}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      apikey: cfg.key,
-      Authorization: `Bearer ${token || cfg.key}`,
-      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers ?? {}),
-    },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.url}${path}`, {
+      method: options.method ?? 'GET',
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${token || cfg.key}`,
+        ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers ?? {}),
+      },
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    throw new SupabaseError(networkHint(cfg.url), 0);
+  }
 
   if (!res.ok) {
     let detail = `${res.status}`;

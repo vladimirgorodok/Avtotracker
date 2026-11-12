@@ -305,12 +305,30 @@ export function bestField(table: TableName, column: string): { field: FieldDef; 
   return best && best.score >= 0.5 ? best : null;
 }
 
-/** Доля колонок, которым нашлось поле в таблице */
+/**
+ * Насколько колонка характерна именно для этой таблицы.
+ * «Дата», «Название», «Тип» есть почти везде — такие колонки почти не считаем,
+ * иначе перевозки легко принять за автомобили.
+ */
+function columnScore(table: TableName, column: string): number {
+  const mine = bestField(table, column)?.score ?? 0;
+  if (mine === 0) return 0;
+  let other = 0;
+  for (const t of TABLES) {
+    if (t === table) continue;
+    other = Math.max(other, bestField(t, column)?.score ?? 0);
+  }
+  if (mine > other + 0.001) return mine;
+  if (mine >= other - 0.001) return mine * 0.5;
+  return 0;
+}
+
+/** Доля «своих» колонок у таблицы */
 export function columnFit(table: TableName, columns: string[]): number {
   if (columns.length === 0) return 0;
-  let hit = 0;
-  for (const c of columns) if (bestField(table, c)) hit++;
-  return hit / columns.length;
+  let sum = 0;
+  for (const c of columns) sum += columnScore(table, c);
+  return sum / columns.length;
 }
 
 export interface TableGuess {
@@ -326,21 +344,26 @@ export function detectTable(sheet: ArchiveSheet): TableGuess {
     const score = Math.max(0, ...TABLE_HINTS[table].map((h) => scoreHint(name, h)));
     if (score > 0 && (!byName || score > byName.score)) byName = { table, score };
   }
-  let byCols: { table: TableName; score: number } | null = null;
-  for (const table of TABLES) {
-    const score = columnFit(table, sheet.columns);
-    if (!byCols || score > byCols.score) byCols = { table, score };
-  }
 
-  const nameScore = byName?.score ?? 0;
-  const colScore = byCols?.score ?? 0;
-  const table = nameScore >= 0.7 ? byName!.table : colScore >= 0.5 ? byCols!.table : null;
-  if (!table) return { table: null, via: 'колонки', confidence: 0 };
-  const confidence =
-    nameScore >= 0.7 && byName!.table === table
-      ? Math.min(1, nameScore * 0.6 + colScore * 0.4)
-      : colScore;
-  return { table, via: nameScore >= 0.7 && byName!.table === table ? 'имя' : 'колонки', confidence };
+  const ranked = TABLES.map((table) => ({ table, score: columnFit(table, sheet.columns) })).sort(
+    (a, b) => b.score - a.score,
+  );
+  const top = ranked[0] ?? { table: null as unknown as TableName, score: 0 };
+  const runnerUp = ranked[1]?.score ?? 0;
+
+  // Имя файла надёжнее колонок
+  if (byName && byName.score >= 0.7) {
+    return {
+      table: byName.table,
+      via: 'имя',
+      confidence: Math.min(1, byName.score * 0.7 + top.score * 0.3),
+    };
+  }
+  // По колонкам — только если таблица явно впереди остальных
+  if (top.score >= 0.5 && (top.score >= 0.8 || top.score - runnerUp >= 0.15)) {
+    return { table: top.table, via: 'колонки', confidence: Math.min(1, top.score) };
+  }
+  return { table: null, via: 'колонки', confidence: 0 };
 }
 
 /* ------------------------------------------------------------------ */
@@ -610,6 +633,8 @@ export interface ApplyResult {
   inserted: Record<string, number>;
   /** Сколько справочных записей создано */
   created: Record<string, number>;
+  /** Идентификаторы добавленных записей — чтобы перенос можно было отменить */
+  ids: Record<string, string[]>;
   skipped: number;
   total: number;
   message: string;
@@ -712,6 +737,8 @@ export function parseMonthValue(raw: string): string {
 class RefBook {
   private maps = new Map<string, Map<string, string>>();
   readonly created: Record<string, number> = {};
+  /** Идентификаторы созданных справочных записей */
+  readonly createdIds: Record<string, string[]> = {};
 
   constructor() {
     for (const table of ['places', 'companies', 'cargo_types', 'fuel_stations', 'vehicles', 'waybills'] as const) {
@@ -726,6 +753,7 @@ class RefBook {
       }
       this.maps.set(table, map);
       this.created[table] = 0;
+      this.createdIds[table] = [];
     }
   }
 
@@ -748,6 +776,7 @@ class RefBook {
     const id = insertRow(table, { name: name.trim(), ...extra });
     this.remember(table, key, id);
     this.created[table] += 1;
+    this.createdIds[table].push(id);
     return id;
   }
 
@@ -770,6 +799,7 @@ class RefBook {
     });
     if (key) this.remember('waybills', key, id);
     this.created.waybills += 1;
+    this.createdIds.waybills.push(id);
     return id;
   }
 }
@@ -824,6 +854,10 @@ function stringify(row: Record<string, unknown>): Record<string, string> {
 export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult {
   const books = new RefBook();
   const inserted: Record<string, number> = {};
+  const ids: Record<string, string[]> = {};
+  const track = (table: string, id: string) => {
+    (ids[table] ??= []).push(id);
+  };
   const skipped: number[] = [];
   let total = 0;
 
@@ -839,26 +873,26 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
         total++;
         switch (table) {
           case 'trips':
-            insertTrip(row, virtuals, books);
+            insertTrip(row, virtuals, books, track);
             break;
           case 'refuelings': {
             const station = virtuals.get('station_name');
             if (station) row.station_id = books.ref('fuel_stations', station);
             const number = virtuals.get('waybill_number');
             if (number) row.waybill_id = books.waybill(number, '');
-            insertRow(table, row);
+            track(table, insertRow(table, row));
             break;
           }
           case 'places': {
             const company = virtuals.get('company_name');
             if (company) row.company_id = books.ref('companies', company);
-            insertRow(table, row);
+            track(table, insertRow(table, row));
             break;
           }
           case 'waybills': {
             const vehicle = virtuals.get('vehicle_name');
             if (vehicle) row.vehicle_id = books.ref('vehicles', vehicle);
-            insertRow(table, row);
+            track(table, insertRow(table, row));
             break;
           }
           case 'trip_points': {
@@ -866,13 +900,13 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
             if (place) row.place_id = books.ref('places', place);
             const cargo = virtuals.get('cargo_name');
             if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
-            insertRow(table, row);
+            track(table, insertRow(table, row));
             break;
           }
           default: {
             const cargo = virtuals.get('cargo_name');
             if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
-            insertRow(table, row);
+            track(table, insertRow(table, row));
           }
         }
         inserted[table] = (inserted[table] ?? 0) + 1;
@@ -888,22 +922,35 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
   if (refs.length > 0) parts.push(refs.map(([t, n]) => `${TABLE_TITLES[t as TableName] ?? t} +${n}`).join(', '));
   if (skipped.length > 0) parts.push(`пропущено строк: ${skipped.length}`);
 
-  return { inserted, created: books.created, skipped: skipped.length, total, message: parts.join(' · ') };
+  // Записи, созданные справочником, тоже должны отменяться
+  for (const [table, created] of Object.entries(books.createdIds)) {
+    if (created.length === 0) continue;
+    const list = (ids[table] ??= []);
+    for (const id of created) if (!list.includes(id)) list.push(id);
+  }
+
+  return { inserted, created: books.created, ids, skipped: skipped.length, total, message: parts.join(' · ') };
 }
 
 /** Перевозка: заводим лист и точки загрузки/выгрузки по названиям */
-function insertTrip(row: Record<string, unknown>, virtuals: Map<string, string>, books: RefBook): void {
+function insertTrip(
+  row: Record<string, unknown>,
+  virtuals: Map<string, string>,
+  books: RefBook,
+  track: (table: string, id: string) => void,
+): void {
   const date = virtuals.get('date') ?? '';
   const cargo = virtuals.get('cargo_name');
   if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
   row.waybill_id = books.waybill(virtuals.get('waybill_number') ?? '', date ? parseDateValue(date) : '');
   const tripId = insertRow('trips', row);
+  track('trips', tripId);
 
   const from = virtuals.get('place_from');
   const to = virtuals.get('place_to');
   const day = date ? parseDateValue(date) : '';
   if (from) {
-    insertRow('trip_points', {
+    track('trip_points', insertRow('trip_points', {
       trip_id: tripId,
       seq: 1,
       kind: 'load',
@@ -911,10 +958,10 @@ function insertTrip(row: Record<string, unknown>, virtuals: Map<string, string>,
       plan_date: day,
       fact_date: day,
       status: 'done',
-    });
+    }));
   }
   if (to) {
-    insertRow('trip_points', {
+    track('trip_points', insertRow('trip_points', {
       trip_id: tripId,
       seq: from ? 2 : 1,
       kind: 'unload',
@@ -922,7 +969,7 @@ function insertTrip(row: Record<string, unknown>, virtuals: Map<string, string>,
       plan_date: day,
       fact_date: day,
       status: 'done',
-    });
+    }));
   }
 }
 

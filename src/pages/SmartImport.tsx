@@ -5,10 +5,11 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Button, Card, Icon, Page } from '../ui/components';
+import { Badge, Button, Card, Confirm, Icon, Page } from '../ui/components';
 import { useApp } from '../store';
 import { fileToBytes, pickFile } from '../db/storage';
 import { getDb } from '../db';
+import { deleteMeta, getMeta, putMeta, softDeleteMany } from '../db/repo';
 import { isAiReady } from '../lib/ai';
 import {
   applyPlan,
@@ -20,6 +21,31 @@ import {
   type ImportPlan,
 } from '../lib/smart-import';
 
+const JOURNAL_KEY = 'import_journal';
+
+interface Journal {
+  at: string;
+  fileName: string;
+  ids: Record<string, string[]>;
+  counts: Record<string, number>;
+}
+
+function loadJournal(): Journal | null {
+  try {
+    const raw = getMeta(JOURNAL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Journal;
+    const hasIds = Object.values(parsed.ids ?? {}).some((list) => list.length > 0);
+    return hasIds ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function journalTotal(journal: Journal): number {
+  return Object.values(journal.ids).reduce((acc, list) => acc + list.length, 0);
+}
+
 export default function SmartImport() {
   const navigate = useNavigate();
   const touch = useApp((s) => s.touch);
@@ -29,6 +55,8 @@ export default function SmartImport() {
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [busy, setBusy] = useState('');
+  const [journal, setJournal] = useState<Journal | null>(() => loadJournal());
+  const [confirmUndo, setConfirmUndo] = useState(false);
   const aiReady = isAiReady();
 
   async function choose() {
@@ -77,12 +105,51 @@ export default function SmartImport() {
       const res = applyPlan(sheets, plan);
       await getDb().then((db) => db.flush());
       setResult(res);
+      const entry: Journal = {
+        at: new Date().toISOString(),
+        fileName: fileName || 'архив',
+        ids: res.ids,
+        counts: res.inserted,
+      };
+      try {
+        putMeta(JOURNAL_KEY, JSON.stringify(entry));
+        void getDb().then((db) => db.flush());
+        setJournal(entry);
+      } catch {
+        // журнал не критичен для переноса
+      }
       touch();
       notify(res.message, res.total > 0 ? 'ok' : 'info');
     } catch (e) {
       notify(e instanceof Error ? e.message : 'Ошибка переноса', 'err');
     } finally {
       setBusy('');
+    }
+  }
+
+  /** Откат последнего переноса: помечаем добавленные записи удалёнными */
+  async function undo() {
+    if (!journal) return;
+    setBusy('undo');
+    try {
+      let removed = 0;
+      for (const [table, list] of Object.entries(journal.ids)) {
+        if (list.length === 0) continue;
+        removed += softDeleteMany(table, list);
+      }
+      deleteMeta(JOURNAL_KEY);
+      await getDb().then((db) => db.flush());
+      setJournal(null);
+      setResult(null);
+      setPlan(null);
+      setSheets([]);
+      touch();
+      notify(`Отменено записей: ${removed}`, 'ok');
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Не удалось отменить перенос', 'err');
+    } finally {
+      setBusy('');
+      setConfirmUndo(false);
     }
   }
 
@@ -195,6 +262,42 @@ export default function SmartImport() {
           </Button>
         </Card>
       ) : null}
+
+      {journal ? (
+        <Card title="Последний перенос" actions={<Icon name="undo" />}>
+          <div className="small muted">
+            {journal.fileName} · {new Date(journal.at).toLocaleString('ru-RU')} · записей{' '}
+            {journalTotal(journal)}
+          </div>
+          {Object.entries(journal.counts).map(([table, count]) => (
+            <div key={table} className="small muted">
+              {table}: {count}
+            </div>
+          ))}
+          <div className="divider" />
+          <Button
+            variant="danger"
+            block
+            icon="trash"
+            disabled={busy !== ''}
+            onClick={() => setConfirmUndo(true)}
+          >
+            Отменить перенос
+          </Button>
+          <div className="small muted">
+            Отмена уберёт именно записи этого переноса — остальные данные не пострадают.
+          </div>
+        </Card>
+      ) : null}
+
+      <Confirm
+        open={confirmUndo}
+        title="Отменить перенос?"
+        text="Все записи, добавленные последним переносом (включая созданные справочники), будут удалены."
+        confirmLabel="Отменить"
+        onCancel={() => setConfirmUndo(false)}
+        onConfirm={() => void undo()}
+      />
     </Page>
   );
 }

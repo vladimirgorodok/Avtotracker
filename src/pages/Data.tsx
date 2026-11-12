@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Confirm, Icon, KV, MonthPicker, Page } from '../ui/components';
+import { Button, Card, Confirm, Icon, IconButton, KV, MonthPicker, Page } from '../ui/components';
 import { useApp } from '../store';
-import { countRows, dbStats } from '../db/repo';
+import { clearTable, countRows, dbStats } from '../db/repo';
 import { fileToBytes, fileToText, pickFile } from '../db/storage';
 import {
   exportCsvZip,
@@ -11,10 +11,26 @@ import {
   exportXlsx,
   importCsvZip,
   importJson,
+  TABLE_TITLES,
 } from '../lib/backup';
 import { monthKey } from '../lib/format';
 import { documentSummary } from '../lib/documents';
 import { getDb } from '../db';
+import type { TableName } from '../types';
+
+/** Таблицы, которые можно чистить по отдельности (документы хранятся отдельно) */
+const CLEARABLE: TableName[] = [
+  'vehicles',
+  'places',
+  'companies',
+  'cargo_types',
+  'fuel_stations',
+  'waybills',
+  'trips',
+  'trip_points',
+  'refuelings',
+  'finance_ops',
+];
 
 export default function DataPage() {
   const navigate = useNavigate();
@@ -26,11 +42,17 @@ export default function DataPage() {
   const [busy, setBusy] = useState('');
   const [overwrite, setOverwrite] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
+  const [clearWhat, setClearWhat] = useState<TableName | null>(null);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stats = useMemo(() => dbStats(), [revision]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const docs = useMemo(() => documentSummary(), [revision]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const counts = useMemo(
+    () => Object.fromEntries(CLEARABLE.map((t) => [t, countRows(t)])) as Record<TableName, number>,
+    [revision],
+  );
 
   async function run(name: string, fn: () => Promise<void>) {
     setBusy(name);
@@ -146,6 +168,27 @@ export default function DataPage() {
         </label>
       </Card>
 
+      <Card title="Записи по таблицам" actions={<Icon name="doc" />}>
+        <div className="small muted">
+          Если перенос ушёл не в те таблицы, лишнее можно убрать по отдельности — остальные данные
+          останутся на месте.
+        </div>
+        {CLEARABLE.map((t) => (
+          <div key={t} className="list-item">
+            <span className="li-main">
+              <span className="li-title">{TABLE_TITLES[t]}</span>
+              <span className="li-sub">{counts[t]} записей</span>
+            </span>
+            <IconButton
+              icon="trash"
+              title={`Очистить: ${TABLE_TITLES[t]}`}
+              disabled={busy !== '' || counts[t] === 0}
+              onClick={() => setClearWhat(t)}
+            />
+          </div>
+        ))}
+      </Card>
+
       <Card title="Опасная зона" actions={<Icon name="warning" />}>
         <div className="small muted">
           Полная очистка удалит все данные на этом устройстве. Перед очисткой сделайте резервную копию.
@@ -154,6 +197,27 @@ export default function DataPage() {
           Очистить все данные
         </Button>
       </Card>
+
+      <Confirm
+        open={clearWhat !== null}
+        title="Очистить таблицу"
+        text={
+          clearWhat
+            ? `Все записи из таблицы «${TABLE_TITLES[clearWhat]}» (${counts[clearWhat]}) будут удалены. Связанные записи в других таблицах останутся и могут отображаться без ссылок.`
+            : ''
+        }
+        confirmLabel="Очистить"
+        onCancel={() => setClearWhat(null)}
+        onConfirm={() => {
+          const table = clearWhat;
+          if (!table) return;
+          clearTable(table);
+          void getDb().then((d) => d.flush());
+          setClearWhat(null);
+          touch();
+          notify(`Таблица «${TABLE_TITLES[table]}» очищена`, 'info');
+        }}
+      />
 
       <Confirm
         open={confirmWipe}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
 import { applyTheme, useApp } from '../store';
 import { dbStats } from '../db/repo';
+import { urlProblem } from '../lib/supabase';
 import { SyncPanel } from '../ui/SyncPanel';
 import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
@@ -107,6 +108,12 @@ export default function SettingsPage() {
             placeholder="https://xxxx.supabase.co"
           />
         </Field>
+        {urlProblem(settings.supabase_url) ? (
+          <div className="alert alert-warn">
+            <Icon name="warning" />
+            <span>{urlProblem(settings.supabase_url)}</span>
+          </div>
+        ) : null}
         <Field label="Ключ (anon)">
           <TextInput
             type="password"

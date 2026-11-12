@@ -40,7 +40,48 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   return `\uFEFF${head}\n${body}\n`;
 }
 
-export function parseCsv(text: string): Record<string, string>[] {
+/** Считаем разделители в строке, не заглядывая внутрь кавычек */
+function countDelimiters(line: string, delim: string): number {
+  let n = 0;
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (ch === delim && !inQuotes) n++;
+  }
+  return n;
+}
+
+/**
+ * Подобрать разделитель CSV. Свои выгрузки идут через «;», но чужой архив
+ * часто с запятыми или табуляцией — иначе вся строка станет одной колонкой.
+ */
+export function sniffDelimiter(text: string): string {
+  const sample = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .slice(0, 20);
+  if (sample.length === 0) return ';';
+  let best = ';';
+  let bestScore = 0;
+  for (const delim of [';', '\t', ',', '|']) {
+    const counts = sample.map((l) => countDelimiters(l, delim));
+    const first = counts[0];
+    if (first === 0) continue;
+    const stable = counts.filter((c) => c === first).length / counts.length;
+    const score = first * (0.5 + stable);
+    if (score > bestScore) {
+      bestScore = score;
+      best = delim;
+    }
+  }
+  return best;
+}
+
+/** Разобрать CSV. Разделитель определяется по самому тексту, если не задан явно. */
+export function parseCsv(text: string, delim?: string): Record<string, string>[] {
+  const separator = delim ?? sniffDelimiter(text);
   const clean = text.replace(/^\uFEFF/, '');
   const lines: string[][] = [];
   let row: string[] = [];
@@ -56,7 +97,7 @@ export function parseCsv(text: string): Record<string, string>[] {
         } else inQuotes = false;
       } else field += ch;
     } else if (ch === '"') inQuotes = true;
-    else if (ch === ';') {
+    else if (ch === separator) {
       row.push(field);
       field = '';
     } else if (ch === '\n') {
@@ -71,7 +112,14 @@ export function parseCsv(text: string): Record<string, string>[] {
     lines.push(row);
   }
   if (lines.length === 0) return [];
-  const header = lines[0];
+  // Одинаковые заголовки не должны затирать друг друга
+  const seen = new Map<string, number>();
+  const header = lines[0].map((h) => {
+    const name = h === '' ? 'Колонка' : h;
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    return n === 1 ? name : `${name} ${n}`;
+  });
   return lines
     .slice(1)
     .filter((l) => l.some((x) => x !== ''))

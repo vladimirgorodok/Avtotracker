@@ -72,6 +72,19 @@ export function monthOptions(fromYear = 2020, toYear?: number): string[] {
   return out;
 }
 
+/**
+ * Месяцы для фильтра: только те, где есть данные, плюс текущий и выбранный.
+ * Пустые месяцы прошлых лет в списке не нужны.
+ */
+export function monthChoices(withData: string[] = [], selected = ''): string[] {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const set = new Set(withData.filter((m) => /^\d{4}-\d{2}$/.test(m)));
+  set.add(cur);
+  if (/^\d{4}-\d{2}$/.test(selected)) set.add(selected);
+  return [...set].sort((a, b) => b.localeCompare(a));
+}
+
 export function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`);
   d.setDate(d.getDate() + days);

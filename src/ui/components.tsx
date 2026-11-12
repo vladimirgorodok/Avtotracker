@@ -1,8 +1,18 @@
 /** Общие элементы интерфейса. */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { monthLabel, monthOptions } from '../lib/format';
+import { monthChoices, monthLabel } from '../lib/format';
+import { usedMonths } from '../db/repo';
 import { useApp } from '../store';
+
+/** Месяцы с данными; база может быть ещё не готова */
+function safeUsedMonths(): string[] {
+  try {
+    return usedMonths();
+  } catch {
+    return [];
+  }
+}
 
 export function Page({
   title,
@@ -320,7 +330,8 @@ export function SearchBar({ value, onChange }: { value: string; onChange: (v: st
 }
 
 export function MonthPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const options = useMemo(() => monthOptions(), []);
+  // Список строится по данным базы: пустые годы и месяцы не показываем
+  const options = useMemo(() => monthChoices(safeUsedMonths(), value), [value]);
   return (
     <div className="month-picker">
       <select className="input select" value={value} onChange={(e) => onChange(e.target.value)}>
@@ -451,7 +462,8 @@ export type IconName =
   | 'settings'
   | 'copy'
   | 'send'
-  | 'clock';
+  | 'clock'
+  | 'undo';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   back: <path d="M15 5l-7 7 7 7" />,
@@ -484,6 +496,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   copy: <path d="M9 9h11v11H9zM5 15V3h11" />,
   send: <path d="M4 12l16-8-6 16-2-6z" />,
   clock: <path d="M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2" />,
+  undo: <path d="M4 10h11a5 5 0 010 10h-4M4 10l4-4M4 10l4 4" />,
 };
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {

@@ -842,6 +842,61 @@ async function main() {
     } finally {
       (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
     }
+
+    // Чужой архив с запятыми: разделитель подбирается по самому файлу,
+    // иначе вся строка становится одной колонкой и всё уезжает в «Автомобили»
+    const commaSheets = await si.readArchive(
+      new TextEncoder().encode(
+        'Дата,Машина,Откуда,Куда,Вес,Сумма\n05.11.2026,Volvo FH,Склад А,Склад Б,18500,42000',
+      ),
+      'Лист1.csv',
+    );
+    eq(
+      'запятая как разделитель разобрана',
+      commaSheets[0].columns.join('|'),
+      'Дата|Машина|Откуда|Куда|Вес|Сумма',
+    );
+    eq('перевозки не ушли в автомобили', si.buildPlan(commaSheets).sheets[0].table, 'trips');
+
+    // Строка без разделителей: одна колонка со всеми словами — таблица не угадана
+    const oneCol = await si.readArchive(
+      new TextEncoder().encode(
+        'Дата Машина Откуда Куда Вес Сумма\n05.11.2026 Volvo Склад А Склад Б 18500 42000',
+      ),
+      'данные.csv',
+    );
+    eq('одна колонка не свалилась в автомобили', si.buildPlan(oneCol).sheets[0].table, null);
+
+    // Перенос можно отменить: журнал помнит добавленные записи
+    const undoBefore = repo.countRows('places');
+    const undoSheets = await si.readArchive(
+      new TextEncoder().encode('Дата;Место;Вес\n05.11.2026;Карьер Юг;18000'),
+      'Места.csv',
+    );
+    const undoRes = si.applyPlan(undoSheets, si.buildPlan(undoSheets));
+    eq('перенос отдал список записей', undoRes.ids.places?.length, 1);
+    check('журнал запомнил место', repo.countRows('places') === undoBefore + 1);
+    eq('отмена убрала запись', repo.softDeleteMany('places', undoRes.ids.places ?? []), 1);
+    eq('после отмены записей столько же', repo.countRows('places'), undoBefore);
+
+    // Фильтр по месяцам показывает только месяцы с данными
+    const { monthChoices } = await import('../lib/format');
+    const choices = monthChoices(['2026-03', '2024-01'], '2019-07');
+    check('месяц с данными в списке', choices.includes('2026-03'));
+    check('пустые месяцы не показаны', !choices.includes('2022-05'));
+    check('выбранный месяц сохранён', choices.includes('2019-07'));
+    check('месяцы идут по убыванию', choices.join('|') === [...choices].sort((a, b) => b.localeCompare(a)).join('|'));
+    eq('пустой список — только текущий месяц', monthChoices().length, 1);
+
+    // Понятная подсказка вместо «Failed to fetch»
+    const { urlProblem } = await import('../lib/supabase');
+    check('адрес сайта распознан как ошибка', urlProblem('https://supabase.com').includes('сайта Supabase'));
+    eq('правильный адрес без замечаний', urlProblem('https://abcd1234.supabase.co'), '');
+    check('адрес без схемы распознан', urlProblem('abcd1234.supabase.co').includes('https://'));
+    eq('пустой адрес без замечаний', urlProblem('   '), '');
+    const months = repo.usedMonths();
+    check('месяцы с данными найдены', months.length > 0);
+    check('формат месяцев верный', months.every((m) => /^\d{4}-\d{2}$/.test(m)));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

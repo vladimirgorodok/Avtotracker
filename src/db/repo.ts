@@ -109,6 +109,22 @@ export function countRows(table: string, where = '1=1', params: (string | number
   return row ? Number(row.n) : 0;
 }
 
+/** Месяцы (ГГГГ-ММ), в которых есть данные — для фильтров по периоду */
+export function usedMonths(): string[] {
+  const rows = dbSync().all<{ m: string }>(
+    `SELECT substr(date_out, 1, 7) AS m FROM waybills WHERE deleted = 0 AND length(date_out) >= 7
+     UNION SELECT substr(date_in, 1, 7) FROM waybills WHERE deleted = 0 AND length(date_in) >= 7
+     UNION SELECT substr(plan_date, 1, 7) FROM trip_points WHERE deleted = 0 AND length(plan_date) >= 7
+     UNION SELECT substr(fact_date, 1, 7) FROM trip_points WHERE deleted = 0 AND length(fact_date) >= 7
+     UNION SELECT substr(date, 1, 7) FROM refuelings WHERE deleted = 0 AND length(date) >= 7
+     UNION SELECT substr(date, 1, 7) FROM finance_ops WHERE deleted = 0 AND length(date) >= 7`,
+  );
+  return rows
+    .map((r) => r.m)
+    .filter((m) => /^\d{4}-\d{2}$/.test(m))
+    .sort((a, b) => b.localeCompare(a));
+}
+
 /** Сводка о базе для экрана обмена данными */
 export function dbStats(): { total: number; schemaVersion: number; storage: string; sizeBytes: number } {
   const db = dbSync();
@@ -166,6 +182,47 @@ export function setSetting(key: keyof AppSettings, value: string | number): void
 
 export function allSettings(): SettingRow[] {
   return dbSync().all<SettingRow>('SELECT * FROM settings WHERE deleted = 0');
+}
+
+/** Служебное значение в настройках (журнал переноса и т. п.), не входит в AppSettings */
+export function putMeta(key: string, value: string): void {
+  const ts = nowIso();
+  dbSync().run(
+    `INSERT INTO settings (key, value, created_at, updated_at, deleted) VALUES (?, ?, ?, ?, 0)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, deleted = 0`,
+    [key, value, ts, ts],
+  );
+}
+
+export function getMeta(key: string): string | null {
+  const row = dbSync().one<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ? AND deleted = 0',
+    [key],
+  );
+  return row ? row.value : null;
+}
+
+export function deleteMeta(key: string): void {
+  dbSync().run(`UPDATE settings SET deleted = 1, updated_at = ? WHERE key = ?`, [nowIso(), key]);
+}
+
+/** Удалить пачку записей по списку идентификаторов (мягкое удаление) */
+export function softDeleteMany(table: string, ids: Id[]): number {
+  let n = 0;
+  const ts = nowIso();
+  const db = dbSync();
+  db.tx(() => {
+    for (const id of ids) {
+      db.run(`UPDATE ${table} SET deleted = 1, updated_at = ? WHERE id = ? AND deleted = 0`, [ts, id]);
+      n++;
+    }
+  });
+  return n;
+}
+
+/** Очистить таблицу целиком */
+export function clearTable(table: string): void {
+  softDeleteWhere(table, '1=1');
 }
 
 /* ---------- Типизированные выборки ---------- */
