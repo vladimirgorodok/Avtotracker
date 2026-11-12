@@ -46,6 +46,16 @@ function journalTotal(journal: Journal): number {
   return Object.values(journal.ids).reduce((acc, list) => acc + list.length, 0);
 }
 
+/** Сколько строк уйдёт в каждую таблицу — по убыванию */
+export function summarizePlan(plan: ImportPlan): [string, number][] {
+  const byTable = new Map<string, number>();
+  for (const sheet of plan.sheets) {
+    if (!sheet.table) continue;
+    byTable.set(sheet.tableTitle, (byTable.get(sheet.tableTitle) ?? 0) + sheet.rows);
+  }
+  return [...byTable.entries()].sort((a, b) => b[1] - a[1]);
+}
+
 export default function SmartImport() {
   const navigate = useNavigate();
   const touch = useApp((s) => s.touch);
@@ -201,6 +211,14 @@ export default function SmartImport() {
           </Card>
 
           <Card title="Шаг 3. Что перенесём" actions={<Icon name="route" />}>
+            {ready ? (
+              <div className="small">
+                <b>Итого по таблицам:</b>{' '}
+                {summarizePlan(plan)
+                  .map(([title, n]) => `${title} — ${n} строк`)
+                  .join(', ')}
+              </div>
+            ) : null}
             {plan.sheets
               .filter((s) => s.table)
               .map((sheet) => (

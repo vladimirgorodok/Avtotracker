@@ -857,6 +857,9 @@ async function main() {
       'Дата|Машина|Откуда|Куда|Вес|Сумма',
     );
     eq('перевозки не ушли в автомобили', si.buildPlan(commaSheets).sheets[0].table, 'trips');
+    const { summarizePlan } = await import('../pages/SmartImport');
+    const summary = summarizePlan(si.buildPlan(commaSheets));
+    eq('итог по таблицам посчитан', `${summary[0][0]}:${summary[0][1]}`, 'Перевозки:1');
 
     // Строка без разделителей: одна колонка со всеми словами — таблица не угадана
     const oneCol = await si.readArchive(
