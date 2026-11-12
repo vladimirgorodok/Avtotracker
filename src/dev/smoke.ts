@@ -114,7 +114,7 @@ function eq(name: string, actual: unknown, expected: unknown): void {
 }
 
 async function main() {
-  const { getDb } = await import('../db');
+  const { getDb, dbSync } = await import('../db');
   const repo = await import('../db/repo');
   const { seedIfEmpty } = await import('../db/seed');
   const { summarizeWaybill, summarizeTrip, autoTripAmount } = await import('../lib/calc');
@@ -405,6 +405,90 @@ async function main() {
   eq('координаты', JSON.stringify(parseCoords('56.001765,37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('название месяца', monthLabel('2026-11'), 'Ноябрь 2026 г.');
+
+  console.log('\n15. Экраны приложения');
+  const { createElement } = await import('react');
+  const { renderToString } = await import('react-dom/server');
+  const { MemoryRouter, Route, Routes } = await import('react-router-dom');
+
+  const firstId = (table: string): string =>
+    dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE deleted = 0 ORDER BY created_at LIMIT 1`)?.id ?? '';
+
+  const vehicleRef = vehicleId;
+  const refuelRef = firstId('refuelings');
+  const financeRef = firstId('finance_ops');
+
+  type Screen = {
+    label: string;
+    route: string;
+    url: string;
+    load: () => Promise<{ default: unknown }>;
+    props?: Record<string, unknown>;
+  };
+
+  const screens: Screen[] = [
+    { label: 'Главная', route: '/', url: '/', load: () => import('../pages/Home'), props: { onCreate: () => {} } },
+    { label: 'Путевые листы', route: '/waybills', url: '/waybills', load: () => import('../pages/Waybills') },
+    {
+      label: 'Путевой лист',
+      route: '/waybills/:id',
+      url: `/waybills/${waybillId}`,
+      load: () => import('../pages/WaybillDetail'),
+    },
+    { label: 'Перевозки', route: '/trips', url: '/trips', load: () => import('../pages/Trips') },
+    { label: 'Перевозка', route: '/trips/:id', url: `/trips/${tripId}`, load: () => import('../pages/TripDetail') },
+    { label: 'Заправки', route: '/refuelings', url: '/refuelings', load: () => import('../pages/Refuelings') },
+    {
+      label: 'Заправка',
+      route: '/refuelings/:id',
+      url: `/refuelings/${refuelRef}`,
+      load: () => import('../pages/RefuelDetail'),
+    },
+    { label: 'Финансы', route: '/finance', url: '/finance', load: () => import('../pages/Finance') },
+    {
+      label: 'Финансовая операция',
+      route: '/finance/:id',
+      url: `/finance/${financeRef}`,
+      load: () => import('../pages/FinanceDetail'),
+    },
+    { label: 'Автомобили', route: '/vehicles', url: '/vehicles', load: () => import('../pages/Vehicles') },
+    {
+      label: 'Автомобиль',
+      route: '/vehicles/:id',
+      url: `/vehicles/${vehicleRef}`,
+      load: () => import('../pages/VehicleDetail'),
+    },
+    { label: 'Справочники', route: '/refs', url: '/refs', load: () => import('../pages/Refs') },
+    { label: 'Обмен данными', route: '/data', url: '/data', load: () => import('../pages/Data') },
+    { label: 'Ещё', route: '/more', url: '/more', load: () => import('../pages/More') },
+    { label: 'Настройки', route: '/settings', url: '/settings', load: () => import('../pages/Settings') },
+    { label: 'ИИ-помощник', route: '/assistant', url: '/assistant', load: () => import('../pages/Assistant') },
+  ];
+
+  /** Каждый экран должен собираться без ошибок */
+  for (const screen of screens) {
+    try {
+      const mod = await screen.load();
+      const Comp = mod.default as unknown as (props: Record<string, unknown>) => unknown;
+      const tree = createElement(
+        MemoryRouter,
+        { initialEntries: [screen.url] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, {
+            path: screen.route,
+            element: createElement(Comp as never, (screen.props ?? {}) as never),
+          }),
+        ),
+      );
+      const html = renderToString(tree as never);
+      check(`${screen.label}: экран собирается`, html.length > 60, `(${html.length} символов)`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      check(`${screen.label}: экран собирается`, false, msg);
+    }
+  }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
