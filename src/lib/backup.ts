@@ -278,6 +278,18 @@ async function embedCyrillicFont(doc: { addFileToVFS: (n: string, b: string) => 
 export async function exportWaybillPdf(waybillId: string, settings: AppSettings): Promise<void> {
   const waybill = waybillRepo.get(waybillId);
   if (!waybill) throw new Error('Путевой лист не найден');
+  const bytes = await buildWaybillPdf(waybillId, settings);
+  await saveBinaryFile(
+    `putevoy-list-${waybill.date_out}${waybill.date_in ? '-' + waybill.date_in : ''}.pdf`,
+    bytes,
+    'application/pdf',
+  );
+}
+
+/** Подготовить PDF путевого листа (без сохранения — удобно для проверок) */
+export async function buildWaybillPdf(waybillId: string, settings: AppSettings): Promise<Uint8Array> {
+  const waybill = waybillRepo.get(waybillId);
+  if (!waybill) throw new Error('Путевой лист не найден');
 
   const [{ jsPDF }, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -378,16 +390,17 @@ export async function exportWaybillPdf(waybillId: string, settings: AppSettings)
     });
   }
 
-  const out = doc.output('arraybuffer') as ArrayBuffer;
-  await saveBinaryFile(
-    `putevoy-list-${waybill.date_out}${waybill.date_in ? '-' + waybill.date_in : ''}.pdf`,
-    new Uint8Array(out),
-    'application/pdf',
-  );
+  return new Uint8Array(doc.output('arraybuffer') as ArrayBuffer);
 }
 
 /** Отчёт PDF: сводка за месяц */
 export async function exportPdfReport(month: string, settings: AppSettings): Promise<void> {
+  const bytes = await buildMonthReportPdf(month, settings);
+  await saveBinaryFile(`avtotracker-report-${month || stamp()}.pdf`, bytes, 'application/pdf');
+}
+
+/** Подготовить PDF-отчёт за месяц (без сохранения) */
+export async function buildMonthReportPdf(month: string, settings: AppSettings): Promise<Uint8Array> {
   const [{ jsPDF }, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   await embedCyrillicFont(doc as unknown as Parameters<typeof embedCyrillicFont>[0]);
@@ -472,8 +485,7 @@ export async function exportPdfReport(month: string, settings: AppSettings): Pro
     styles: { fontSize: 8, font: 'DejaVu' },
   });
 
-  const out = doc.output('arraybuffer') as ArrayBuffer;
-  await saveBinaryFile(`avtotracker-report-${month || stamp()}.pdf`, new Uint8Array(out), 'application/pdf');
+  return new Uint8Array(doc.output('arraybuffer') as ArrayBuffer);
 }
 
 /** Список операций за месяц в виде строк для отчётов */

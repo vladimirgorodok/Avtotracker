@@ -66,6 +66,21 @@ const fakeIndexedDb = {
   },
 };
 
+const realFetch =
+  typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null;
+
+/** В Node нет доступа к file://, а шрифты для PDF лежат именно там */
+const fileFetch: typeof fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (url.startsWith('file://')) {
+    const { readFile } = await import('node:fs/promises');
+    const buf = await readFile(decodeURIComponent(url.replace('file://', '')));
+    return new Response(buf, { status: 200 });
+  }
+  if (!realFetch) throw new Error('В этой среде нет сетевого доступа');
+  return realFetch(input as RequestInfo, init);
+};
+
 const g = globalThis as unknown as Record<string, unknown>;
 g.indexedDB = fakeIndexedDb;
 g.document = {
@@ -75,8 +90,9 @@ g.document = {
   addEventListener: () => {},
   visibilityState: 'visible',
 };
-g.window = { addEventListener: () => {}, removeEventListener: () => {} };
-g.navigator = { geolocation: undefined };
+g.fetch = fileFetch;
+// window и navigator намеренно не подменяем: библиотека PDF в Node
+// собирает документ другим способом и на заглушках падает.
 
 /* ---------- Проверки ---------- */
 
@@ -104,6 +120,7 @@ async function main() {
   const { summarizeWaybill, summarizeTrip, autoTripAmount } = await import('../lib/calc');
   const { closeWaybill, chargeTrip } = await import('../lib/actions');
   const { dumpAll, toCsv, parseCsv, importJson, importCsvZip } = await import('../lib/backup');
+  const { buildWaybillPdf, buildMonthReportPdf } = await import('../lib/backup');
   const JSZip = (await import('jszip')).default;
   const { todayIso, fmtDate, parseCoords, monthLabel } = await import('../lib/format');
   const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
@@ -319,7 +336,18 @@ async function main() {
   eq('импорт с обновлением', overwriteRes.updated, 1);
   eq('название обновилось', repo.refs.place('imported-place-1')?.name, 'Обновлённое место');
 
-  console.log('\n10. Документы');
+  console.log('\n10. PDF');
+  const wbPdf = await buildWaybillPdf(waybillId, repo.getSettings());
+  const wbHead = String.fromCharCode(...wbPdf.subarray(0, 5));
+  eq('PDF листа начинается корректно', wbHead, '%PDF-');
+  check('PDF листа не пустой', wbPdf.length > 8000, `(${wbPdf.length} байт)`);
+  const wbText = new TextDecoder('latin1').decode(wbPdf);
+  check('в PDF встроен шрифт с кириллицей', wbText.includes('DejaVu'));
+  const monthPdf = await buildMonthReportPdf(month, repo.getSettings());
+  eq('PDF отчёта начинается корректно', String.fromCharCode(...monthPdf.subarray(0, 5)), '%PDF-');
+  check('PDF отчёта не пустой', monthPdf.length > 8000, `(${monthPdf.length} байт)`);
+
+  console.log('\n11. Документы');
   const docId = repo.insertRow('attachments', {
     owner_table: 'waybills',
     owner_id: waybillId,
@@ -337,7 +365,7 @@ async function main() {
   renameDocument(docId, 'Накладная №1 (исправлено)');
   eq('подпись изменена', listDocs('waybills', waybillId)[0].title, 'Накладная №1 (исправлено)');
 
-  console.log('\n11. Индикатор «ожидают отправки»');
+  console.log('\n12. Индикатор «ожидают отправки»');
   resetSyncMarkers();
   const stateBefore = syncState();
   eq('облако не настроено', stateBefore.configured, false);
@@ -368,11 +396,11 @@ async function main() {
   deleteDocument(docId);
   eq('документ удалён', countDocs('waybills', waybillId), 0);
 
-  console.log('\n12. Сохранение базы');
+  console.log('\n13. Сохранение базы');
   await db.flush();
   check('база записана', db.export().length > 0);
 
-  console.log('\n13. Утилиты');
+  console.log('\n14. Утилиты');
   eq('формат даты', fmtDate('2026-11-12'), '12.11.2026');
   eq('координаты', JSON.stringify(parseCoords('56.001765,37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
