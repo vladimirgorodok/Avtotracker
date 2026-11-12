@@ -1,0 +1,367 @@
+/** Экспорт и импорт: ZIP с CSV, Excel, JSON-резервная копия, отчёт PDF. */
+
+import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
+import { dbSync } from '../db';
+import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/repo';
+import { saveBinaryFile } from '../db/storage';
+import { TABLES, type AppSettings, type TableName } from '../types';
+import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
+import { summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
+import { financeRepo, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
+
+export const TABLE_TITLES: Record<TableName, string> = {
+  vehicles: 'Автомобили',
+  vehicle_periods: 'Периоды автомобилей',
+  vehicle_links: 'Связки тягач-прицеп',
+  companies: 'Фирмы',
+  cargo_types: 'Грузы',
+  fuel_stations: 'АЗС',
+  places: 'Места',
+  waybills: 'Путевые листы',
+  trips: 'Перевозки',
+  trip_points: 'Точки маршрута',
+  refuelings: 'Заправки',
+  finance_ops: 'Финансы',
+};
+
+function csvEscape(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function toCsv(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return '';
+  const cols = Object.keys(rows[0]);
+  const head = cols.join(';');
+  const body = rows.map((r) => cols.map((c) => csvEscape(r[c])).join(';')).join('\n');
+  return `\uFEFF${head}\n${body}\n`;
+}
+
+export function parseCsv(text: string): Record<string, string>[] {
+  const clean = text.replace(/^\uFEFF/, '');
+  const lines: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (clean[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ';') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\n') {
+      row.push(field);
+      lines.push(row);
+      row = [];
+      field = '';
+    } else if (ch !== '\r') field += ch;
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field);
+    lines.push(row);
+  }
+  if (lines.length === 0) return [];
+  const header = lines[0];
+  return lines
+    .slice(1)
+    .filter((l) => l.some((x) => x !== ''))
+    .map((l) => Object.fromEntries(header.map((h, i) => [h, l[i] ?? ''])));
+}
+
+function dumpTable(table: TableName): Record<string, unknown>[] {
+  return dbSync().all<Record<string, unknown>>(`SELECT * FROM ${table}`);
+}
+
+export function dumpAll(): Record<string, Record<string, unknown>[]> {
+  const out: Record<string, Record<string, unknown>[]> = {};
+  for (const t of TABLES) out[t] = dumpTable(t);
+  return out;
+}
+
+function stamp(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** ZIP с CSV: по одному файлу на таблицу */
+export async function exportCsvZip(): Promise<void> {
+  const zip = new JSZip();
+  const data = dumpAll();
+  for (const t of TABLES) {
+    zip.file(`${t}.csv`, toCsv(data[t]));
+  }
+  zip.file(
+    'README.txt',
+    [
+      'Автотрекер — выгрузка данных',
+      `Дата: ${new Date().toLocaleString('ru-RU')}`,
+      '',
+      'Каждый файл CSV соответствует таблице базы данных.',
+      'Разделитель — точка с запятой, кодировка UTF-8.',
+      '',
+      ...TABLES.map((t) => `${t}.csv — ${TABLE_TITLES[t]}`),
+    ].join('\n'),
+  );
+  const blob = await zip.generateAsync({ type: 'uint8array' });
+  await saveBinaryFile(`avtotracker-csv-${stamp()}.zip`, blob, 'application/zip');
+}
+
+/** Один файл Excel: лист на каждую таблицу */
+export async function exportXlsx(): Promise<void> {
+  const wb = XLSX.utils.book_new();
+  const data = dumpAll();
+  for (const t of TABLES) {
+    const rows = data[t].map((r) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(r)) out[k] = v;
+      return out;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ '': 'нет данных' }]);
+    XLSX.utils.book_append_sheet(wb, ws, TABLE_TITLES[t].slice(0, 31));
+  }
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  await saveBinaryFile(
+    `avtotracker-${stamp()}.xlsx`,
+    new Uint8Array(out),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+}
+
+/** Полная резервная копия в JSON */
+export async function exportJson(): Promise<void> {
+  const payload = {
+    app: 'avtotracker',
+    version: 1,
+    exported_at: nowIso(),
+    settings: allSettings().map((s) => ({ key: s.key, value: s.value })),
+    tables: dumpAll(),
+  };
+  await saveBinaryFile(
+    `avtotracker-backup-${stamp()}.json`,
+    JSON.stringify(payload, null, 1),
+    'application/json',
+  );
+}
+
+export interface ImportResult {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  message: string;
+}
+
+function isTable(name: string): name is TableName {
+  return (TABLES as readonly string[]).includes(name);
+}
+
+/** Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений. */
+export function importJson(text: string, overwrite = false): ImportResult {
+  const payload = JSON.parse(text) as {
+    app?: string;
+    tables?: Record<string, Record<string, unknown>[]>;
+    settings?: { key: string; value: string }[];
+  };
+  if (!payload.tables) throw new Error('Файл не похож на резервную копию Автотрекера');
+
+  const db = dbSync();
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  db.tx(() => {
+    for (const [table, rows] of Object.entries(payload.tables ?? {})) {
+      if (!isTable(table)) continue;
+      for (const row of rows) {
+        const id = String(row.id ?? '');
+        if (!id) {
+          skipped++;
+          continue;
+        }
+        const exists = dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
+        if (exists) {
+          if (overwrite) {
+            const entries = Object.entries(row).filter(([k]) => k !== 'id');
+            updateRow(table, id, Object.fromEntries(entries));
+            updated++;
+          } else skipped++;
+        } else {
+          insertRow(table, row);
+          inserted++;
+        }
+      }
+    }
+    for (const s of payload.settings ?? []) {
+      setSetting(s.key as keyof AppSettings, s.value);
+    }
+  });
+
+  return {
+    inserted,
+    updated,
+    skipped,
+    message: `Добавлено ${inserted}, обновлено ${updated}, пропущено ${skipped}`,
+  };
+}
+
+/** Импорт ZIP с CSV: строки добавляются, совпадающие id пропускаются. */
+export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
+  const zip = await JSZip.loadAsync(bytes);
+  const db = dbSync();
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const [name, file] of Object.entries(zip.files)) {
+    if (file.dir) continue;
+    const table = name.replace(/\.csv$/i, '').trim();
+    if (!isTable(table)) continue;
+    const text = await file.async('string');
+    const rows = parseCsv(text);
+    db.tx(() => {
+      for (const row of rows) {
+        const id = String(row.id ?? '');
+        if (!id) {
+          skipped++;
+          continue;
+        }
+        const exists = dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
+        if (exists) {
+          skipped++;
+          continue;
+        }
+        const clean: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (v === '') clean[k] = null;
+          else if (/^-?\d+(\.\d+)?$/.test(v) && k !== 'id' && !k.endsWith('_at')) clean[k] = Number(v);
+          else clean[k] = v;
+        }
+        insertRow(table, clean);
+        inserted++;
+      }
+    });
+  }
+
+  return { inserted, updated: 0, skipped, message: `Добавлено ${inserted}, пропущено ${skipped}` };
+}
+
+/** Встроить шрифт с кириллицей, иначе в PDF будут пустые квадраты */
+async function embedCyrillicFont(doc: { addFileToVFS: (n: string, b: string) => void; addFont: (f: string, n: string, s: string) => void; setFont: (n: string, s?: string) => void }): Promise<void> {
+  const load = async (file: string) => {
+    const res = await fetch(new URL(`fonts/${file}`, document.baseURI).href);
+    if (!res.ok) throw new Error(`Не удалось загрузить шрифт ${file}`);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < buf.length; i += chunk) bin += String.fromCharCode(...buf.subarray(i, i + chunk));
+    return btoa(bin);
+  };
+  const [regular, bold] = await Promise.all([load('DejaVuSans.ttf'), load('DejaVuSans-Bold.ttf')]);
+  doc.addFileToVFS('DejaVuSans.ttf', regular);
+  doc.addFont('DejaVuSans.ttf', 'DejaVu', 'normal');
+  doc.addFileToVFS('DejaVuSans-Bold.ttf', bold);
+  doc.addFont('DejaVuSans-Bold.ttf', 'DejaVu', 'bold');
+  doc.setFont('DejaVu', 'normal');
+}
+
+/** Отчёт PDF: сводка за месяц */
+export async function exportPdfReport(month: string, settings: AppSettings): Promise<void> {
+  const [{ jsPDF }, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  await embedCyrillicFont(doc as unknown as Parameters<typeof embedCyrillicFont>[0]);
+  doc.setFont('DejaVu', 'normal');
+
+  doc.setFontSize(16);
+  doc.text('Автотрекер — отчёт', 14, 18);
+  doc.setFontSize(11);
+  doc.text(month ? monthLabel(month) : 'Все месяцы', 14, 25);
+  doc.setFontSize(9);
+  doc.text(`Сформировано: ${new Date().toLocaleString('ru-RU')}`, 14, 30);
+
+  const finance = summarizeFinance(month || null);
+  const waybills = waybillRepo.list().filter((w) => !month || w.date_out.slice(0, 7) === month);
+
+  autoTable.default(doc, {
+    startY: 36,
+    head: [['Показатель', 'Значение']],
+    body: [
+      ['Начислено', fmtMoney(finance.charged, settings.currency)],
+      ['Оплачено', fmtMoney(finance.paid, settings.currency)],
+      ['Остаток', fmtMoney(finance.balance, settings.currency)],
+      ['Путевых листов', String(waybills.length)],
+    ],
+    styles: { fontSize: 9, font: 'DejaVu' },
+  });
+
+  const rows = waybills.map((w) => {
+    const s = summarizeWaybill(w);
+    return [
+      `${fmtDate(w.date_out)} — ${w.date_in ? fmtDate(w.date_in) : 'открыт'}`,
+      s.vehicleTitle,
+      s.mileage === null ? '—' : fmtNumber(s.mileage),
+      fmtNumber(s.refueled),
+      s.avgConsumption === null ? '—' : fmtNumber(s.avgConsumption, 1),
+      fmtMoney(s.charged, settings.currency),
+    ];
+  });
+
+  autoTable.default(doc, {
+    // @ts-expect-error lastAutoTable добавляется плагином
+    startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 60,
+    head: [['Период', 'Автомобиль', 'Пробег, км', 'Заправлено, л', 'Расход, л/100', 'Начислено']],
+    body: rows.length > 0 ? rows : [['Нет данных', '', '', '', '', '']],
+    styles: { fontSize: 8, font: 'DejaVu' },
+    columnStyles: { 1: { cellWidth: 45 } },
+  });
+
+  const trips = tripRepo.all().filter((t) => {
+    if (!month) return true;
+    const wb = waybillRepo.get(t.waybill_id);
+    return (wb?.date_out ?? t.created_at).slice(0, 7) === month;
+  });
+  const tripRows = trips.map((t) => {
+    const s = summarizeTrip(t);
+    return [
+      fmtDate(s.dateLoad),
+      s.title,
+      s.pointsCount ? String(s.pointsCount) : '0',
+      fmtNumber(s.totalWeight),
+      fmtMoney(s.amount, settings.currency),
+    ];
+  });
+
+  autoTable.default(doc, {
+    // @ts-expect-error lastAutoTable добавляется плагином
+    startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 120,
+    head: [['Дата', 'Маршрут', 'Точек', 'Вес, кг', 'Начислено']],
+    body: tripRows.length > 0 ? tripRows : [['Нет данных', '', '', '', '']],
+    styles: { fontSize: 8, font: 'DejaVu' },
+  });
+
+  const refuels = refuelRepo.list().filter((r) => !month || r.date.slice(0, 7) === month);
+  autoTable.default(doc, {
+    // @ts-expect-error lastAutoTable добавляется плагином
+    startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 160,
+    head: [['Дата заправки', 'Объём, л', 'Источник']],
+    body:
+      refuels.length > 0
+        ? refuels.map((r) => [fmtDate(r.date), fmtNumber(r.volume), r.kind === 'barrel' ? 'Бочка' : 'АЗС'])
+        : [['Нет данных', '', '']],
+    styles: { fontSize: 8, font: 'DejaVu' },
+  });
+
+  const out = doc.output('arraybuffer') as ArrayBuffer;
+  await saveBinaryFile(`avtotracker-report-${month || stamp()}.pdf`, new Uint8Array(out), 'application/pdf');
+}
+
+/** Список операций за месяц в виде строк для отчётов */
+export function monthOperations(month: string) {
+  return financeRepo.byMonth(month);
+}

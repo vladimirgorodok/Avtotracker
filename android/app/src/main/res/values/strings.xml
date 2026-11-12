@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Автотрекер</string>
+    <string name="title_activity_main">Автотрекер</string>
+    <string name="package_name">ru.avtotracker.app</string>
+    <string name="custom_url_scheme">ru.avtotracker.app</string>
+</resources>
