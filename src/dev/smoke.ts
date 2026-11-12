@@ -793,9 +793,18 @@ async function main() {
     const fuelRes = si.applyPlan(fuel, fuelPlan);
     eq('заправка перенесена', fuelRes.inserted.refuelings, 1);
 
+    // Старый архив в windows-1251 — так выгружает Excel
+    const legacy = new Uint8Array([
+      196, 224, 242, 224, 59, 204, 229, 241, 242, 238, 59, 194, 229, 241, 10, 48, 49, 46, 49, 49,
+      46, 50, 48, 50, 54, 59, 202, 224, 240, 252, 229, 240, 32, 209, 229, 226, 229, 240, 59, 49, 48,
+      48,
+    ]);
+    const legacySheets = await si.readArchive(legacy, 'Места.csv');
+    eq('кодировка windows-1251 разобрана', legacySheets[0].columns.join(';'), 'Дата;Место;Вес');
+    eq('значение в windows-1251 прочитано', legacySheets[0].rows[0]['Место'], 'Карьер Север');
+
     // Даты и месяцы в разных форматах
-    eq('дата ДД.ММ.ГГГГ', si.parseDateValue('05.11.2026'), '2026-11-05');
-    eq('дата ГГГГ-ММ-ДД', si.parseDateValue('2026-11-05'), '2026-11-05');
+    eq('дата ДД.ММ.ГГГГ', si.parseDateValue('05.11.2026'), '2026-11-05');    eq('дата ГГГГ-ММ-ДД', si.parseDateValue('2026-11-05'), '2026-11-05');
     eq('месяц словом', si.parseMonthValue('Ноябрь 2026'), '2026-11');
     eq('месяц точкой', si.parseMonthValue('11.2026'), '2026-11');
 

@@ -195,6 +195,24 @@ export function toNumber(raw: string): number | null {
   return Number(s);
 }
 
+/**
+ * Текст из байтов. Сначала UTF-8; если он «не сложился», пробуем windows-1251 —
+ * так выгружает Excel и многие старые программы.
+ */
+export function decodeText(bytes: Uint8Array): string {
+  const utf8 = new TextDecoder('utf-8').decode(bytes);
+  if (!utf8.includes('\uFFFD')) return utf8;
+  try {
+    const legacy = new TextDecoder('windows-1251').decode(bytes);
+    const letters = (legacy.match(/[\u0400-\u04FF]/g) ?? []).length;
+    const broken = (legacy.match(/\uFFFD/g) ?? []).length;
+    if (letters > 0 && broken === 0) return legacy;
+  } catch {
+    /* в этой сборке нет такой кодировки — остаётся UTF-8 */
+  }
+  return utf8;
+}
+
 /** Итог импорта словами — чтобы «ничего не добавилось» не выглядело как поломка */
 function describeImport(inserted: number, updated: number, skipped: number, files: number): string {
   const parts: string[] = [];
@@ -293,7 +311,7 @@ export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
     const table = name.replace(/\.csv$/i, '').trim();
     if (!isTable(table)) continue;
     files++;
-    const text = await file.async('string');
+    const text = decodeText(await file.async('uint8array'));
     const rows = parseCsv(text);
     db.tx(() => {
       for (const row of rows) {

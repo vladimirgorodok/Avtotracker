@@ -15,7 +15,7 @@
 import { dbSync } from '../db';
 import { insertRow } from '../db/repo';
 import { TABLES, type TableName } from '../types';
-import { cleanCsvRow, columnTypesOf, parseCsv, toNumber, TABLE_TITLES } from './backup';
+import { cleanCsvRow, columnTypesOf, decodeText, parseCsv, toNumber, TABLE_TITLES } from './backup';
 import { askModel, readAiConfig } from './ai';
 
 /* ------------------------------------------------------------------ */
@@ -204,13 +204,13 @@ export async function readArchive(bytes: Uint8Array, filename: string): Promise<
     for (const [name, file] of Object.entries(zip.files)) {
       if (file.dir) continue;
       const inner = name.split('/').pop() ?? name;
-      const text = await file.async('string');
       if (/\.csv$/i.test(inner)) {
+        const text = decodeText(await file.async('uint8array'));
         sheets.push(...sheetFromRecords(inner.replace(/\.csv$/i, ''), parseCsv(text)));
       } else if (/\.(xlsx|xls)$/i.test(inner)) {
         sheets.push(...(await readWorkbook(new Uint8Array(await file.async('uint8array')))));
       } else if (/\.json$/i.test(inner)) {
-        sheets.push(...readJsonBackup(text));
+        sheets.push(...readJsonBackup(decodeText(await file.async('uint8array'))));
       }
     }
     return sheets;
@@ -221,11 +221,10 @@ export async function readArchive(bytes: Uint8Array, filename: string): Promise<
   }
 
   if (lower.endsWith('.json')) {
-    return readJsonBackup(new TextDecoder('utf-8').decode(bytes));
+    return readJsonBackup(decodeText(bytes));
   }
 
-  const text = new TextDecoder('utf-8').decode(bytes);
-  return sheetFromRecords(base, parseCsv(text));
+  return sheetFromRecords(base, parseCsv(decodeText(bytes)));
 }
 
 async function readWorkbook(bytes: Uint8Array): Promise<ArchiveSheet[]> {
