@@ -15,6 +15,7 @@ import { financeRepo, refs, tripRepo, waybillRepo } from '../db/repo';
 import { fmtDate, fmtMoney, fmtNumber, monthKey } from '../lib/format';
 import { summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
+import { runSync, syncState } from '../lib/sync';
 
 export default function Home({ onCreate }: { onCreate: () => void }) {
   const navigate = useNavigate();
@@ -22,6 +23,10 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const settings = useApp((s) => s.settings);
   const [month, setMonth] = useState<string>(() => monthKey(new Date().toISOString()));
   const [search, setSearch] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const sync = useMemo(() => syncState(), [revision]);
+  const touch = useApp((s) => s.touch);
+  const notify = useApp((s) => s.notify);
 
   const data = useMemo(() => {
     const openWaybill = waybillRepo.open()[0] ?? null;
@@ -71,6 +76,42 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           <MonthPicker value={month} onChange={setMonth} />
         </div>
         <SearchBar value={search} onChange={setSearch} />
+
+        {sync.configured && sync.signedIn ? (
+          <div className={`sync-bar ${sync.pending > 0 ? '' : 'ok'}`}>
+            <Icon name="refresh" />
+            <span>
+              {sync.pending > 0
+                ? `Ожидают отправки: ${sync.pending}`
+                : sync.lastSyncAt
+                  ? `Облако в порядке · ${fmtDate(sync.lastSyncAt.slice(0, 10))}`
+                  : 'Готово к синхронизации'}
+            </span>
+            <span style={{ flex: 1 }} />
+            <Button
+              variant="ghost"
+              icon="upload"
+              disabled={syncing}
+              onClick={() => {
+                setSyncing(true);
+                void runSync()
+                  .then((r) => {
+                    touch();
+                    notify(
+                      r.errors.length > 0
+                        ? `Замечание: ${r.errors[0]}`
+                        : `Отправлено ${r.pushed}, принято ${r.pulled}`,
+                      r.errors.length > 0 ? 'err' : 'ok',
+                    );
+                  })
+                  .catch((e) => notify(e instanceof Error ? e.message : 'Ошибка синхронизации', 'err'))
+                  .finally(() => setSyncing(false));
+              }}
+            >
+              {syncing ? 'Отправка…' : 'Отправить'}
+            </Button>
+          </div>
+        ) : null}
 
         <Card
           title="Автомобиль и смена"

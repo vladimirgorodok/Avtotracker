@@ -1,14 +1,13 @@
 /** Экспорт и импорт: ZIP с CSV, Excel, JSON-резервная копия, отчёт PDF. */
 
-import JSZip from 'jszip';
-import * as XLSX from 'xlsx';
 import { dbSync } from '../db';
 import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/repo';
 import { saveBinaryFile } from '../db/storage';
 import { TABLES, type AppSettings, type TableName } from '../types';
 import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
 import { summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
-import { financeRepo, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
+import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
+import { loadTypeLabel } from '../types';
 
 export const TABLE_TITLES: Record<TableName, string> = {
   vehicles: 'Автомобили',
@@ -23,6 +22,7 @@ export const TABLE_TITLES: Record<TableName, string> = {
   trip_points: 'Точки маршрута',
   refuelings: 'Заправки',
   finance_ops: 'Финансы',
+  attachments: 'Документы',
 };
 
 function csvEscape(v: unknown): string {
@@ -94,6 +94,7 @@ function stamp(): string {
 
 /** ZIP с CSV: по одному файлу на таблицу */
 export async function exportCsvZip(): Promise<void> {
+  const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
   const data = dumpAll();
   for (const t of TABLES) {
@@ -117,6 +118,7 @@ export async function exportCsvZip(): Promise<void> {
 
 /** Один файл Excel: лист на каждую таблицу */
 export async function exportXlsx(): Promise<void> {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const data = dumpAll();
   for (const t of TABLES) {
@@ -214,6 +216,7 @@ export function importJson(text: string, overwrite = false): ImportResult {
 
 /** Импорт ZIP с CSV: строки добавляются, совпадающие id пропускаются. */
 export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
+  const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(bytes);
   const db = dbSync();
   let inserted = 0;
@@ -269,6 +272,118 @@ async function embedCyrillicFont(doc: { addFileToVFS: (n: string, b: string) => 
   doc.addFileToVFS('DejaVuSans-Bold.ttf', bold);
   doc.addFont('DejaVuSans-Bold.ttf', 'DejaVu', 'bold');
   doc.setFont('DejaVu', 'normal');
+}
+
+/** Печать одного путевого листа: данные листа, перевозки, точки маршрута, итоги */
+export async function exportWaybillPdf(waybillId: string, settings: AppSettings): Promise<void> {
+  const waybill = waybillRepo.get(waybillId);
+  if (!waybill) throw new Error('Путевой лист не найден');
+
+  const [{ jsPDF }, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  await embedCyrillicFont(doc as unknown as Parameters<typeof embedCyrillicFont>[0]);
+
+  const s = summarizeWaybill(waybill);
+  const vehicle = refs.vehicle(waybill.vehicle_id);
+  const trailer = refs.vehicle(waybill.trailer_id);
+
+  doc.setFontSize(16);
+  doc.text('Путевой лист', 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Сформировано: ${new Date().toLocaleString('ru-RU')}`, 196, 18, { align: 'right' });
+
+  autoTable.default(doc, {
+    startY: 24,
+    theme: 'plain',
+    styles: { fontSize: 9, font: 'DejaVu', cellPadding: 1.2 },
+    columnStyles: { 0: { cellWidth: 52, textColor: [110, 110, 110] }, 1: { fontStyle: 'bold' } },
+    body: [
+      ['Дата выезда', fmtDate(waybill.date_out)],
+      ['Дата сдачи', waybill.date_in ? fmtDate(waybill.date_in) : 'лист открыт'],
+      ['Номер листа', waybill.number || '—'],
+      ['Тягач', vehicle ? `${vehicle.name}${vehicle.plate ? ' · ' + vehicle.plate : ''}` : '—'],
+      ['Прицеп', trailer ? `${trailer.name}${trailer.plate ? ' · ' + trailer.plate : ''}` : '—'],
+      ['Одометр при выезде', waybill.odometer_out === null ? '—' : `${fmtNumber(waybill.odometer_out)} км`],
+      ['Одометр при сдаче', waybill.odometer_in === null ? '—' : `${fmtNumber(waybill.odometer_in)} км`],
+      ['Топливо при выезде', waybill.fuel_out === null ? '—' : `${fmtNumber(waybill.fuel_out)} л`],
+      ['Топливо при сдаче', waybill.fuel_in === null ? '—' : `${fmtNumber(waybill.fuel_in)} л`],
+      ['Заправлено за лист', `${fmtNumber(s.refueled)} л (${s.refuelCount} заправок)`],
+      ['Пробег', s.mileage === null ? '—' : `${fmtNumber(s.mileage)} км`],
+      ['Израсходовано топлива', s.consumed === null ? '—' : `${fmtNumber(s.consumed)} л`],
+      [
+        'Средний расход',
+        s.avgConsumption === null ? '—' : `${fmtNumber(s.avgConsumption, 1)} л/100 км`,
+      ],
+      ['Норма расхода', s.normConsumption === null ? '—' : `${fmtNumber(s.normConsumption)} л`],
+      ['Начислено по листу', fmtMoney(s.charged, settings.currency)],
+    ],
+  });
+
+  const tripRows: string[][] = [];
+  for (const t of s.trips) {
+    tripRows.push([
+      t.title,
+      String(t.pointsCount),
+      `${fmtDate(t.dateLoad)} — ${fmtDate(t.dateUnload)}`,
+      fmtNumber(t.totalWeight),
+      fmtMoney(t.amount, settings.currency),
+    ]);
+  }
+
+  autoTable.default(doc, {
+    // @ts-expect-error lastAutoTable добавляется плагином
+    startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 60,
+    head: [['Перевозка', 'Точек', 'План/факт даты', 'Вес, кг', 'Начислено']],
+    body: tripRows.length > 0 ? tripRows : [['Перевозок нет', '', '', '', '']],
+    styles: { fontSize: 8, font: 'DejaVu' },
+    headStyles: { fillColor: [14, 124, 144], font: 'DejaVu' },
+  });
+
+  const pointRows: string[][] = [];
+  for (const t of s.trips) {
+    t.points.forEach((p, idx) => {
+      const place = refs.place(p.place_id);
+      const company = refs.company(place?.company_id ?? null);
+      pointRows.push([
+        t.title,
+        `${idx + 1}. ${p.kind === 'load' ? 'Погрузка' : 'Выгрузка'}`,
+        place?.name ?? '—',
+        company?.name ?? '—',
+        place?.address ?? '—',
+        fmtDate(p.fact_date ?? p.plan_date),
+        p.status === 'done' ? 'Выполнено' : 'В плане',
+        loadTypeLabel(p.load_type),
+      ]);
+    });
+  }
+
+  autoTable.default(doc, {
+    // @ts-expect-error lastAutoTable добавляется плагином
+    startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 90,
+    head: [['Перевозка', 'Точка', 'Место', 'Фирма', 'Адрес', 'Дата', 'Статус', 'Загрузка']],
+    body: pointRows.length > 0 ? pointRows : [['Точек нет', '', '', '', '', '', '', '']],
+    styles: { fontSize: 7, font: 'DejaVu' },
+    headStyles: { fillColor: [14, 124, 144], font: 'DejaVu' },
+    columnStyles: { 0: { cellWidth: 26 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 4: { cellWidth: 34 } },
+  });
+
+  if (s.errors.length > 0 || s.warnings.length > 0) {
+    autoTable.default(doc, {
+      // @ts-expect-error lastAutoTable добавляется плагином
+      startY: (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY + 8 || 130,
+      head: [['Замечания']],
+      body: [...s.errors.map((e) => [`Ошибка: ${e}`]), ...s.warnings.map((w) => [`Внимание: ${w}`])],
+      styles: { fontSize: 8, font: 'DejaVu', textColor: [170, 50, 60] },
+      headStyles: { fillColor: [170, 50, 60], font: 'DejaVu' },
+    });
+  }
+
+  const out = doc.output('arraybuffer') as ArrayBuffer;
+  await saveBinaryFile(
+    `putevoy-list-${waybill.date_out}${waybill.date_in ? '-' + waybill.date_in : ''}.pdf`,
+    new Uint8Array(out),
+    'application/pdf',
+  );
 }
 
 /** Отчёт PDF: сводка за месяц */

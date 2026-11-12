@@ -22,6 +22,7 @@ import { closeWaybill, reopenWaybill, vehicleTitle } from '../lib/actions';
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, todayIso } from '../lib/format';
 import { refuelKindLabel } from '../types';
 import { TripCard } from './Home';
+import { DocumentsCard } from '../ui/Documents';
 import type { Waybill } from '../types';
 
 export default function WaybillDetail() {
@@ -295,6 +296,21 @@ export default function WaybillDetail() {
         Сохранить
       </Button>
 
+      <Button
+        block
+        icon="doc"
+        onClick={async () => {
+          try {
+            const { exportWaybillPdf } = await import('../lib/backup');
+            await exportWaybillPdf(form.id, settings);
+          } catch (e) {
+            notify(e instanceof Error ? e.message : 'Не удалось создать PDF', 'err');
+          }
+        }}
+      >
+        Печать путевого листа (PDF)
+      </Button>
+
       {form.status === 'open' ? (
         <Button variant="success" block icon="check" onClick={doClose}>
           Закрыть путевой лист
@@ -371,6 +387,10 @@ export default function WaybillDetail() {
         <div className="small muted">
           Начисления создаются автоматически при закрытии листа, если все точки перевозки выполнены.
         </div>
+      </Card>
+
+      <Card>
+        <DocumentsCard ownerTable="waybills" ownerId={form.id} title="Документы листа" />
       </Card>
 
       <Confirm

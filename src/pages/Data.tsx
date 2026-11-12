@@ -13,6 +13,7 @@ import {
   importJson,
 } from '../lib/backup';
 import { monthKey } from '../lib/format';
+import { documentSummary } from '../lib/documents';
 import { getDb } from '../db';
 
 export default function DataPage() {
@@ -28,6 +29,8 @@ export default function DataPage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stats = useMemo(() => dbStats(), [revision]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const docs = useMemo(() => documentSummary(), [revision]);
 
   async function run(name: string, fn: () => Promise<void>) {
     setBusy(name);
@@ -78,9 +81,13 @@ export default function DataPage() {
           <KV label="Точки маршрута" value={countRows('trip_points')} />
           <KV label="Заправки" value={countRows('refuelings')} />
           <KV label="Финансы" value={countRows('finance_ops')} />
+          <KV label="Документы" value={docs.count} />
           <KV label="Версия схемы" value={stats.schemaVersion} />
         </div>
-        <div className="small muted">Хранилище: {stats.storage}</div>
+        <div className="small muted">
+          Хранилище: {stats.storage}. Фотографии документов ({docs.count} шт., {Math.max(0, Math.round(docs.bytes / 1024))} КБ)
+          хранятся отдельно от базы и уходят в облако при синхронизации.
+        </div>
       </Card>
 
       <Card title="Экспорт" actions={<Icon name="download" />}>

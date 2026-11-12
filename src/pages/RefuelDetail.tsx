@@ -12,6 +12,7 @@ import {
   Select,
   TextInput,
 } from '../ui/components';
+import { DocumentsCard } from '../ui/Documents';
 import { useApp } from '../store';
 import { insertRow, refs, refuelRepo, softDelete, uid, updateRow, waybillRepo } from '../db/repo';
 import { fmtDate } from '../lib/format';
@@ -137,6 +138,10 @@ export default function RefuelDetail() {
       <Button variant="primary" block icon="check" onClick={save}>
         Сохранить
       </Button>
+
+      <Card>
+        <DocumentsCard ownerTable="refuelings" ownerId={form.id} title="Чек или фото" />
+      </Card>
 
       <Confirm
         open={confirmDelete}

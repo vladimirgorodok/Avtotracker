@@ -106,12 +106,16 @@ async function main() {
   const { dumpAll, toCsv, parseCsv, importJson, importCsvZip } = await import('../lib/backup');
   const JSZip = (await import('jszip')).default;
   const { todayIso, fmtDate, parseCoords, monthLabel } = await import('../lib/format');
+  const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
+  const { syncState, pendingByTable, isPending, resetSyncMarkers } = await import('../lib/sync');
 
+  const { useApp } = await import('../store');
   const db = await getDb();
   seedIfEmpty();
+  useApp.getState().init();
 
   console.log('\n1. Схема и справочники');
-  eq('версия схемы', db.schemaVersion(), 1);
+  eq('версия схемы', db.schemaVersion(), 2);
   check('настройки созданы', repo.countRows('settings') > 0);
   check('грузы созданы', repo.countRows('cargo_types') >= 10);
   check('АЗС созданы', repo.countRows('fuel_stations') >= 8);
@@ -281,7 +285,7 @@ async function main() {
 
   console.log('\n9. Экспорт и импорт');
   const dump = dumpAll();
-  check('в выгрузке есть все таблицы', Object.keys(dump).length === 12);
+  check('в выгрузке есть все таблицы', Object.keys(dump).length === 13);
   check('перевозка попала в выгрузку', dump.trips.some((t) => t.id === tripId));
 
   const csv = toCsv(dump.places);
@@ -315,11 +319,60 @@ async function main() {
   eq('импорт с обновлением', overwriteRes.updated, 1);
   eq('название обновилось', repo.refs.place('imported-place-1')?.name, 'Обновлённое место');
 
-  console.log('\n10. Сохранение базы');
+  console.log('\n10. Документы');
+  const docId = repo.insertRow('attachments', {
+    owner_table: 'waybills',
+    owner_id: waybillId,
+    title: 'Накладная №1',
+    mime: 'image/jpeg',
+    path: 'test-file.jpg',
+    thumb_path: 'test-file.thumb.jpg',
+    size: 12345,
+  });
+  const docs = countDocs('waybills', waybillId);
+  eq('документов у листа', docs, 1);
+  eq('документов у другой записи', countDocs('waybills', 'нет-такой'), 0);
+  const docSummary = documentSummary();
+  check('сводка по документам', docSummary.count >= 1 && docSummary.bytes >= 12345);
+  renameDocument(docId, 'Накладная №1 (исправлено)');
+  eq('подпись изменена', listDocs('waybills', waybillId)[0].title, 'Накладная №1 (исправлено)');
+
+  console.log('\n11. Индикатор «ожидают отправки»');
+  resetSyncMarkers();
+  const stateBefore = syncState();
+  eq('облако не настроено', stateBefore.configured, false);
+  eq('нет входа', stateBefore.signedIn, false);
+  check('все записи ждут отправки', stateBefore.pending > 0);
+  const tablesPending = pendingByTable();
+  eq(
+    'сумма по таблицам совпадает с общим числом',
+    tablesPending.reduce((acc, t) => acc + t.count, 0),
+    stateBefore.pending,
+  );
+  check('перевозка отмечена как ожидающая', isPending('trips', tripId));
+
+  await new Promise((r) => setTimeout(r, 15));
+  useApp.getState().saveSetting('sync_pushed_at', new Date().toISOString());
+  eq('после отправки ничего не ждёт', syncState().pending, 0);
+  eq('перевозка отправлена', isPending('trips', tripId), false);
+
+  await new Promise((r) => setTimeout(r, 15));
+  repo.updateRow('places', placeA, { note: 'изменено после отправки' });
+  check('правка снова ждёт отправки', isPending('places', placeA));
+  eq('ждёт одна запись', syncState().pending, 1);
+
+  repo.updateRow('places', placeA, { note: '' });
+  resetSyncMarkers();
+  check('после полной сверки снова ждёт всё', syncState().pending > 1);
+
+  deleteDocument(docId);
+  eq('документ удалён', countDocs('waybills', waybillId), 0);
+
+  console.log('\n12. Сохранение базы');
   await db.flush();
   check('база записана', db.export().length > 0);
 
-  console.log('\n11. Утилиты');
+  console.log('\n13. Утилиты');
   eq('формат даты', fmtDate('2026-11-12'), '12.11.2026');
   eq('координаты', JSON.stringify(parseCoords('56.001765,37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));

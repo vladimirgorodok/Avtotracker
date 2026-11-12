@@ -3,7 +3,7 @@
  * Версия хранится в PRAGMA user_version.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const V1 = `
 CREATE TABLE IF NOT EXISTS vehicles (
@@ -213,4 +213,9 @@ CREATE TABLE IF NOT EXISTS sync_log (
 );
 `;
 
-export const MIGRATIONS: string[] = [V1];
+/** v2: миниатюры документов, чтобы списки открывались быстро */
+const V2 = `
+ALTER TABLE attachments ADD COLUMN thumb_path TEXT NOT NULL DEFAULT '';
+`;
+
+export const MIGRATIONS: string[] = [V1, V2];

@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check core logic
+        run: npm run smoke
+
       - name: Build web
         run: npm run build
 

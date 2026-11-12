@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
 import { applyTheme, useApp } from '../store';
 import { dbStats } from '../db/repo';
+import { SyncPanel } from '../ui/SyncPanel';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
 
@@ -99,7 +100,8 @@ export default function SettingsPage() {
 
       <Card title="Облачная синхронизация" actions={<Icon name="refresh" />}>
         <div className="small muted">
-          Этап 2. Укажите данные проекта Supabase — синхронизация включится после обновления приложения.
+          Данные хранятся на телефоне и дублируются в ваш проект Supabase. Пока облако не настроено,
+          приложение работает полностью офлайн.
         </div>
         <Field label="Адрес проекта">
           <TextInput
@@ -115,6 +117,7 @@ export default function SettingsPage() {
             onChange={(e) => saveSetting('supabase_key', e.target.value)}
           />
         </Field>
+        <SyncPanel />
       </Card>
 
       <Card title="Данные и диагностика" actions={<Icon name="warning" />}>

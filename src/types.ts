@@ -186,6 +186,20 @@ export interface AppSettings {
   ai_model: string;
   supabase_url: string;
   supabase_key: string;
+  supabase_email: string;
+  supabase_user_id: string;
+  supabase_access_token: string;
+  supabase_refresh_token: string;
+  /** Момент истечения токена доступа, ISO */
+  supabase_expires_at: string;
+  /** До какого момента локальные записи уже отправлены в облако */
+  sync_pushed_at: string;
+  /** До какого момента записи уже забраны из облака */
+  sync_pulled_at: string;
+  /** Время последней успешной синхронизации, ISO */
+  sync_last_at: string;
+  /** Текст последней ошибки синхронизации */
+  sync_last_error: string;
   last_vehicle_id: string;
   last_trailer_id: string;
 }
@@ -201,6 +215,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ai_model: '',
   supabase_url: '',
   supabase_key: '',
+  supabase_email: '',
+  supabase_user_id: '',
+  supabase_access_token: '',
+  supabase_refresh_token: '',
+  supabase_expires_at: '',
+  sync_pushed_at: '',
+  sync_pulled_at: '',
+  sync_last_at: '',
+  sync_last_error: '',
   last_vehicle_id: '',
   last_trailer_id: '',
 };
@@ -243,6 +266,7 @@ export const TABLES = [
   'trip_points',
   'refuelings',
   'finance_ops',
+  'attachments',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];
