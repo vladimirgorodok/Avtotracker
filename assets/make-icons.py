@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Значок приложения «АвтоБаза».
 
-Рисует SVG-исходник («стеклянная» фура на бирюзовом градиенте)
-и растеризует его в ресурсы Android через rsvg-convert.
+Рисует SVG-исходник (светящаяся «стеклянная» фура на тёмно-синей плитке —
+в стиле присланного логотипа) и растеризует его в ресурсы Android
+через rsvg-convert.
 
 Запуск:  python3 assets/make-icons.py
 """
@@ -19,111 +20,159 @@ ASSETS = os.path.join(ROOT, "assets")
 RES = os.path.join(ROOT, "android", "app", "src", "main", "res")
 PUBLIC = os.path.join(ROOT, "public")
 
-BRAND_DEEP = "#07404e"
-BRAND = "#0a6a7d"
-BRAND_LIGHT = "#14a6bd"
-ACCENT = "#f0b654"
+# Тёмно-синяя гамма логотипа
+NIGHT = "#030a14"
+NAVY = "#0b2540"
+NAVY_LIGHT = "#16456b"
+CYAN = "#8fe6ff"
+ICE = "#eafcff"
+
+# Геометрия фуры в системе координат 1024×1024
+BOX = dict(x=150, y=292, w=444, h=288, r=38)
+BAR = dict(x=150, y=580, w=726, h=76, r=38)
+CAB = (
+    "M 594 656 L 594 404 Q 594 366 632 362 L 776 348 Q 808 344 820 374 "
+    "L 862 500 L 868 520 L 868 656 Z"
+)
+WIND = "M 650 470 L 770 454 L 800 534 L 650 534 Z"
+WHEEL_A = (330, 694)
+WHEEL_B = (716, 694)
+WHEEL_R = 60
+
+TRUCK_CENTER = (513, 523)
 
 DEFS = f"""
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="{BRAND_LIGHT}"/>
-      <stop offset="0.52" stop-color="{BRAND}"/>
-      <stop offset="1" stop-color="{BRAND_DEEP}"/>
+    <linearGradient id="tile" x1="0.06" y1="0" x2="0.92" y2="1">
+      <stop offset="0" stop-color="{NAVY_LIGHT}"/>
+      <stop offset="0.46" stop-color="{NAVY}"/>
+      <stop offset="1" stop-color="#04101e"/>
     </linearGradient>
 
-    <radialGradient id="glow" cx="0.24" cy="0.12" r="0.72">
-      <stop offset="0" stop-color="#b6f4ff" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#b6f4ff" stop-opacity="0"/>
+    <radialGradient id="tileShine" cx="0.32" cy="0.1" r="0.85">
+      <stop offset="0" stop-color="#c7f2ff" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#c7f2ff" stop-opacity="0"/>
     </radialGradient>
 
-    <radialGradient id="groundshadow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#04202b" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#04202b" stop-opacity="0"/>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03"/>
+    </linearGradient>
+
+    <linearGradient id="rim" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.5" stop-color="#bfefff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.35"/>
+    </linearGradient>
+
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.66"/>
+      <stop offset="0.52" stop-color="#e2f8ff" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#9ddefd" stop-opacity="0.24"/>
+    </linearGradient>
+
+    <linearGradient id="glassCab" x1="0.1" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.78"/>
+      <stop offset="0.6" stop-color="#e6faff" stop-opacity="0.44"/>
+      <stop offset="1" stop-color="#8fd6fa" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <linearGradient id="wind" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#3f9ec9" stop-opacity="0.42"/>
+    </linearGradient>
+
+    <radialGradient id="ground" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#01060d" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#01060d" stop-opacity="0"/>
     </radialGradient>
 
-    <radialGradient id="lampglow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="{ACCENT}" stop-opacity="0.75"/>
-      <stop offset="1" stop-color="{ACCENT}" stop-opacity="0"/>
+    <radialGradient id="night" cx="0.5" cy="0.46" r="0.72">
+      <stop offset="0" stop-color="#123454"/>
+      <stop offset="0.55" stop-color="#08192c"/>
+      <stop offset="1" stop-color="{NIGHT}"/>
     </radialGradient>
 
-    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38"/>
-      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.2"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.12"/>
-    </linearGradient>
+    <filter id="soft" x="-45%" y="-45%" width="190%" height="190%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
 
-    <linearGradient id="bodycab" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.46"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.16"/>
-    </linearGradient>
-
-    <linearGradient id="sweep" x1="0" y1="0" x2="0.4" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.02"/>
-    </linearGradient>
-
-    <linearGradient id="windscreen" x1="0" y1="0" x2="0.7" y2="1">
-      <stop offset="0" stop-color="#d9fbff" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#062b36" stop-opacity="0.42"/>
-    </linearGradient>
-
-    <clipPath id="trailerClip">
-      <rect x="168" y="356" width="436" height="266" rx="28"/>
-    </clipPath>
+    <filter id="softer" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="52"/>
+    </filter>
 
     <clipPath id="squareClip"><rect width="1024" height="1024" rx="236"/></clipPath>
     <clipPath id="circleClip"><circle cx="512" cy="512" r="512"/></clipPath>
+    <clipPath id="boxClip">
+      <rect x="{BOX['x']}" y="{BOX['y']}" width="{BOX['w']}" height="{BOX['h']}" rx="{BOX['r']}"/>
+    </clipPath>
   </defs>
 """
 
-# Фура: прицеп слева (это корма), кабина справа. Каждый узел — «стеклянная» панель.
-TRUCK = f"""
-  <g>
-    <ellipse cx="524" cy="774" rx="368" ry="42" fill="url(#groundshadow)"/>
 
-    <!-- Колёса -->
-    <g>
-      <circle cx="264" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
-      <circle cx="264" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
-      <circle cx="386" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
-      <circle cx="386" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
-      <circle cx="700" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
-      <circle cx="700" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
-      <circle cx="822" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
-      <circle cx="822" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
+def halo() -> str:
+    """Мягкое свечение вокруг фуры — без него значки не «светятся»."""
+    return f"""
+    <g fill="{CYAN}" opacity="0.7" filter="url(#soft)">
+      <rect x="{BOX['x']}" y="{BOX['y']}" width="{BOX['w']}" height="{BOX['h']}" rx="{BOX['r']}"/>
+      <rect x="{BAR['x']}" y="{BAR['y']}" width="{BAR['w']}" height="{BAR['h']}" rx="{BAR['r']}"/>
+      <path d="{CAB}"/>
+      <circle cx="{WHEEL_A[0]}" cy="{WHEEL_A[1]}" r="{WHEEL_R}"/>
+      <circle cx="{WHEEL_B[0]}" cy="{WHEEL_B[1]}" r="{WHEEL_R}"/>
     </g>
+"""
+
+
+def wheel(cx: int, cy: int) -> str:
+    return f"""
+      <circle cx="{cx}" cy="{cy}" r="{WHEEL_R}" fill="url(#glass)" stroke="{ICE}" stroke-opacity="0.9" stroke-width="7"/>
+      <circle cx="{cx}" cy="{cy}" r="27" fill="#061422"/>
+      <circle cx="{cx}" cy="{cy}" r="27" fill="none" stroke="{ICE}" stroke-opacity="0.55" stroke-width="5"/>
+"""
+
+
+def truck(glow: bool = True) -> str:
+    """Фура: прицеп слева, кабина справа — всё из «стекла» с подсветкой."""
+    return f"""
+  <g>
+{halo() if glow else ''}
+    <ellipse cx="512" cy="782" rx="356" ry="30" fill="url(#ground)"/>
+
+    <!-- Колёса (верх прячется за рамой) -->
+{wheel(*WHEEL_A)}
+{wheel(*WHEEL_B)}
 
     <!-- Рама -->
-    <rect x="176" y="600" width="664" height="44" rx="20" fill="#04202a" fill-opacity="0.55"/>
+    <rect x="{BAR['x']}" y="{BAR['y']}" width="{BAR['w']}" height="{BAR['h']}" rx="{BAR['r']}"
+          fill="url(#glass)" stroke="{ICE}" stroke-opacity="0.85" stroke-width="8"/>
 
     <!-- Прицеп -->
-    <rect x="168" y="356" width="436" height="266" rx="28"
-          fill="url(#body)" stroke="#e6fdff" stroke-opacity="0.72" stroke-width="7"/>
-    <g clip-path="url(#trailerClip)">
-      <polygon points="248,356 372,356 186,622 62,622" fill="url(#sweep)"/>
-      <rect x="308" y="372" width="5" height="236" fill="#ffffff" fill-opacity="0.16"/>
-      <rect x="452" y="372" width="5" height="236" fill="#ffffff" fill-opacity="0.16"/>
+    <rect x="{BOX['x']}" y="{BOX['y']}" width="{BOX['w']}" height="{BOX['h']}" rx="{BOX['r']}"
+          fill="url(#glass)" stroke="{ICE}" stroke-opacity="0.9" stroke-width="9"/>
+    <g clip-path="url(#boxClip)">
+      <polygon points="320,292 470,292 244,580 96,580" fill="url(#sheen)"/>
+      <rect x="430" y="316" width="6" height="240" fill="#ffffff" fill-opacity="0.22"/>
     </g>
 
     <!-- Кабина -->
-    <path d="M 616 622 L 616 450 Q 616 412 656 405 L 764 388 Q 818 381 833 421 L 860 505 L 868 505 L 868 622 Z"
-          fill="url(#bodycab)" stroke="#e6fdff" stroke-opacity="0.72" stroke-width="7"
-          stroke-linejoin="round"/>
-    <path d="M 668 462 L 762 446 L 790 508 L 668 508 Z"
-          fill="url(#windscreen)" stroke="#e6fdff" stroke-opacity="0.45" stroke-width="4"
-          stroke-linejoin="round"/>
+    <path d="{CAB}" fill="url(#glassCab)" stroke="{ICE}" stroke-opacity="0.9"
+          stroke-width="9" stroke-linejoin="round"/>
+    <path d="{WIND}" fill="url(#wind)" stroke="{ICE}" stroke-opacity="0.6"
+          stroke-width="5" stroke-linejoin="round"/>
+  </g>
+"""
 
-    <!-- Фара -->
-    <circle cx="858" cy="562" r="46" fill="url(#lampglow)"/>
-    <circle cx="858" cy="562" r="14" fill="#ffe3ab"/>
 
-    <!-- Линии скорости -->
-    <g fill="#ffffff">
-      <rect x="54" y="450" width="78" height="14" rx="7" fill-opacity="0.3"/>
-      <rect x="34" y="520" width="98" height="14" rx="7" fill-opacity="0.22"/>
-      <rect x="62" y="590" width="64" height="14" rx="7" fill-opacity="0.16"/>
-    </g>
+def tile() -> str:
+    """Стеклянная плитка: фон значка для квадратной версии."""
+    return f"""
+  <g clip-path="url(#squareClip)">
+    <rect width="1024" height="1024" fill="url(#tile)"/>
+    <rect width="1024" height="1024" fill="url(#tileShine)"/>
+    <polygon points="1024,0 1024,560 560,0" fill="#ffffff" fill-opacity="0.05"/>
+    <polygon points="1024,0 1024,214 268,1024 0,1024 0,806" fill="url(#sheen)" fill-opacity="0.45"/>
+    <rect x="6" y="6" width="1012" height="1012" rx="232" fill="none"
+          stroke="url(#rim)" stroke-width="12"/>
   </g>
 """
 
@@ -132,12 +181,14 @@ def svg_square() -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">'
         + DEFS
-        + """
-  <g clip-path="url(#squareClip)">
-    <rect width="1024" height="1024" fill="url(#bg)"/>
-    <rect width="1024" height="1024" fill="url(#glow)"/>
+        + f"""
+  <g>
+    <rect width="1024" height="1024" fill="url(#night)"/>
+    <rect x="152" y="152" width="720" height="720" rx="176" fill="{CYAN}"
+          opacity="0.55" filter="url(#softer)"/>
 """
-        + TRUCK
+        + tile()
+        + truck()
         + """
   </g>
 </svg>
@@ -149,12 +200,12 @@ def svg_round() -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">'
         + DEFS
-        + """
+        + f"""
   <g clip-path="url(#circleClip)">
-    <rect width="1024" height="1024" fill="url(#bg)"/>
-    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <rect width="1024" height="1024" fill="url(#night)"/>
+    <rect width="1024" height="1024" fill="url(#tileShine)"/>
 """
-        + TRUCK
+        + truck()
         + """
   </g>
 </svg>
@@ -162,15 +213,16 @@ def svg_round() -> str:
     )
 
 
-def svg_foreground() -> str:
-    """Передний слой адаптивного значка: 108x108, фура в безопасной зоне."""
+def svg_foreground(scale: float = 0.070, size: int = 432) -> str:
+    """Передний слой адаптивного значка: фура в безопасной зоне (108×108)."""
+    cx, cy = TRUCK_CENTER
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 108 108">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 108 108">'
         + DEFS
-        + """
-  <g transform="translate(54 54) scale(0.066) translate(-500 -548)">
+        + f"""
+  <g transform="translate(54 54) scale({scale}) translate({-cx} {-cy})">
 """
-        + TRUCK
+        + truck()
         + """
   </g>
 </svg>
@@ -178,15 +230,16 @@ def svg_foreground() -> str:
     )
 
 
-def svg_splash_icon() -> str:
+def svg_splash_icon(scale: float = 0.40) -> str:
     """Логотип для системной заставки Android 12+ (круглая обрезка)."""
+    cx, cy = TRUCK_CENTER
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">'
         + DEFS
-        + """
-  <g transform="translate(256 256) scale(0.48) translate(-500 -548)">
+        + f"""
+  <g transform="translate(256 256) scale({scale}) translate({-cx} {-cy})">
 """
-        + TRUCK
+        + truck()
         + """
   </g>
 </svg>
@@ -222,14 +275,14 @@ def main() -> int:
     splash_icon = svg_splash_icon()
 
     # Исходники остаются в репозитории — их удобно править
-    with open(os.path.join(ASSETS, "icon.svg"), "w", encoding="utf-8") as fh:
-        fh.write(square)
-    with open(os.path.join(ASSETS, "icon-round.svg"), "w", encoding="utf-8") as fh:
-        fh.write(circle)
-    with open(os.path.join(ASSETS, "icon-foreground.svg"), "w", encoding="utf-8") as fh:
-        fh.write(fg)
-    with open(os.path.join(ASSETS, "splash-icon.svg"), "w", encoding="utf-8") as fh:
-        fh.write(splash_icon)
+    for name, text in [
+        ("icon.svg", square),
+        ("icon-round.svg", circle),
+        ("icon-foreground.svg", fg),
+        ("splash-icon.svg", splash_icon),
+    ]:
+        with open(os.path.join(ASSETS, name), "w", encoding="utf-8") as fh:
+            fh.write(text)
 
     # Квадратный и круглый значок для старых версий Android
     for density, size in [

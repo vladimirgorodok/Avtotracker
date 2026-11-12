@@ -7,6 +7,7 @@ import { SyncPanel } from '../ui/SyncPanel';
 import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
+import type { AppPalette } from '../types';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -50,13 +51,28 @@ export default function SettingsPage() {
             onChange={(v) => {
               const theme = (v ?? 'light') as 'light' | 'dark';
               saveSetting('theme', theme);
-              applyTheme(theme);
+              applyTheme(theme, settings.palette);
             }}
             options={[
               { value: 'light', label: 'Светлая' },
               { value: 'dark', label: 'Тёмная' },
             ]}
             placeholder="Светлая"
+          />
+        </Field>
+        <Field label="Цветовая гамма" hint="Как на значке приложения или прежняя бирюзовая">
+          <Select
+            value={settings.palette}
+            onChange={(v) => {
+              const palette = (v ?? 'navy') as AppPalette;
+              saveSetting('palette', palette);
+              applyTheme(settings.theme, palette);
+            }}
+            options={[
+              { value: 'navy', label: 'Тёмно-синяя' },
+              { value: 'teal', label: 'Бирюзовая' },
+            ]}
+            placeholder="Тёмно-синяя"
           />
         </Field>
         <Field label="Обозначение валюты" hint="Оставьте пустым, чтобы показывать только числа">

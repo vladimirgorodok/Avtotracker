@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { create } from 'zustand';
 import { getSettings, setSetting } from './db/repo';
-import { DEFAULT_SETTINGS, type AppSettings } from './types';
+import { DEFAULT_SETTINGS, type AppPalette, type AppSettings } from './types';
 
 export interface Toast {
   id: number;
@@ -52,9 +52,10 @@ export const useApp = create<AppState>((set, get) => ({
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));
 
-/** Применить тему к документу */
-export function applyTheme(theme: 'light' | 'dark') {
+/** Применить тему и цветовую гамму к документу */
+export function applyTheme(theme: 'light' | 'dark', palette: AppPalette = 'navy') {
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.palette = palette;
 }
 
 /** Оформление значков в строке состояния под тему приложения */

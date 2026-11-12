@@ -17,6 +17,7 @@ import Vehicles from './pages/Vehicles';
 import VehicleDetail from './pages/VehicleDetail';
 import Refs from './pages/Refs';
 import DataPage from './pages/Data';
+import SmartImport from './pages/SmartImport';
 import MorePage from './pages/More';
 import SettingsPage from './pages/Settings';
 import Assistant from './pages/Assistant';
@@ -219,10 +220,10 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    applyTheme(settings.theme);
+    applyTheme(settings.theme, settings.palette);
     // Пока идёт заставка, значки в строке состояния светлые под её тёмный фон
     if (splashDone) applyStatusBarTheme(settings.theme);
-  }, [ready, splashDone, settings.theme]);
+  }, [ready, splashDone, settings.theme, settings.palette]);
 
   useEffect(() => {
     const onHide = () => {
@@ -276,6 +277,7 @@ export default function App() {
               <Route path="/vehicles/:id" element={<VehicleDetail />} />
               <Route path="/refs" element={<Refs />} />
               <Route path="/data" element={<DataPage />} />
+              <Route path="/data/smart" element={<SmartImport />} />
               <Route path="/more" element={<MorePage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/assistant" element={<Assistant />} />

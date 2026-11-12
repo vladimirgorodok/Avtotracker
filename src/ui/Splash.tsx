@@ -34,7 +34,7 @@ function TruckMark() {
         </linearGradient>
         <linearGradient id="sp-wind" x1="0" y1="0" x2="0.7" y2="1">
           <stop offset="0" stopColor="#d9fbff" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#062b36" stopOpacity="0.45" />
+          <stop offset="1" stopColor="#071c31" stopOpacity="0.5" />
         </linearGradient>
         <clipPath id="sp-trailer">
           <rect x="168" y="356" width="436" height="266" rx="28" />
@@ -42,9 +42,9 @@ function TruckMark() {
       </defs>
 
       <g>
-        <ellipse cx="524" cy="774" rx="360" ry="40" fill="#04202b" opacity="0.28" />
+        <ellipse cx="524" cy="774" rx="360" ry="40" fill="#04101e" opacity="0.34" />
 
-        <g fill="#04202a" stroke="#d8fbff" strokeOpacity="0.5" strokeWidth="6">
+        <g fill="#05121f" stroke="#d8fbff" strokeOpacity="0.5" strokeWidth="6">
           <circle cx="264" cy="682" r="54" />
           <circle cx="386" cy="682" r="54" />
           <circle cx="700" cy="682" r="54" />
@@ -57,7 +57,7 @@ function TruckMark() {
           <circle cx="822" cy="682" r="23" />
         </g>
 
-        <rect x="176" y="600" width="664" height="44" rx="20" fill="#04202a" fillOpacity="0.55" />
+        <rect x="176" y="600" width="664" height="44" rx="20" fill="#05121f" fillOpacity="0.6" />
 
         <rect
           x="168"

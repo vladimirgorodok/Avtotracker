@@ -51,6 +51,7 @@ export default function DataPage() {
     await run('import', async () => {
       const bytes = await fileToBytes(file);
       const res = await importCsvZip(bytes);
+      await getDb().then((db) => db.flush());
       touch();
       notify(res.message, 'ok');
     });
@@ -121,10 +122,18 @@ export default function DataPage() {
 
       <Card title="Импорт" actions={<Icon name="upload" />}>
         <div className="small muted">Совпадающие записи останутся без изменений</div>
+        <Button variant="primary" block icon="ai" disabled={busy !== ''} onClick={() => navigate('/data/smart')}>
+          Умный импорт: чужой архив
+        </Button>
+        <div className="small muted">
+          Разберёт файлы с любыми названиями и колонками, перенесёт подходящее и подскажет, каких полей
+          не хватает в базе.
+        </div>
+        <div className="divider" />
         <Button block icon="upload" disabled={busy !== ''} onClick={doImportZip}>
           Выбрать ZIP-архив (CSV)
         </Button>
-        <Button variant="primary" block icon="upload" disabled={busy !== ''} onClick={doImportJson}>
+        <Button block icon="upload" disabled={busy !== ''} onClick={doImportJson}>
           Выбрать резервную копию (JSON)
         </Button>
         <label className="row">

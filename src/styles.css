@@ -1,15 +1,17 @@
 :root {
-  --bg: #e3eaf0;
-  --bg-soft: #eef3f7;
+  --bg: #e4eaf2;
+  --bg-soft: #eef2f8;
   --card: #ffffff;
   --glass: rgba(255, 255, 255, 0.86);
-  --text: #131f28;
-  --muted: #5e7080;
-  --line: #d0dbe3;
-  --brand: #0a6a7d;
-  --brand-2: #14a6bd;
-  --brand-dark: #074f5e;
-  --brand-soft: #d8ebef;
+  --text: #101a26;
+  --muted: #5e6f80;
+  --line: #d3dce8;
+  /* Тёмно-синяя гамма — как на значке и в логотипе */
+  --brand: #0f4c81;
+  --brand-2: #1e88c7;
+  --brand-dark: #0a3a63;
+  --brand-soft: #dce9f7;
+  --brand-rgb: 15, 76, 129;
   --accent: #d98314;
   --accent-2: #f0b654;
   --accent-soft: #fdeed7;
@@ -21,13 +23,14 @@
   --err-soft: #fbe5e8;
   --info: #2b5fc4;
   --info-soft: #e4edfc;
-  --grad-brand: linear-gradient(135deg, #0a6a7d 0%, #14a6bd 100%);
-  --grad-deep: linear-gradient(155deg, #084c5a 0%, #0a6a7d 45%, #14a6bd 100%);
+  --grad-brand: linear-gradient(135deg, #0f4c81 0%, #1e88c7 100%);
+  --grad-deep: linear-gradient(155deg, #061a2e 0%, #0f4c81 45%, #1e88c7 100%);
   --grad-accent: linear-gradient(135deg, #d98314 0%, #f0b654 100%);
-  --ring: 0 0 0 3px rgba(20, 166, 189, 0.18);
+  --splash-bg: radial-gradient(125% 95% at 18% -4%, #1e6f9e 0%, #0b2b47 46%, #04101e 100%);
+  --ring: 0 0 0 3px rgba(30, 136, 199, 0.18);
   --radius: 14px;
-  --shadow: 0 1px 2px rgba(10, 34, 44, 0.08), 0 8px 22px rgba(10, 34, 44, 0.07);
-  --shadow-lg: 0 12px 34px rgba(8, 76, 90, 0.22);
+  --shadow: 0 1px 2px rgba(8, 22, 38, 0.08), 0 8px 22px rgba(8, 22, 38, 0.07);
+  --shadow-lg: 0 12px 34px rgba(9, 32, 56, 0.24);
   --nav-h: 62px;
   /* Отступы системных панелей. Capacitor 8 подставляет --safe-area-inset-*,
      когда приложение рисуется во весь экран (Android 15+). */
@@ -38,17 +41,18 @@
 }
 
 [data-theme='dark'] {
-  --bg: #0a1015;
-  --bg-soft: #111a21;
-  --card: #16212a;
-  --glass: rgba(22, 33, 42, 0.86);
+  --bg: #070e17;
+  --bg-soft: #0d1725;
+  --card: #121e2c;
+  --glass: rgba(18, 30, 44, 0.86);
   --text: #e9f1f6;
-  --muted: #8b9fac;
-  --line: #24323c;
-  --brand: #2fb3c7;
-  --brand-2: #4fcbdd;
-  --brand-dark: #1a8b9e;
-  --brand-soft: #12303a;
+  --muted: #8ba0b6;
+  --line: #1f2f41;
+  --brand: #4c9fe0;
+  --brand-2: #6fc4f5;
+  --brand-dark: #2b7cb5;
+  --brand-soft: #102a40;
+  --brand-rgb: 76, 159, 224;
   --accent: #f0a63c;
   --accent-2: #ffc46b;
   --accent-soft: #33260f;
@@ -60,9 +64,56 @@
   --err-soft: #35191e;
   --info: #7aa9f0;
   --info-soft: #15233a;
+  --grad-brand: linear-gradient(135deg, #2b7cb5 0%, #5fbdf0 100%);
+  --grad-deep: linear-gradient(155deg, #061a2c 0%, #0d3a5c 50%, #1e6f9e 100%);
+  --grad-accent: linear-gradient(135deg, #c9791a 0%, #f0b654 100%);
+  --splash-bg: radial-gradient(125% 95% at 18% -4%, #1e6f9e 0%, #0b2b47 46%, #04101e 100%);
+  --ring: 0 0 0 3px rgba(111, 196, 245, 0.22);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 14px 34px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- Бирюзовая гамма: второй вариант оформления ----------
+   Переключается в настройках. Блоки идут после темы, чтобы
+   перекрывать тёмно-синие значения при равной специфичности. */
+
+[data-palette='teal'] {
+  --bg: #e3eaf0;
+  --bg-soft: #eef3f7;
+  --card: #ffffff;
+  --glass: rgba(255, 255, 255, 0.86);
+  --text: #131f28;
+  --muted: #5e7080;
+  --line: #d0dbe3;
+  --brand: #0a6a7d;
+  --brand-2: #14a6bd;
+  --brand-dark: #074f5e;
+  --brand-soft: #d8ebef;
+  --brand-rgb: 10, 106, 125;
+  --grad-brand: linear-gradient(135deg, #0a6a7d 0%, #14a6bd 100%);
+  --grad-deep: linear-gradient(155deg, #084c5a 0%, #0a6a7d 45%, #14a6bd 100%);
+  --splash-bg: radial-gradient(125% 95% at 18% -4%, #17b0c8 0%, #0a6a7d 46%, #05303c 100%);
+  --ring: 0 0 0 3px rgba(20, 166, 189, 0.18);
+  --shadow: 0 1px 2px rgba(10, 34, 44, 0.08), 0 8px 22px rgba(10, 34, 44, 0.07);
+  --shadow-lg: 0 12px 34px rgba(8, 76, 90, 0.22);
+}
+
+[data-theme='dark'][data-palette='teal'] {
+  --bg: #0a1015;
+  --bg-soft: #111a21;
+  --card: #16212a;
+  --glass: rgba(22, 33, 42, 0.86);
+  --text: #e9f1f6;
+  --muted: #8b9fac;
+  --line: #24323c;
+  --brand: #2fb3c7;
+  --brand-2: #4fcbdd;
+  --brand-dark: #1a8b9e;
+  --brand-soft: #12303a;
+  --brand-rgb: 47, 179, 199;
   --grad-brand: linear-gradient(135deg, #1a8b9e 0%, #35c0d6 100%);
   --grad-deep: linear-gradient(155deg, #0a3b46 0%, #10586a 50%, #1a8b9e 100%);
-  --grad-accent: linear-gradient(135deg, #c9791a 0%, #f0b654 100%);
+  --splash-bg: radial-gradient(125% 95% at 18% -4%, #17b0c8 0%, #0a6a7d 46%, #05303c 100%);
   --ring: 0 0 0 3px rgba(53, 192, 214, 0.22);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 14px 34px rgba(0, 0, 0, 0.55);
@@ -1116,7 +1167,7 @@ body {
 /* Фон с мягкими цветовыми пятнами вместо ровного серого */
 body {
   background:
-    radial-gradient(1100px 520px at 14% -10%, rgba(20, 166, 189, 0.16), transparent 62%),
+    radial-gradient(1100px 520px at 14% -10%, rgba(var(--brand-rgb), 0.16), transparent 62%),
     radial-gradient(880px 460px at 104% 2%, rgba(217, 131, 20, 0.12), transparent 58%),
     var(--bg);
   background-attachment: fixed;
@@ -1124,7 +1175,7 @@ body {
 
 [data-theme='dark'] body {
   background:
-    radial-gradient(1100px 520px at 14% -10%, rgba(53, 192, 214, 0.13), transparent 62%),
+    radial-gradient(1100px 520px at 14% -10%, rgba(var(--brand-rgb), 0.13), transparent 62%),
     radial-gradient(880px 460px at 104% 2%, rgba(240, 166, 60, 0.1), transparent 58%),
     var(--bg);
 }
@@ -1148,7 +1199,7 @@ body {
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: linear-gradient(90deg, rgba(20, 166, 189, 0.55), rgba(240, 182, 84, 0.4) 62%, rgba(240, 182, 84, 0));
+  background: linear-gradient(90deg, rgba(var(--brand-rgb), 0.55), rgba(240, 182, 84, 0.4) 62%, rgba(240, 182, 84, 0));
   pointer-events: none;
 }
 
@@ -1194,7 +1245,7 @@ body {
 /* Кнопки */
 .btn-primary {
   background: var(--grad-brand);
-  box-shadow: 0 6px 16px rgba(20, 166, 189, 0.28);
+  box-shadow: 0 6px 16px rgba(var(--brand-rgb), 0.28);
 }
 
 .btn-success {
@@ -1269,7 +1320,7 @@ body {
 .chip-active {
   background: var(--grad-brand);
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(20, 166, 189, 0.25);
+  box-shadow: 0 4px 12px rgba(var(--brand-rgb), 0.25);
 }
 
 .tab-active {
@@ -1290,7 +1341,7 @@ body {
   background: linear-gradient(150deg, var(--brand-soft) 0%, var(--card) 100%);
   color: var(--brand);
   border-color: transparent;
-  box-shadow: inset 0 0 0 1px rgba(20, 166, 189, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(var(--brand-rgb), 0.22);
 }
 
 /* Предупреждения и подсказки — с цветной полосой слева */
@@ -1325,7 +1376,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(125% 95% at 18% -4%, #17b0c8 0%, #0a6a7d 46%, #05303c 100%);
+  background: var(--splash-bg);
   transition: opacity 0.42s ease, transform 0.42s ease;
 }
 
@@ -1380,7 +1431,7 @@ body {
   display: block;
   width: 100%;
   height: auto;
-  filter: drop-shadow(0 18px 26px rgba(2, 26, 34, 0.42));
+  filter: drop-shadow(0 18px 26px rgba(2, 10, 20, 0.5));
 }
 
 .splash-title {
@@ -1389,7 +1440,7 @@ body {
   font-weight: 800;
   letter-spacing: 0.01em;
   color: #eafcff;
-  text-shadow: 0 8px 26px rgba(2, 26, 34, 0.45);
+  text-shadow: 0 8px 26px rgba(2, 10, 20, 0.5);
   animation: splash-rise 0.7s ease 0.5s both;
 }
 
@@ -1408,7 +1459,7 @@ body {
   bottom: 0;
   height: 30%;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(3, 22, 29, 0) 0%, rgba(3, 22, 29, 0.5) 55%, rgba(3, 22, 29, 0.72) 100%);
+  background: linear-gradient(180deg, rgba(2, 12, 24, 0) 0%, rgba(2, 12, 24, 0.55) 55%, rgba(2, 12, 24, 0.78) 100%);
 }
 
 .splash-dash {

@@ -175,12 +175,16 @@ export interface SettingRow {
   deleted: Flag;
 }
 
+export type AppPalette = 'navy' | 'teal';
+
 export interface AppSettings {
   base_amount: number;
   extra_point_amount: number;
   base_points: number;
   currency: string;
   theme: 'light' | 'dark';
+  /** Цветовая гамма приложения */
+  palette: AppPalette;
   ai_base_url: string;
   ai_api_key: string;
   ai_model: string;
@@ -210,6 +214,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   base_points: 2,
   currency: '',
   theme: 'light',
+  palette: 'navy',
   ai_base_url: 'https://api.aitunnel.ru/v1',
   ai_api_key: '',
   ai_model: '',

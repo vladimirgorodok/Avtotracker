@@ -158,11 +158,75 @@ export interface ImportResult {
   inserted: number;
   updated: number;
   skipped: number;
+  /** Сколько файлов архива удалось распознать */
+  files: number;
   message: string;
 }
 
 function isTable(name: string): name is TableName {
   return (TABLES as readonly string[]).includes(name);
+}
+
+/** Колонки таблицы — чтобы лишние поля из чужого файла не ломали вставку */
+const columnCache = new Map<string, Map<string, string>>();
+
+/** Имя колонки → объявленный тип (TEXT / REAL / INTEGER) */
+export function columnTypesOf(table: string): Map<string, string> {
+  let cols = columnCache.get(table);
+  if (!cols) {
+    cols = new Map(
+      dbSync()
+        .all<{ name: string; type: string }>(`PRAGMA table_info(${table})`)
+        .map((c) => [c.name, String(c.type || '').toUpperCase()]),
+    );
+    columnCache.set(table, cols);
+  }
+  return cols;
+}
+
+export function columnsOf(table: string): Set<string> {
+  return new Set(columnTypesOf(table).keys());
+}
+
+/** «10 500,50» → 10500.5; не число — null */
+export function toNumber(raw: string): number | null {
+  const s = raw.replace(/\s|\u00a0/g, '').replace(',', '.');
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  return Number(s);
+}
+
+/** Итог импорта словами — чтобы «ничего не добавилось» не выглядело как поломка */
+function describeImport(inserted: number, updated: number, skipped: number, files: number): string {
+  const parts: string[] = [];
+  if (inserted > 0) parts.push(`добавлено ${inserted}`);
+  if (updated > 0) parts.push(`обновлено ${updated}`);
+  if (skipped > 0) parts.push(`уже было ${skipped}`);
+  if (files === 0) return 'В архиве не нашлось ни одной таблицы АвтоБазы';
+  if (parts.length === 0) return `Файлов распознано: ${files}, новых записей нет`;
+  return parts.join(', ');
+}
+
+/**
+ * Строка из CSV → значения для базы.
+ * Пустые клетки пропускаем совсем: тогда подставится значение по умолчанию
+ * из схемы (в таблицах много полей вида NOT NULL DEFAULT ''), а не null,
+ * из-за которого вставка падала целиком.
+ */
+export function cleanCsvRow(table: string, row: Record<string, string>): Record<string, unknown> {
+  const types = columnTypesOf(table);
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const type = types.get(k);
+    if (type === undefined) continue;
+    if (v === '') continue;
+    if (k === 'id' || type === 'TEXT') {
+      clean[k] = v;
+      continue;
+    }
+    const num = toNumber(v);
+    clean[k] = num === null ? v : num;
+  }
+  return clean;
 }
 
 /** Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений. */
@@ -210,7 +274,8 @@ export function importJson(text: string, overwrite = false): ImportResult {
     inserted,
     updated,
     skipped,
-    message: `Добавлено ${inserted}, обновлено ${updated}, пропущено ${skipped}`,
+    files: Object.keys(payload.tables ?? {}).length,
+    message: describeImport(inserted, updated, skipped, Object.keys(payload.tables ?? {}).length),
   };
 }
 
@@ -221,11 +286,13 @@ export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
   const db = dbSync();
   let inserted = 0;
   let skipped = 0;
+  let files = 0;
 
   for (const [name, file] of Object.entries(zip.files)) {
     if (file.dir) continue;
     const table = name.replace(/\.csv$/i, '').trim();
     if (!isTable(table)) continue;
+    files++;
     const text = await file.async('string');
     const rows = parseCsv(text);
     db.tx(() => {
@@ -240,19 +307,13 @@ export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
           skipped++;
           continue;
         }
-        const clean: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(row)) {
-          if (v === '') clean[k] = null;
-          else if (/^-?\d+(\.\d+)?$/.test(v) && k !== 'id' && !k.endsWith('_at')) clean[k] = Number(v);
-          else clean[k] = v;
-        }
-        insertRow(table, clean);
+        insertRow(table, cleanCsvRow(table, row));
         inserted++;
       }
     });
   }
 
-  return { inserted, updated: 0, skipped, message: `Добавлено ${inserted}, пропущено ${skipped}` };
+  return { inserted, updated: 0, skipped, files, message: describeImport(inserted, 0, skipped, files) };
 }
 
 /** Встроить шрифт с кириллицей, иначе в PDF будут пустые квадраты */

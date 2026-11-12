@@ -93,6 +93,7 @@ const g = globalThis as unknown as Record<string, unknown>;
 g.indexedDB = fakeIndexedDb;
 g.document = {
   baseURI: `file://${process.cwd()}/public/`,
+  documentElement: { dataset: {} as Record<string, string> },
   createElement: () => ({ click: () => {}, remove: () => {}, style: {} }),
   body: { appendChild: () => {} },
   addEventListener: () => {},
@@ -679,8 +680,158 @@ async function main() {
     check('CSS читает отступы системных панелей', css.includes('var(--safe-area-inset-top'));
     check('Шапка отступает под строку состояния', css.includes('padding-top: calc(12px + var(--safe-top))'));
     check('Нижнее меню отступает от полосы жестов', css.includes('height: calc(var(--nav-h) + var(--safe-bottom))'));
+    check('Гамма по умолчанию — тёмно-синяя', css.includes('--brand: #0f4c81'));
+    check('Есть бирюзовая гамма', css.includes("[data-palette='teal']"));
+    check('Бирюзовая гамма перекрывает тёмную тему', css.includes("[data-theme='dark'][data-palette='teal']"));
+    check(
+      'Порядок блоков: бирюзовая идёт после тёмной темы',
+      css.indexOf("[data-palette='teal']") > css.indexOf("[data-theme='dark']"),
+    );
+    check('Свечение берёт цвет из гаммы', css.includes('rgba(var(--brand-rgb)'));
+    check('Заставка берёт фон из гаммы', css.includes('background: var(--splash-bg)'));
   } catch (e) {
     check('CSS читает отступы системных панелей', false, e instanceof Error ? e.message : String(e));
+  }
+
+  console.log('\n16б. Оформление');
+  {
+    const { applyTheme } = await import('../store');
+    const { DEFAULT_SETTINGS } = await import('../types');
+    eq('гамма по умолчанию — тёмно-синяя', DEFAULT_SETTINGS.palette, 'navy');
+    applyTheme('dark', 'teal');
+    const root = (g.document as { documentElement: { dataset: Record<string, string> } }).documentElement;
+    eq('тема попала в документ', root.dataset.theme, 'dark');
+    eq('гамма попала в документ', root.dataset.palette, 'teal');
+    applyTheme('light');
+    eq('без явной гаммы — тёмно-синяя', root.dataset.palette, 'navy');
+  }
+
+  console.log('\n17. Импорт ZIP в пустую базу');
+  {
+    const { TABLES } = await import('../types');
+    const full = dumpAll();
+    const zipAll = new JSZip();
+    for (const t of TABLES) zipAll.file(`${t}.csv`, toCsv(full[t]));
+    const zipAllBytes = await zipAll.generateAsync({ type: 'uint8array' });
+
+    const placesBefore = repo.countRows('places');
+    const tripsBefore = repo.countRows('trips');
+    db.tx(() => {
+      for (const t of TABLES) dbSync().run(`DELETE FROM ${t}`);
+    });
+    eq('база очищена', repo.countRows('places'), 0);
+
+    const restored = await importCsvZip(zipAllBytes);
+    check(
+      'импорт в пустую базу добавил записи',
+      restored.inserted > 0,
+      `(добавлено ${restored.inserted}, пропущено ${restored.skipped})`,
+    );
+    eq('места восстановлены', repo.countRows('places'), placesBefore);
+    eq('перевозки восстановлены', repo.countRows('trips'), tripsBefore);
+  }
+
+  console.log('\n18. Умный импорт чужого архива');
+  {
+    const si = await import('../lib/smart-import');
+
+    const foreign = [
+      'Дата;Путевой лист;Откуда;Куда;Вес, кг;Сумма;Груз;Тент',
+      '05.11.2026;ПЛ-777;Карьер Север;Порт Юг;18 500;12 000;Отсев;есть',
+      '06.11.2026;ПЛ-777;Порт Юг;База Запад;900;1 500;ПГС;нет',
+    ].join('\n');
+    const sheets = await si.readArchive(new TextEncoder().encode(foreign), 'Рейсы.csv');
+
+    eq('архив прочитан', sheets.length, 1);
+    eq('колонок в файле', sheets[0].columns.length, 8);
+
+    const plan = si.buildPlan(sheets);
+    const sheetPlan = plan.sheets[0];
+    eq('файл распознан как перевозки', sheetPlan.table, 'trips');
+    const mapped = sheetPlan.links.map((l) => l.to);
+    for (const field of ['date', 'waybill_number', 'place_from', 'place_to', 'weight', 'amount', 'cargo_name']) {
+      check(`колонка «${field}» распознана`, mapped.includes(field));
+    }
+    check('лишняя колонка осталась в стороне', sheetPlan.unknown.includes('Тент'));
+    check('подсказка про лишнее поле', plan.advice.some((a) => a.includes('Тент')));
+
+    const tripsBefore = repo.countRows('trips');
+    const res = si.applyPlan(sheets, plan);
+    eq('перенесено перевозок', res.inserted.trips, 2);
+    eq('перевозок стало больше', repo.countRows('trips'), tripsBefore + 2);
+    eq('места созданы', res.created.places, 3);
+    eq('грузы созданы', res.created.cargo_types, 2);
+    eq('путевой лист создан', res.created.waybills, 1);
+
+    const wb = repo.waybillRepo.list().find((w) => w.number === 'ПЛ-777');
+    check('номер листа перенесён', Boolean(wb));
+
+    const trip = repo.tripRepo
+      .all()
+      .find((t) => repo.tripRepo.points(t.id).some((p) => repo.refs.place(p.place_id)?.name === 'Карьер Север'));
+    check('перевозка с точками создана', Boolean(trip));
+    if (trip) {
+      const points = repo.tripRepo.points(trip.id);
+      eq('точек у перевозки', points.length, 2);
+      eq('первая точка — погрузка', points[0].kind, 'load');
+      eq('вторая точка — выгрузка', points[1].kind, 'unload');
+      eq('точки выполнены', points.filter((p) => p.status === 'done').length, 2);
+      eq('вес перенесён', trip.weight, 18500);
+      eq('сумма перенесена', trip.amount, 12000);
+      eq('груз привязан', repo.refs.cargoType(trip.cargo_type_id)?.name, 'Отсев');
+      eq('лист привязан', trip.waybill_id, wb?.id);
+    }
+
+    // Файл без понятного имени: таблицу подсказывают колонки
+    const fuel = await si.readArchive(
+      new TextEncoder().encode('Дата;Количество;Тип\n07.11.2026;350;АЗС'),
+      'Данные.csv',
+    );
+    const fuelPlan = si.buildPlan(fuel);
+    eq('таблица угадана по колонкам', fuelPlan.sheets[0].table, 'refuelings');
+    const fuelRes = si.applyPlan(fuel, fuelPlan);
+    eq('заправка перенесена', fuelRes.inserted.refuelings, 1);
+
+    // Даты и месяцы в разных форматах
+    eq('дата ДД.ММ.ГГГГ', si.parseDateValue('05.11.2026'), '2026-11-05');
+    eq('дата ГГГГ-ММ-ДД', si.parseDateValue('2026-11-05'), '2026-11-05');
+    eq('месяц словом', si.parseMonthValue('Ноябрь 2026'), '2026-11');
+    eq('месяц точкой', si.parseMonthValue('11.2026'), '2026-11');
+
+    // ИИ уточняет разбор, когда имена колонок ничего не говорят
+    const originalFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"sheets":[{"source":"таблица","table":"places","confidence":0.9,' +
+                  '"columns":{"A":"name","B":"address"}}],"advice":["Добавьте поле «Район»"]}',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as unknown as typeof fetch;
+    try {
+      const vague = await si.readArchive(
+        new TextEncoder().encode('A;B\nБаза Юг;Москва, Ленина 1'),
+        'таблица.csv',
+      );
+      const rawPlan = si.buildPlan(vague);
+      eq('без ИИ таблица не угадана', rawPlan.sheets[0].table, null);
+      const refined = await si.refineWithAi(vague, rawPlan);
+      eq('ИИ подставил таблицу', refined.sheets[0].table, 'places');
+      eq('пометка источника — ИИ', refined.sheets[0].via, 'ИИ');
+      check('совет ИИ добавлен', refined.advice.some((a) => a.includes('Район')));
+      const vagueRes = si.applyPlan(vague, refined);
+      eq('перенесено в места', vagueRes.inserted.places, 1);
+      check('место создано', repo.refs.places().some((p) => p.name === 'База Юг'));
+    } finally {
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
+    }
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
