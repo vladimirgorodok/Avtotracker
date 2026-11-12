@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { applyStatusBarLightIcons } from '../store';
 
 /** Длительность заставки, мс */
 const DURATION = 3000;
@@ -112,6 +113,11 @@ function TruckMark() {
 export function Splash({ onDone }: { onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
   const [duration] = useState(() => (prefersReducedMotion() ? DURATION_REDUCED : DURATION));
+
+  useEffect(() => {
+    // Фон заставки тёмный — значки строки состояния делаем светлыми
+    applyStatusBarLightIcons();
+  }, []);
 
   useEffect(() => {
     const hide = setTimeout(() => setLeaving(true), Math.max(0, duration - 420));

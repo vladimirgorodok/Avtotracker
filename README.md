@@ -83,6 +83,10 @@ npm run android:apk    # сборка APK локально (нужен Android S
   (`python3 assets/make-icons.py`, нужен `rsvg-convert`);
 - `supabase/schema.sql` — схема облака.
 
+Приложение рисуется во весь экран (Android 15+ требует этого для `targetSdk 36`), поэтому отступы
+под строку состояния и полосу жестов берутся из переменных `--safe-area-inset-*`, которые Capacitor
+подставляет в документ; в CSS они доступны как `--safe-top` / `--safe-bottom` / `--safe-left` / `--safe-right`.
+
 ## Ограничения
 
 - APK подписан отладочным ключом — для личного пользования подходит, для Play Market нужна своя подпись.

@@ -673,6 +673,16 @@ async function main() {
     check('Заставка: собирается', false, e instanceof Error ? e.message : String(e));
   }
 
+  /** Отступы системных панелей: приложение рисуется во весь экран (Android 15+) */
+  try {
+    const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
+    check('CSS читает отступы системных панелей', css.includes('var(--safe-area-inset-top'));
+    check('Шапка отступает под строку состояния', css.includes('padding-top: calc(12px + var(--safe-top))'));
+    check('Нижнее меню отступает от полосы жестов', css.includes('height: calc(var(--nav-h) + var(--safe-bottom))'));
+  } catch (e) {
+    check('CSS читает отступы системных панелей', false, e instanceof Error ? e.message : String(e));
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

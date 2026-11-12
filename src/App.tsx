@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { getDb } from './db';
-import { applyTheme, useApp } from './store';
+import { applyStatusBarTheme, applyTheme, useApp } from './store';
 import { Icon, type IconName, Modal, Toasts } from './ui/components';
 import { Splash } from './ui/Splash';
 import Home from './pages/Home';
@@ -218,8 +218,11 @@ export default function App() {
   }, [init]);
 
   useEffect(() => {
-    if (ready) applyTheme(settings.theme);
-  }, [ready, settings.theme]);
+    if (!ready) return;
+    applyTheme(settings.theme);
+    // Пока идёт заставка, значки в строке состояния светлые под её тёмный фон
+    if (splashDone) applyStatusBarTheme(settings.theme);
+  }, [ready, splashDone, settings.theme]);
 
   useEffect(() => {
     const onHide = () => {

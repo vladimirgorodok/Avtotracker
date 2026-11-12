@@ -29,6 +29,12 @@
   --shadow: 0 1px 2px rgba(10, 34, 44, 0.08), 0 8px 22px rgba(10, 34, 44, 0.07);
   --shadow-lg: 0 12px 34px rgba(8, 76, 90, 0.22);
   --nav-h: 62px;
+  /* Отступы системных панелей. Capacitor 8 подставляет --safe-area-inset-*,
+     когда приложение рисуется во весь экран (Android 15+). */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
 }
 
 [data-theme='dark'] {
@@ -1503,4 +1509,66 @@ body {
   .splash-bar span {
     width: 100%;
   }
+}
+
+/* ============================================================
+   Системные панели телефона
+   Приложение рисуется во весь экран (Android 15+ / targetSdk 36),
+   поэтому содержимое надо отодвинуть от строки состояния и полосы жестов.
+   Высоты приходят из --safe-area-inset-* (см. :root).
+   ============================================================ */
+
+/* Шапка: её фон уходит под строку состояния, текст остаётся ниже */
+.topbar {
+  padding-top: calc(12px + var(--safe-top));
+  padding-left: calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+}
+
+/* Нижнее меню поднято над полосой жестов */
+.bottom-nav {
+  height: calc(var(--nav-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.fab {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) - 6px);
+}
+
+/* Последний блок страницы не прячется за меню */
+.page-body {
+  padding-left: calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 28px);
+}
+
+.toasts {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);
+}
+
+/* Нижние шторки */
+.modal {
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.modal-foot {
+  padding: 12px 14px;
+}
+
+/* Заставка */
+.splash {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* В альбомной ориентации с вырезом — поля по бокам */
+.splash-stage {
+  padding-left: calc(24px + var(--safe-left));
+  padding-right: calc(24px + var(--safe-right));
 }
