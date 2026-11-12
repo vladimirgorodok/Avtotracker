@@ -32,6 +32,12 @@ class FakeObjectStore {
     queueMicrotask(() => req.onsuccess?.());
     return req;
   }
+  delete(key: string) {
+    this.map.delete(key);
+    const req = new FakeRequest<unknown>();
+    queueMicrotask(() => req.onsuccess?.());
+    return req;
+  }
 }
 
 class FakeTransaction {
@@ -44,12 +50,14 @@ class FakeTransaction {
   }
 }
 
+/** Хранилище общее для всех открытий — как настоящая база в браузере */
+const fakeStores = new Map<string, Map<string, unknown>>();
+
 class FakeDb {
   objectStoreNames = { contains: () => true };
-  stores = new Map<string, Map<string, unknown>>();
   transaction(_name: string, _mode: string) {
-    if (!this.stores.has('files')) this.stores.set('files', new Map());
-    return new FakeTransaction(this.stores.get('files')!) as unknown as IDBTransaction;
+    if (!fakeStores.has('files')) fakeStores.set('files', new Map());
+    return new FakeTransaction(fakeStores.get('files')!) as unknown as IDBTransaction;
   }
 }
 
@@ -406,10 +414,173 @@ async function main() {
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('название месяца', monthLabel('2026-11'), 'Ноябрь 2026 г.');
 
-  console.log('\n15. Экраны приложения');
+  console.log('\n15. ИИ-помощник');
+  const {
+    normalizeBaseUrl,
+    buildDataContext,
+    systemPrompt,
+    localAnswer,
+    answer,
+    listModels,
+    askModel,
+    loadChat,
+    saveChat,
+    clearChat,
+  } = await import('../lib/ai');
   const { createElement } = await import('react');
   const { renderToString } = await import('react-dom/server');
   const { MemoryRouter, Route, Routes } = await import('react-router-dom');
+
+  eq('адрес без схемы и пути дополняется', normalizeBaseUrl('api.example.com'), 'https://api.example.com/v1');
+  eq('адрес с путём не меняется', normalizeBaseUrl('https://api.example.com/v1/'), 'https://api.example.com/v1');
+  eq('пустой адрес остаётся пустым', normalizeBaseUrl('   '), '');
+
+  const context = buildDataContext();
+  check('сводка содержит ставки', context.includes('Ставки'));
+  check('сводка содержит дату листа', context.includes(fmtDate(todayIso())));
+  check('сводка содержит названия мест', context.includes('Склад А'));
+  check('сводка содержит деньги', context.includes('начислено'));
+  check('сводка содержит перевозки', context.includes('Склад А → Склад Б'));
+
+  const sys = systemPrompt();
+  check('системная подсказка описывает роль', sys.includes('Автотрекер'));
+  check('системная подсказка включает данные приложения', sys.includes('Склад А'));
+
+  const moneyAnswer = localAnswer('сколько начислено за этот месяц');
+  check('вопрос про деньги распознан', moneyAnswer !== null && moneyAnswer.includes('начислено'));
+  const fuelAnswer = localAnswer('какой расход топлива');
+  check('вопрос про расход распознан', fuelAnswer !== null && fuelAnswer.includes('расход'));
+  const helloAnswer = localAnswer('привет');
+  check('приветствие распознано', helloAnswer !== null && helloAnswer.includes('Здравствуйте'));
+  const errorsAnswer = localAnswer('проверь листы на ошибки');
+  check('проверка ошибок распознана', errorsAnswer !== null);
+  eq('незнакомый вопрос не распознан', localAnswer('абракадабра зюйдвест'), null);
+
+  await clearChat();
+  eq('переписка изначально пуста', (await loadChat()).length, 0);
+  await saveChat([{ role: 'user', text: 'привет', at: new Date().toISOString() }]);
+  eq('переписка сохраняется', (await loadChat()).length, 1);
+  await clearChat();
+  eq('переписка очищается', (await loadChat()).length, 0);
+
+  const offlineAnswer = await answer('сколько начислено за этот месяц', []);
+  eq('без ключа ответ на устройстве', offlineAnswer.offline, true);
+  check('без ключа ответ по делу', offlineAnswer.text.includes('начислено'));
+  const unknownAnswer = await answer('абракадабра зюйдвест', []);
+  eq('незнакомый вопрос тоже на устройстве', unknownAnswer.offline, true);
+  check('подсказка про настройки', unknownAnswer.text.includes('настройках'));
+
+  {
+    const mod = await import('../pages/Assistant');
+    const html = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/assistant'] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, {
+            path: '/assistant',
+            element: createElement(mod.default as never),
+          }),
+        ),
+      ) as never,
+    );
+    check('ИИ-помощник собирается без ключа', html.length > 200 && html.includes('без ключа'));
+  }
+
+  // Проверяем обращения к сервису на подставных ответах — без настоящего ключа
+  useApp.getState().saveSetting('ai_api_key', 'test-key');
+  useApp.getState().saveSetting('ai_model', 'test-model');
+  useApp.getState().saveSetting('ai_base_url', 'https://api.example.com');
+
+  const originalFetch = globalThis.fetch;
+  const netCalls: { url: string; init?: RequestInit }[] = [];
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    netCalls.push({ url, init });
+    if (url.endsWith('/models')) {
+      return jsonResponse({ data: [{ id: 'b-model' }, { id: 'a-model' }, { id: 'a-model' }] });
+    }
+    if (url.endsWith('/chat/completions')) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { stream?: boolean };
+      if (body.stream) {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"При"}}]}\n\n'));
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"вет"}}]}\n\n'));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, { status: 200 });
+      }
+      return jsonResponse({ choices: [{ message: { content: 'Ответ модели' } }] });
+    }
+    return jsonResponse({ error: { message: 'Нет такого адреса' } }, 404);
+  }) as unknown as typeof fetch;
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = fakeFetch;
+
+  try {
+    const cfg = { baseUrl: 'https://api.example.com/v1', key: 'test-key', model: 'test-model' };
+
+    const models = await listModels(cfg);
+    eq('список моделей получен без повторов', models.length, 2);
+    eq('модели отсортированы', models.join(','), 'a-model,b-model');
+
+    const plain = await askModel(cfg, [{ role: 'user', content: 'вопрос' }]);
+    eq('обычный ответ разобран', plain, 'Ответ модели');
+
+    const call = netCalls[netCalls.length - 1];
+    eq('адрес запроса', call.url, 'https://api.example.com/v1/chat/completions');
+    eq('метод запроса', call.init?.method, 'POST');
+    const headers = call.init?.headers as Record<string, string>;
+    eq('ключ передан в заголовке', headers.Authorization, 'Bearer test-key');
+    const sent = JSON.parse(String(call.init?.body)) as {
+      model: string;
+      stream: boolean;
+      messages: { role: string; content: string }[];
+    };
+    eq('модель передана', sent.model, 'test-model');
+    eq('поток выключен без обработчика', sent.stream, false);
+
+    const seen: string[] = [];
+    const streamed = await askModel(cfg, [{ role: 'user', content: 'вопрос' }], (_delta, full) => seen.push(full));
+    eq('потоковый ответ собран', streamed, 'Привет');
+    eq('куски приходят по мере готовности', seen.join('|'), 'При|Привет');
+
+    const viaModel = await answer('вопрос по данным', [
+      { role: 'user', text: 'ранее спрашивал', at: new Date().toISOString() },
+    ]);
+    eq('с ключом отвечает сервис', viaModel.offline, false);
+    eq('текст ответа от модели', viaModel.text, 'Ответ модели');
+
+    const lastSent = JSON.parse(String(netCalls[netCalls.length - 1].init?.body)) as {
+      messages: { role: string; content: string }[];
+    };
+    eq('первое сообщение — системное', lastSent.messages[0].role, 'system');
+    check('системное сообщение содержит данные', lastSent.messages[0].content.includes('Автотрекер'));
+    eq('история переписки передана', lastSent.messages[1].content, 'ранее спрашивал');
+    eq('текущий вопрос передан последним', lastSent.messages[2].content, 'вопрос по данным');
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
+      jsonResponse({ error: { message: 'bad key' } }, 401)) as unknown as typeof fetch;
+    let errorText = '';
+    try {
+      await askModel(cfg, [{ role: 'user', content: 'x' }]);
+    } catch (e) {
+      errorText = e instanceof Error ? e.message : String(e);
+    }
+    check('понятная ошибка при неверном ключе', errorText.includes('Неверный ключ') && errorText.includes('bad key'), errorText);
+  } finally {
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
+  }
+
+  console.log('\n16. Экраны приложения');
 
   const firstId = (table: string): string =>
     dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE deleted = 0 ORDER BY created_at LIMIT 1`)?.id ?? '';

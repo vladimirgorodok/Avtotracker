@@ -1004,3 +1004,81 @@ body {
     transform: rotate(360deg);
   }
 }
+
+/* ИИ-помощник */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.bubble {
+  max-width: 92%;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.bubble-user {
+  align-self: flex-end;
+  background: var(--brand-soft);
+  border-color: transparent;
+  border-bottom-right-radius: 5px;
+}
+
+.bubble-ai {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+}
+
+.bubble-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bubble-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bubble-action:active {
+  background: var(--bg-soft);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-input .input {
+  flex: 1;
+  resize: vertical;
+  min-height: 44px;
+  font-family: inherit;
+}

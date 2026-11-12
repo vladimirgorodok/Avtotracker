@@ -4,6 +4,7 @@ import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from 
 import { applyTheme, useApp } from '../store';
 import { dbStats } from '../db/repo';
 import { SyncPanel } from '../ui/SyncPanel';
+import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
 
@@ -69,30 +70,10 @@ export default function SettingsPage() {
 
       <Card title="ИИ-помощник" actions={<Icon name="ai" />}>
         <div className="small muted">
-          Ключ хранится только на устройстве. Подойдёт любой сервис с OpenAI-совместимым API.
+          Помощник видит сводку по вашим листам, перевозкам, топливу и деньгам. Ключ хранится только на
+          устройстве, в коде приложения его нет.
         </div>
-        <Field label="Адрес API">
-          <TextInput
-            value={settings.ai_base_url}
-            onChange={(e) => saveSetting('ai_base_url', e.target.value)}
-            placeholder="https://api.aitunnel.ru/v1"
-          />
-        </Field>
-        <Field label="Ключ API">
-          <TextInput
-            type="password"
-            value={settings.ai_api_key}
-            onChange={(e) => saveSetting('ai_api_key', e.target.value)}
-            placeholder="sk-..."
-          />
-        </Field>
-        <Field label="Модель">
-          <TextInput
-            value={settings.ai_model}
-            onChange={(e) => saveSetting('ai_model', e.target.value)}
-            placeholder="например, gpt-4o-mini"
-          />
-        </Field>
+        <AiSettings />
         <Button icon="ai" onClick={() => navigate('/assistant')}>
           Открыть ИИ-помощника
         </Button>

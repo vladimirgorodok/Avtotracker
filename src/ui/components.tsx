@@ -448,7 +448,10 @@ export type IconName =
   | 'ai'
   | 'refresh'
   | 'warning'
-  | 'settings';
+  | 'settings'
+  | 'copy'
+  | 'send'
+  | 'clock';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   back: <path d="M15 5l-7 7 7 7" />,
@@ -478,6 +481,9 @@ const PATHS: Record<IconName, React.ReactNode> = {
   refresh: <path d="M20 12a8 8 0 10-3 6M20 5v7h-7" />,
   warning: <path d="M12 3l9 17H3zM12 9v5M12 17h.01" />,
   settings: <path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19 12l2-1-2-4-2 1-2-1-1-2h-4l-1 2-2 1-2-1-2 4 2 1v2l-2 1 2 4 2-1 2 1 1 2h4l1-2 2-1 2 1 2-4-2-1z" />,
+  copy: <path d="M9 9h11v11H9zM5 15V3h11" />,
+  send: <path d="M4 12l16-8-6 16-2-6z" />,
+  clock: <path d="M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2" />,
 };
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
