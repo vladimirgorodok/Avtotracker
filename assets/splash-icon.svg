@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14a6bd"/>
+      <stop offset="0.52" stop-color="#0a6a7d"/>
+      <stop offset="1" stop-color="#07404e"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.24" cy="0.12" r="0.72">
+      <stop offset="0" stop-color="#b6f4ff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#b6f4ff" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="groundshadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#04202b" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#04202b" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="lampglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f0b654" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#f0b654" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.12"/>
+    </linearGradient>
+
+    <linearGradient id="bodycab" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.46"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.16"/>
+    </linearGradient>
+
+    <linearGradient id="sweep" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <linearGradient id="windscreen" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#d9fbff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#062b36" stop-opacity="0.42"/>
+    </linearGradient>
+
+    <clipPath id="trailerClip">
+      <rect x="168" y="356" width="436" height="266" rx="28"/>
+    </clipPath>
+
+    <clipPath id="squareClip"><rect width="1024" height="1024" rx="236"/></clipPath>
+    <clipPath id="circleClip"><circle cx="512" cy="512" r="512"/></clipPath>
+  </defs>
+
+  <g transform="translate(256 256) scale(0.48) translate(-500 -548)">
+
+  <g>
+    <ellipse cx="524" cy="774" rx="368" ry="42" fill="url(#groundshadow)"/>
+
+    <!-- Колёса -->
+    <g>
+      <circle cx="264" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
+      <circle cx="264" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
+      <circle cx="386" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
+      <circle cx="386" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
+      <circle cx="700" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
+      <circle cx="700" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
+      <circle cx="822" cy="682" r="54" fill="#04202a" stroke="#d8fbff" stroke-opacity="0.5" stroke-width="6"/>
+      <circle cx="822" cy="682" r="23" fill="none" stroke="#d8fbff" stroke-opacity="0.32" stroke-width="5"/>
+    </g>
+
+    <!-- Рама -->
+    <rect x="176" y="600" width="664" height="44" rx="20" fill="#04202a" fill-opacity="0.55"/>
+
+    <!-- Прицеп -->
+    <rect x="168" y="356" width="436" height="266" rx="28"
+          fill="url(#body)" stroke="#e6fdff" stroke-opacity="0.72" stroke-width="7"/>
+    <g clip-path="url(#trailerClip)">
+      <polygon points="248,356 372,356 186,622 62,622" fill="url(#sweep)"/>
+      <rect x="308" y="372" width="5" height="236" fill="#ffffff" fill-opacity="0.16"/>
+      <rect x="452" y="372" width="5" height="236" fill="#ffffff" fill-opacity="0.16"/>
+    </g>
+
+    <!-- Кабина -->
+    <path d="M 616 622 L 616 450 Q 616 412 656 405 L 764 388 Q 818 381 833 421 L 860 505 L 868 505 L 868 622 Z"
+          fill="url(#bodycab)" stroke="#e6fdff" stroke-opacity="0.72" stroke-width="7"
+          stroke-linejoin="round"/>
+    <path d="M 668 462 L 762 446 L 790 508 L 668 508 Z"
+          fill="url(#windscreen)" stroke="#e6fdff" stroke-opacity="0.45" stroke-width="4"
+          stroke-linejoin="round"/>
+
+    <!-- Фара -->
+    <circle cx="858" cy="562" r="46" fill="url(#lampglow)"/>
+    <circle cx="858" cy="562" r="14" fill="#ffe3ab"/>
+
+    <!-- Линии скорости -->
+    <g fill="#ffffff">
+      <rect x="54" y="450" width="78" height="14" rx="7" fill-opacity="0.3"/>
+      <rect x="34" y="520" width="98" height="14" rx="7" fill-opacity="0.22"/>
+      <rect x="62" y="590" width="64" height="14" rx="7" fill-opacity="0.16"/>
+    </g>
+  </g>
+
+  </g>
+</svg>

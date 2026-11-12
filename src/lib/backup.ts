@@ -103,7 +103,7 @@ export async function exportCsvZip(): Promise<void> {
   zip.file(
     'README.txt',
     [
-      'Автотрекер — выгрузка данных',
+      'АвтоБаза — выгрузка данных',
       `Дата: ${new Date().toLocaleString('ru-RU')}`,
       '',
       'Каждый файл CSV соответствует таблице базы данных.',
@@ -113,7 +113,7 @@ export async function exportCsvZip(): Promise<void> {
     ].join('\n'),
   );
   const blob = await zip.generateAsync({ type: 'uint8array' });
-  await saveBinaryFile(`avtotracker-csv-${stamp()}.zip`, blob, 'application/zip');
+  await saveBinaryFile(`avtobaza-csv-${stamp()}.zip`, blob, 'application/zip');
 }
 
 /** Один файл Excel: лист на каждую таблицу */
@@ -132,7 +132,7 @@ export async function exportXlsx(): Promise<void> {
   }
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
   await saveBinaryFile(
-    `avtotracker-${stamp()}.xlsx`,
+    `avtobaza-${stamp()}.xlsx`,
     new Uint8Array(out),
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   );
@@ -141,14 +141,14 @@ export async function exportXlsx(): Promise<void> {
 /** Полная резервная копия в JSON */
 export async function exportJson(): Promise<void> {
   const payload = {
-    app: 'avtotracker',
+    app: 'avtobaza',
     version: 1,
     exported_at: nowIso(),
     settings: allSettings().map((s) => ({ key: s.key, value: s.value })),
     tables: dumpAll(),
   };
   await saveBinaryFile(
-    `avtotracker-backup-${stamp()}.json`,
+    `avtobaza-backup-${stamp()}.json`,
     JSON.stringify(payload, null, 1),
     'application/json',
   );
@@ -172,7 +172,7 @@ export function importJson(text: string, overwrite = false): ImportResult {
     tables?: Record<string, Record<string, unknown>[]>;
     settings?: { key: string; value: string }[];
   };
-  if (!payload.tables) throw new Error('Файл не похож на резервную копию Автотрекера');
+  if (!payload.tables) throw new Error('Файл не похож на резервную копию АвтоБазы');
 
   const db = dbSync();
   let inserted = 0;
@@ -396,7 +396,7 @@ export async function buildWaybillPdf(waybillId: string, settings: AppSettings):
 /** Отчёт PDF: сводка за месяц */
 export async function exportPdfReport(month: string, settings: AppSettings): Promise<void> {
   const bytes = await buildMonthReportPdf(month, settings);
-  await saveBinaryFile(`avtotracker-report-${month || stamp()}.pdf`, bytes, 'application/pdf');
+  await saveBinaryFile(`avtobaza-report-${month || stamp()}.pdf`, bytes, 'application/pdf');
 }
 
 /** Подготовить PDF-отчёт за месяц (без сохранения) */
@@ -407,7 +407,7 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
   doc.setFont('DejaVu', 'normal');
 
   doc.setFontSize(16);
-  doc.text('Автотрекер — отчёт', 14, 18);
+  doc.text('АвтоБаза — отчёт', 14, 18);
   doc.setFontSize(11);
   doc.text(month ? monthLabel(month) : 'Все месяцы', 14, 25);
   doc.setFontSize(9);

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { getDb } from './db';
 import { applyTheme, useApp } from './store';
 import { Icon, type IconName, Modal, Toasts } from './ui/components';
+import { Splash } from './ui/Splash';
 import Home from './pages/Home';
 import Waybills from './pages/Waybills';
 import WaybillDetail from './pages/WaybillDetail';
@@ -196,8 +197,10 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
   const init = useApp((s) => s.init);
   const settings = useApp((s) => s.settings);
+  const finishSplash = useCallback(() => setSplashDone(true), []);
 
   useEffect(() => {
     (async () => {
@@ -252,30 +255,39 @@ export default function App() {
   }
 
   return (
-    <HashRouter>
-      <div className="app-shell">
-        <Routes>
-          <Route path="/" element={<Home onCreate={() => setCreateOpen(true)} />} />
-          <Route path="/waybills" element={<Waybills />} />
-          <Route path="/waybills/:id" element={<WaybillDetail />} />
-          <Route path="/trips" element={<Trips />} />
-          <Route path="/trips/:id" element={<TripDetail />} />
-          <Route path="/refuelings" element={<Refuelings />} />
-          <Route path="/refuelings/:id" element={<RefuelDetail />} />
-          <Route path="/finance" element={<Finance />} />
-          <Route path="/finance/:id" element={<FinanceDetail />} />
-          <Route path="/vehicles" element={<Vehicles />} />
-          <Route path="/vehicles/:id" element={<VehicleDetail />} />
-          <Route path="/refs" element={<Refs />} />
-          <Route path="/data" element={<DataPage />} />
-          <Route path="/more" element={<MorePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/assistant" element={<Assistant />} />
-        </Routes>
-        <BottomNav onCreate={() => setCreateOpen(true)} />
-        <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} />
-        <Toasts />
-      </div>
-    </HashRouter>
+    <>
+      {ready ? (
+        <HashRouter>
+          <div className="app-shell">
+            <Routes>
+              <Route path="/" element={<Home onCreate={() => setCreateOpen(true)} />} />
+              <Route path="/waybills" element={<Waybills />} />
+              <Route path="/waybills/:id" element={<WaybillDetail />} />
+              <Route path="/trips" element={<Trips />} />
+              <Route path="/trips/:id" element={<TripDetail />} />
+              <Route path="/refuelings" element={<Refuelings />} />
+              <Route path="/refuelings/:id" element={<RefuelDetail />} />
+              <Route path="/finance" element={<Finance />} />
+              <Route path="/finance/:id" element={<FinanceDetail />} />
+              <Route path="/vehicles" element={<Vehicles />} />
+              <Route path="/vehicles/:id" element={<VehicleDetail />} />
+              <Route path="/refs" element={<Refs />} />
+              <Route path="/data" element={<DataPage />} />
+              <Route path="/more" element={<MorePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/assistant" element={<Assistant />} />
+            </Routes>
+            <BottomNav onCreate={() => setCreateOpen(true)} />
+            <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} />
+            <Toasts />
+          </div>
+        </HashRouter>
+      ) : (
+        <div className="empty">
+          <span className="muted">Готовим базу данных…</span>
+        </div>
+      )}
+      {!splashDone && <Splash onDone={finishSplash} />}
+    </>
   );
 }

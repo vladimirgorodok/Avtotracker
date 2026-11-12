@@ -6,8 +6,8 @@
 
 import { Capacitor } from '@capacitor/core';
 
-const DB_FILE = 'avtotracker.db';
-const IDB_NAME = 'avtotracker';
+const DB_FILE = 'avtobaza.db';
+const IDB_NAME = 'avtobaza';
 const IDB_STORE = 'files';
 
 export interface Persister {
@@ -56,7 +56,7 @@ class NativePersister implements Persister {
   }
 
   describe() {
-    return 'Файл приложения: avtotracker.db';
+    return 'Файл приложения: avtobaza.db';
   }
 }
 

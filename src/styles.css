@@ -1,45 +1,65 @@
 :root {
-  --bg: #eef2f5;
-  --bg-soft: #f7f9fb;
+  --bg: #e3eaf0;
+  --bg-soft: #eef3f7;
   --card: #ffffff;
-  --text: #17222b;
-  --muted: #6b7b88;
-  --line: #dbe4ea;
-  --brand: #0e7c90;
-  --brand-dark: #0a5f70;
-  --brand-soft: #e3f1f4;
-  --ok: #16875c;
-  --ok-soft: #e4f4ec;
-  --warn: #b4771a;
-  --warn-soft: #fdf1dc;
-  --err: #c33b46;
-  --err-soft: #fdeaec;
-  --info: #2f6fd0;
-  --info-soft: #e8f0fd;
+  --glass: rgba(255, 255, 255, 0.86);
+  --text: #131f28;
+  --muted: #5e7080;
+  --line: #d0dbe3;
+  --brand: #0a6a7d;
+  --brand-2: #14a6bd;
+  --brand-dark: #074f5e;
+  --brand-soft: #d8ebef;
+  --accent: #d98314;
+  --accent-2: #f0b654;
+  --accent-soft: #fdeed7;
+  --ok: #0f7d57;
+  --ok-soft: #dcf2e8;
+  --warn: #ad6a0d;
+  --warn-soft: #fbeed5;
+  --err: #bb3543;
+  --err-soft: #fbe5e8;
+  --info: #2b5fc4;
+  --info-soft: #e4edfc;
+  --grad-brand: linear-gradient(135deg, #0a6a7d 0%, #14a6bd 100%);
+  --grad-deep: linear-gradient(155deg, #084c5a 0%, #0a6a7d 45%, #14a6bd 100%);
+  --grad-accent: linear-gradient(135deg, #d98314 0%, #f0b654 100%);
+  --ring: 0 0 0 3px rgba(20, 166, 189, 0.18);
   --radius: 14px;
-  --shadow: 0 1px 2px rgba(16, 42, 55, 0.06), 0 6px 18px rgba(16, 42, 55, 0.05);
+  --shadow: 0 1px 2px rgba(10, 34, 44, 0.08), 0 8px 22px rgba(10, 34, 44, 0.07);
+  --shadow-lg: 0 12px 34px rgba(8, 76, 90, 0.22);
   --nav-h: 62px;
 }
 
 [data-theme='dark'] {
-  --bg: #10171c;
-  --bg-soft: #161f26;
-  --card: #1b262e;
-  --text: #e7eef3;
-  --muted: #94a5b2;
-  --line: #2a3741;
-  --brand: #35b0c4;
-  --brand-dark: #1c8b9e;
-  --brand-soft: #16323a;
-  --ok: #4ec894;
-  --ok-soft: #15332a;
-  --warn: #e0a83f;
-  --warn-soft: #33280f;
-  --err: #ef7b84;
-  --err-soft: #3a1e22;
+  --bg: #0a1015;
+  --bg-soft: #111a21;
+  --card: #16212a;
+  --glass: rgba(22, 33, 42, 0.86);
+  --text: #e9f1f6;
+  --muted: #8b9fac;
+  --line: #24323c;
+  --brand: #2fb3c7;
+  --brand-2: #4fcbdd;
+  --brand-dark: #1a8b9e;
+  --brand-soft: #12303a;
+  --accent: #f0a63c;
+  --accent-2: #ffc46b;
+  --accent-soft: #33260f;
+  --ok: #45c28d;
+  --ok-soft: #12302a;
+  --warn: #e0a53c;
+  --warn-soft: #2f2510;
+  --err: #ec7a84;
+  --err-soft: #35191e;
   --info: #7aa9f0;
-  --info-soft: #17243b;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --info-soft: #15233a;
+  --grad-brand: linear-gradient(135deg, #1a8b9e 0%, #35c0d6 100%);
+  --grad-deep: linear-gradient(155deg, #0a3b46 0%, #10586a 50%, #1a8b9e 100%);
+  --grad-accent: linear-gradient(135deg, #c9791a 0%, #f0b654 100%);
+  --ring: 0 0 0 3px rgba(53, 192, 214, 0.22);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 14px 34px rgba(0, 0, 0, 0.55);
 }
 
 * {
@@ -1081,4 +1101,406 @@ body {
   resize: vertical;
   min-height: 44px;
   font-family: inherit;
+}
+
+/* ============================================================
+   Цветовые акценты: глубже фон, заметнее активные элементы
+   ============================================================ */
+
+/* Фон с мягкими цветовыми пятнами вместо ровного серого */
+body {
+  background:
+    radial-gradient(1100px 520px at 14% -10%, rgba(20, 166, 189, 0.16), transparent 62%),
+    radial-gradient(880px 460px at 104% 2%, rgba(217, 131, 20, 0.12), transparent 58%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+[data-theme='dark'] body {
+  background:
+    radial-gradient(1100px 520px at 14% -10%, rgba(53, 192, 214, 0.13), transparent 62%),
+    radial-gradient(880px 460px at 104% 2%, rgba(240, 166, 60, 0.1), transparent 58%),
+    var(--bg);
+}
+
+/* Панели — «стекло» поверх содержимого */
+.topbar {
+  background: var(--glass);
+  backdrop-filter: blur(12px) saturate(1.35);
+  -webkit-backdrop-filter: blur(12px) saturate(1.35);
+}
+
+.topbar h1 {
+  letter-spacing: -0.3px;
+}
+
+/* Тонкая цветная линия под шапкой */
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(20, 166, 189, 0.55), rgba(240, 182, 84, 0.4) 62%, rgba(240, 182, 84, 0));
+  pointer-events: none;
+}
+
+.bottom-nav {
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(1.35);
+  -webkit-backdrop-filter: blur(14px) saturate(1.35);
+  box-shadow: 0 -8px 26px rgba(10, 34, 44, 0.09);
+}
+
+.nav-item {
+  position: relative;
+  transition: color 0.15s ease;
+}
+
+.nav-item.active {
+  color: var(--brand);
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: var(--grad-brand);
+}
+
+.fab {
+  background: var(--grad-brand);
+  border-color: var(--card);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition: transform 0.12s ease;
+}
+
+.fab:active {
+  transform: translateX(50%) scale(0.93);
+}
+
+/* Кнопки */
+.btn-primary {
+  background: var(--grad-brand);
+  box-shadow: 0 6px 16px rgba(20, 166, 189, 0.28);
+}
+
+.btn-success {
+  background: linear-gradient(135deg, var(--ok) 0%, #24a473 100%);
+  color: #fff;
+}
+
+.btn-soft {
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+
+[data-theme='dark'] .btn-soft {
+  color: var(--brand);
+}
+
+/* Плитки статистики: цвет слева и мягкий перелив */
+.stat {
+  background: linear-gradient(120deg, var(--card) 40%, var(--bg-soft) 100%);
+  border-left-width: 4px;
+}
+
+.stat-head .icon,
+.stat-head svg {
+  color: var(--muted);
+}
+
+.stat-ok {
+  background: linear-gradient(120deg, var(--ok-soft) 0%, var(--card) 92%);
+}
+
+.stat-info {
+  background: linear-gradient(120deg, var(--info-soft) 0%, var(--card) 92%);
+}
+
+.stat-warn {
+  background: linear-gradient(120deg, var(--warn-soft) 0%, var(--card) 92%);
+}
+
+.stat-err {
+  background: linear-gradient(120deg, var(--err-soft) 0%, var(--card) 92%);
+}
+
+.stat-value {
+  letter-spacing: -0.4px;
+}
+
+/* Заголовки разделов */
+.section-title {
+  letter-spacing: -0.2px;
+}
+
+.section-title .count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.card-title .count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Активные чипы и вкладки */
+.chip-active {
+  background: var(--grad-brand);
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(20, 166, 189, 0.25);
+}
+
+.tab-active {
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.tabs {
+  background: var(--bg-soft);
+}
+
+/* Список: заметнее значок строки */
+.list-item {
+  transition: background 0.12s ease;
+}
+
+.avatar {
+  background: linear-gradient(150deg, var(--brand-soft) 0%, var(--card) 100%);
+  color: var(--brand);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px rgba(20, 166, 189, 0.22);
+}
+
+/* Предупреждения и подсказки — с цветной полосой слева */
+.alert {
+  border-left: 3px solid currentColor;
+  border-radius: 10px;
+}
+
+.hint-box {
+  border-left: 3px solid var(--brand);
+}
+
+/* Фокус на полях ввода */
+.input:focus {
+  box-shadow: var(--ring);
+}
+
+.search-input:focus {
+  box-shadow: var(--ring);
+}
+
+/* ============================================================
+   Заставка при запуске (3 секунды)
+   ============================================================ */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(125% 95% at 18% -4%, #17b0c8 0%, #0a6a7d 46%, #05303c 100%);
+  transition: opacity 0.42s ease, transform 0.42s ease;
+}
+
+.splash-leaving {
+  opacity: 0;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+/* Свет сверху — «стеклянный» блик */
+.splash-glow {
+  position: absolute;
+  top: -18%;
+  left: -10%;
+  width: 70%;
+  height: 62%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(190, 246, 255, 0.34) 0%, rgba(190, 246, 255, 0) 70%);
+  pointer-events: none;
+}
+
+/* Линия горизонта */
+.splash-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(190, 246, 255, 0.3) 30%, rgba(190, 246, 255, 0.3) 70%, transparent);
+}
+
+.splash-stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px 6vh;
+  text-align: center;
+}
+
+.splash-truck {
+  width: min(76vw, 330px);
+  animation: splash-truck-in 1.05s cubic-bezier(0.18, 0.92, 0.25, 1) both;
+}
+
+.splash-truck-bob {
+  animation: splash-bob 1.5s ease-in-out 1.05s infinite;
+}
+
+.splash-truck-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 18px 26px rgba(2, 26, 34, 0.42));
+}
+
+.splash-title {
+  margin: 14px 0 0;
+  font-size: clamp(30px, 9.5vw, 46px);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #eafcff;
+  text-shadow: 0 8px 26px rgba(2, 26, 34, 0.45);
+  animation: splash-rise 0.7s ease 0.5s both;
+}
+
+.splash-sub {
+  margin: 6px 0 0;
+  font-size: clamp(13px, 3.6vw, 16px);
+  color: rgba(234, 252, 255, 0.74);
+  animation: splash-rise 0.7s ease 0.72s both;
+}
+
+/* Дорога с бегущей разметкой */
+.splash-road {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30%;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(3, 22, 29, 0) 0%, rgba(3, 22, 29, 0.5) 55%, rgba(3, 22, 29, 0.72) 100%);
+}
+
+.splash-dash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 34%;
+  height: 7px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(234, 252, 255, 0.8) 0 48px,
+    rgba(234, 252, 255, 0) 48px 100px
+  );
+  animation: splash-road 0.85s linear infinite;
+}
+
+/* Полоса загрузки */
+.splash-bar {
+  margin-top: 28px;
+  width: min(58vw, 230px);
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(234, 252, 255, 0.2);
+  overflow: hidden;
+  animation: splash-rise 0.7s ease 0.9s both;
+}
+
+.splash-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0b654, #ffe3ab);
+  animation: splash-bar var(--splash-ms, 3000ms) linear both;
+}
+
+@keyframes splash-truck-in {
+  from {
+    opacity: 0;
+    transform: translateX(-150%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes splash-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes splash-road {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100px);
+  }
+}
+
+@keyframes splash-bar {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-truck,
+  .splash-truck-bob,
+  .splash-dash,
+  .splash-title,
+  .splash-sub,
+  .splash-bar,
+  .splash-bar span {
+    animation: none !important;
+  }
+
+  .splash-bar span {
+    width: 100%;
+  }
 }

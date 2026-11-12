@@ -3,13 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
-    <meta name="theme-color" content="#0e7c90" />
-    <meta name="description" content="Автотрекер — путевые листы, перевозки, топливо и расчёты" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e7c90'/%3E%3Cpath d='M8 21h16l-1.5-7-2.5-4H12l-2.5 4z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E" />
-    <title>Автотрекер</title>
+    <meta name="theme-color" content="#0a6a7d" />
+    <meta name="description" content="АвтоБаза — путевые листы, перевозки, топливо и расчёты" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.png" />
+    <title>АвтоБаза</title>
+    <style>
+      /* Фон до загрузки приложения — без белой вспышки при запуске */
+      html {
+        background: #0a6a7d;
+      }
+      #root {
+        min-height: 100vh;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(125% 95% at 18% -4%, #17b0c8 0%, #0a6a7d 46%, #05303c 100%);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

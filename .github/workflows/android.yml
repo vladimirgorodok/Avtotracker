@@ -42,12 +42,12 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk avtotracker-debug.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk avtobaza-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: avtotracker-apk
-          path: avtotracker-debug.apk
+          name: avtobaza-apk
+          path: avtobaza-debug.apk
 
       - name: Publish latest release
         if: github.ref == 'refs/heads/main'
@@ -55,8 +55,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest avtotracker-debug.apk \
-            --title "Автотрекер (последняя сборка)" \
+          gh release create latest avtobaza-debug.apk \
+            --title "АвтоБаза (последняя сборка)" \
             --notes "Автоматическая сборка из ветки main, коммит ${GITHUB_SHA::7}" \
             --prerelease
 
@@ -64,4 +64,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" avtotracker-debug.apk --title "Автотрекер $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" avtobaza-debug.apk --title "АвтоБаза $GITHUB_REF_NAME" --generate-notes

@@ -1,5 +1,5 @@
 {
-  "name": "avtotracker",
+  "name": "avtobaza",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -42,5 +42,5 @@
     "typescript": "~7.0.2",
     "vite": "^8.3.6"
   },
-  "description": "Автотрекер — путевые листы, перевозки, топливо и расчёты"
+  "description": "АвтоБаза — путевые листы, перевозки, топливо и расчёты"
 }

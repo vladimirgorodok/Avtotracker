@@ -1,4 +1,4 @@
-package ru.avtotracker.app;
+package ru.avtobaza.app;
 
 import com.getcapacitor.BridgeActivity;
 

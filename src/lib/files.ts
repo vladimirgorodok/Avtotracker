@@ -5,7 +5,7 @@
 
 import { Capacitor } from '@capacitor/core';
 
-const IDB_NAME = 'avtotracker';
+const IDB_NAME = 'avtobaza';
 const IDB_STORE = 'files';
 const FOLDER = 'blobs';
 

@@ -327,7 +327,7 @@ async function main() {
   eq('импорт ZIP: ничего не добавилось (всё совпало)', importRes.inserted, 0);
   check('импорт ZIP: записи пропущены', importRes.skipped > 0);
 
-  const backup = JSON.stringify({ app: 'avtotracker', version: 1, tables: dump, settings: [] });
+  const backup = JSON.stringify({ app: 'avtobaza', version: 1, tables: dump, settings: [] });
   const jsonRes = importJson(backup);
   eq('импорт JSON: без дублей', jsonRes.inserted, 0);
   check('импорт JSON: совпадения пропущены', jsonRes.skipped > 0);
@@ -443,7 +443,7 @@ async function main() {
   check('сводка содержит перевозки', context.includes('Склад А → Склад Б'));
 
   const sys = systemPrompt();
-  check('системная подсказка описывает роль', sys.includes('Автотрекер'));
+  check('системная подсказка описывает роль', sys.includes('АвтоБаза'));
   check('системная подсказка включает данные приложения', sys.includes('Склад А'));
 
   const moneyAnswer = localAnswer('сколько начислено за этот месяц');
@@ -563,7 +563,7 @@ async function main() {
       messages: { role: string; content: string }[];
     };
     eq('первое сообщение — системное', lastSent.messages[0].role, 'system');
-    check('системное сообщение содержит данные', lastSent.messages[0].content.includes('Автотрекер'));
+    check('системное сообщение содержит данные', lastSent.messages[0].content.includes('АвтоБаза'));
     eq('история переписки передана', lastSent.messages[1].content, 'ранее спрашивал');
     eq('текущий вопрос передан последним', lastSent.messages[2].content, 'вопрос по данным');
 
@@ -659,6 +659,18 @@ async function main() {
       const msg = e instanceof Error ? e.message : String(e);
       check(`${screen.label}: экран собирается`, false, msg);
     }
+  }
+
+  /** Заставка при запуске */
+  try {
+    const { Splash } = await import('../ui/Splash');
+    const html = renderToString(createElement(Splash as never, { onDone: () => {} } as never) as never);
+    check('Заставка: собирается', html.length > 400, `(${html.length} символов)`);
+    check('Заставка: показывает название', html.includes('АвтоБаза'));
+    check('Заставка: рисует фуру', html.includes('splash-truck-svg'));
+    check('Заставка: есть полоса загрузки', html.includes('splash-bar'));
+  } catch (e) {
+    check('Заставка: собирается', false, e instanceof Error ? e.message : String(e));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
