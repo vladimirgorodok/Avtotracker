@@ -109,6 +109,24 @@ export default function Assistant() {
   return (
     <Page title="ИИ-помощник" onBack={() => navigate('/more')}>
       <Card
+        title="Заявка из файлов"
+        actions={
+          <Badge tone="info">
+            <Icon name="doc" size={14} /> фото и текст
+          </Badge>
+        }
+      >
+        <div className="small muted">
+          Приложите фото заявки или файл (можно несколько) — помощник прочитает груз, даты и точки маршрута,
+          сверит фирмы и места со справочником и предложит, что добавить, а что дополнить. Затем создаст
+          поездку.
+        </div>
+        <Button variant="primary" icon="ai" block onClick={() => navigate('/assistant/order')}>
+          Разобрать заявку из файла
+        </Button>
+      </Card>
+
+      <Card
         title="Помощник"
         actions={
           <Badge tone={ready ? 'ok' : 'neutral'}>

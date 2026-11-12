@@ -1197,6 +1197,195 @@ async function main() {
     check('адрес без координат тоже открывает карту', mapLink(null, null, 'Москва, Ленина 1').includes('yandex.ru'));
   }
 
+  console.log('\n20. Заявка из файлов: разбор, справочники и поездка');
+  {
+    const ord = await import('../lib/order');
+
+    // Ответ модели приходит с текстом вокруг JSON и «человеческими» датами
+    const parsed = ord.parseOrderJson(
+      [
+        'Вот что нашлось в заявке:',
+        '```json',
+        '{',
+        '  "title": "Москва → Тверь",',
+        '  "cargo": "Кирпич",',
+        '  "weight": "20 000 кг",',
+        '  "points": [',
+        '    { "kind": "погрузка", "date": "12.11.2026", "company": "ООО «Тестовая фирма»", "place": "Склад А", "address": "Москва, складская 1" },',
+        '    { "type": "выгрузка", "date": "13 ноября 2026", "place": "Новый склад", "address": "Тверь, Новая 5", "coords": "56.8, 35.9" }',
+        '  ],',
+        '  "missing": ["контакт на выгрузке"],',
+        '  "comment": "Проверьте дату выгрузки"',
+        '}',
+        '```',
+      ].join('\n'),
+    );
+    eq('название рейса разобрано', parsed.title, 'Москва → Тверь');
+    eq('вес из текста стал числом', parsed.weight, 20000);
+    eq('точек маршрута две', parsed.points.length, 2);
+    eq('погрузка распознана', parsed.points[0]?.kind, 'load');
+    eq('выгрузка распознана', parsed.points[1]?.kind, 'unload');
+    eq('дата из заявки разобрана', parsed.points[0]?.date, '2026-11-12');
+    eq('дата словами разобрана', parsed.points[1]?.date, '2026-11-13');
+    eq('замечание модели сохранено', parsed.missing[0], 'контакт на выгрузке');
+
+    // В сообщении для модели инструкция, текст файла и фото отдельной частью
+    const msgs = ord.buildOrderMessages([
+      { name: 'заявка.txt', kind: 'text', data: 'погрузка 12.11.2026', size: 20 },
+      { name: 'заявка.jpg', kind: 'image', data: 'data:image/jpeg;base64,AAA', size: 3 },
+    ]);
+    const parts = msgs[1]?.content as { type: string; text?: string; image_url?: { url: string } }[];
+    check(
+      'фото уходит картинкой, а не текстом',
+      parts.some((p) => p.type === 'image_url' && (p.image_url?.url ?? '').startsWith('data:image/jpeg')),
+    );
+    check('текстовый файл уходит текстом', parts.some((p) => p.type === 'text' && (p.text ?? '').includes('12.11.2026')));
+    check('инструкция просит строгий JSON', parts.some((p) => (p.text ?? '').includes('"points"')));
+
+    // Черновик: знакомые фирма и места узнаются по названию, адресу и координатам
+    const draft = ord.buildDraft(parsed);
+    eq('в черновике два места', draft.places.length, 2);
+    const firstPlace = draft.places.find((p) => p.name === 'Склад А')!;
+    eq('знакомое место предложено использовать', firstPlace.action, 'link');
+    eq('знакомое место найдено в справочнике', firstPlace.linkId, placeA);
+    check('сказано, по каким признакам нашли', firstPlace.reasons.length > 0);
+    const secondPlace = draft.places.find((p) => p.name === 'Новый склад')!;
+    eq('незнакомое название узнано по координатам', secondPlace.linkId, placeB);
+    eq('порядок и связь мест сохранены', secondPlace.reasons.some((r) => r.includes('координаты')), true);
+    eq('фирма узнана по названию', draft.companies[0]?.action, 'link');
+    eq('фирма в заявке одна', draft.companies.length, 1);
+
+    // Применение: поездка из заявки, точки по порядку, справочники не растут
+    const tripsBefore = repo.tripRepo.all().length;
+    const applied = ord.applyDraft(draft, useApp.getState().settings);
+    eq('поездка создана', repo.tripRepo.all().length, tripsBefore + 1);
+    eq('точек в поездке', repo.tripRepo.points(applied.tripId).length, 2);
+    eq('фирма не задвоилась', applied.companiesAdded, 0);
+    eq('места не задвоились', applied.placesAdded, 0);
+    eq('вес заявки у поездки', repo.tripRepo.get(applied.tripId)?.weight, 20000);
+    eq('начисление посчитано по точкам', repo.tripRepo.get(applied.tripId)?.amount, 10500);
+    const newPoints = repo.tripRepo.points(applied.tripId);
+    eq('первая точка — склад А', newPoints[0]?.place_id, placeA);
+    eq('вторая точка — склад Б', newPoints[1]?.place_id, placeB);
+    eq('порядок точек сохранён', newPoints[1]?.seq, 2);
+    eq('точки пока в плане', newPoints[0]?.status, 'planned');
+    eq('поездка пока в плане', repo.tripRepo.get(applied.tripId)?.status, 'planned');
+    check('груз заявки добавлен в справочник', applied.cargoAdded);
+    check('груз прописан в поездке', repo.tripRepo.get(applied.tripId)?.cargo_type_id !== null);
+    check('итог создания понятен словами', ord.describeOrderResult(applied).includes('Поездка создана'));
+
+    // Похожее место с пустыми полями — предлагаем не заводить заново, а дополнить
+    const placeC = repo.insertRow('places', {
+      name: 'Терминал Тест',
+      company_id: null,
+      address: '',
+      lat: null,
+      lon: null,
+      contact: '',
+      load_type: null,
+      cargo_type_id: null,
+      note: '',
+    });
+    const thin = ord.buildDraft(
+      ord.parseOrderJson(
+        JSON.stringify({
+          cargo: '',
+          points: [
+            {
+              kind: 'unload',
+              place: 'Терминал Тест',
+              address: 'Тверь, Терминальная 3',
+              contact: '+78120000000',
+              coords: '56.86, 35.91',
+            },
+          ],
+        }),
+      ),
+    );
+    eq('пустое место в справочнике предлагаем дополнить', thin.places[0]?.action, 'link');
+    eq('перечислено, что допишем', thin.places[0]?.fill.join(' · '), 'Адрес · Контакт · Координаты');
+    const filled = ord.applyDraft(thin, useApp.getState().settings);
+    eq('место не задвоилось', filled.placesAdded, 0);
+    eq('место дополнено', filled.placesFilled, 1);
+    const terminal = repo.refs.place(placeC)!;
+    eq('адрес дописан', terminal.address, 'Тверь, Терминальная 3');
+    eq('контакт дописан', terminal.contact, '+78120000000');
+    eq('координаты дописаны', terminal.lat, 56.86);
+
+    // Совсем новые место и фирма — предлагаем добавить
+    const fresh = ord.buildDraft(
+      ord.parseOrderJson(
+        JSON.stringify({
+          cargo: '',
+          points: [
+            { kind: 'load', place: 'Казанский Терминал', address: 'Казань, Портовая 9', company: 'ООО Тестовый Завод' },
+          ],
+        }),
+      ),
+    );
+    eq('незнакомое место предлагаем добавить', fresh.places[0]?.action, 'add');
+    eq('незнакомую фирму предлагаем добавить', fresh.companies[0]?.action, 'add');
+    const created = ord.applyDraft(fresh, useApp.getState().settings);
+    eq('новое место добавлено', created.placesAdded, 1);
+    eq('новая фирма добавлена', created.companiesAdded, 1);
+    const added = repo.refs.places().find((p) => p.name === 'Казанский Терминал')!;
+    eq('место привязано к новой фирме', repo.refs.company(added.company_id)?.name, 'ООО Тестовый Завод');
+    eq('координат не выдумывали', added.lat, null);
+
+    // Ручная правка названия пересчитывает предложение
+    const rechecked = ord.recheckPlace({
+      ...fresh.places[0]!,
+      name: 'Склад А',
+      address: 'Москва, складская 1',
+      coords: '',
+      action: 'add',
+    });
+    eq('после правки место узнано', rechecked.action, 'link');
+    eq('после правки найден склад А', rechecked.linkId, placeA);
+
+    // Пропущенное место не создаётся — точка остаётся без места
+    const skipped = ord.applyDraft(
+      { ...fresh, places: fresh.places.map((p) => ({ ...p, action: 'skip' as const })) },
+      useApp.getState().settings,
+    );
+    eq('пропущенное место не добавлено', skipped.placesAdded, 0);
+    eq('точка осталась без места', repo.tripRepo.points(skipped.tripId)[0]?.place_id, null);
+
+    // Ответ без заявки не роняет экран, а объясняет причину
+    let emptyError = '';
+    try {
+      ord.parseOrderJson('Извините, на фото ничего не разобрать');
+    } catch (e) {
+      emptyError = e instanceof Error ? e.message : '';
+    }
+    check('на пустом ответе понятная ошибка', emptyError.includes('заявку'));
+
+    check('за раз принимается несколько файлов', ord.MAX_FILES >= 3);
+
+    {
+      const mod = await import('../pages/OrderFromFiles');
+      const html = renderToString(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ['/assistant/order'] },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: '/assistant/order',
+              element: createElement(mod.default as never),
+            }),
+          ),
+        ) as never,
+      );
+      check(
+        'экран «Заявка из файла» собирается',
+        html.length > 200 && html.includes('Разобрать заявку'),
+      );
+      check('на экране есть приглашение приложить файлы', html.includes('Сфотографировать'));
+    }
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

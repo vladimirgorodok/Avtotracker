@@ -24,6 +24,17 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Часть сообщения: текст или картинка (для разбора фото заявок) */
+export type AiPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+/** Сообщение к модели: либо строка, либо набор частей (текст и фото) */
+export interface AiMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string | AiPart[];
+}
+
 export interface StoredMessage {
   role: 'user' | 'assistant';
   text: string;
@@ -346,7 +357,7 @@ async function readStream(
 /** Запрос к модели. Если передан onDelta — ответ читается потоком */
 export async function askModel(
   cfg: AiConfig,
-  messages: ChatMessage[],
+  messages: AiMessage[],
   onDelta?: (delta: string, full: string) => void,
 ): Promise<string> {
   if (!cfg.model) throw new Error('Выберите модель в настройках ИИ');
