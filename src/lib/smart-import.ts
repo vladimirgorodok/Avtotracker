@@ -13,7 +13,7 @@
  */
 
 import { dbSync } from '../db';
-import { insertRow } from '../db/repo';
+import { insertRow, updateRow } from '../db/repo';
 import { TABLES, type TableName } from '../types';
 import { cleanCsvRow, columnTypesOf, decodeText, parseCsv, toNumber, TABLE_TITLES } from './backup';
 import { askModel, readAiConfig } from './ai';
@@ -23,7 +23,15 @@ import { askModel, readAiConfig } from './ai';
 /* ------------------------------------------------------------------ */
 
 /** Куда попадает «умное» поле, которого в базе нет как колонки */
-export type VirtualKind = 'place' | 'company' | 'cargo' | 'station' | 'vehicle' | 'waybill' | 'date';
+export type VirtualKind =
+  | 'place'
+  | 'company'
+  | 'cargo'
+  | 'station'
+  | 'vehicle'
+  | 'waybill'
+  | 'date'
+  | 'coords';
 
 export interface FieldDef {
   name: string;
@@ -40,7 +48,7 @@ const f = (name: string, label: string, hints: string[], virtual?: VirtualKind):
   virtual,
 });
 
-const NOTE: string[] = ['примечание', 'комментарий', 'заметка', 'note', 'comment', 'описание'];
+const NOTE: string[] = ['примечание', 'комментарий', 'заметка', 'note', 'comment', 'описание', 'description'];
 const NAME: string[] = ['название', 'имя', 'name', 'title', 'наименование'];
 
 /** Синонимы колонок по таблицам — основа распознавания без ИИ */
@@ -48,47 +56,66 @@ export const FIELDS: Record<TableName, FieldDef[]> = {
   vehicles: [
     f('name', 'Название', NAME),
     f('plate', 'Госномер', ['госномер', 'номерной знак', 'рег знак', 'номер тс', 'plate', 'reg number']),
-    f('kind', 'Тип (тягач/прицеп)', ['тип', 'вид', 'категория', 'kind', 'type']),
+    f('kind', 'Тип (тягач/прицеп)', ['тип', 'вид', 'категория', 'kind', 'type', 'vehicle type']),
     f('brand', 'Марка', ['марка', 'производитель', 'brand', 'make']),
     f('model', 'Модель', ['модель', 'model']),
     f('vin', 'VIN', ['vin', 'вин']),
     f('year', 'Год выпуска', ['год выпуска', 'год', 'year']),
-    f('fuel_norm', 'Норма расхода', ['норма расхода', 'расход', 'л/100', 'fuel norm']),
+    f('fuel_norm', 'Норма расхода', ['норма расхода', 'расход', 'л/100', 'fuel norm', 'fuel consumption']),
     f('note', 'Примечание', NOTE),
     f('archived', 'В архиве', ['архив', 'archived']),
   ],
   vehicle_periods: [
     f('vehicle_id', 'Автомобиль', ['автомобиль', 'машина', 'vehicle']),
-    f('start_date', 'Начало', ['начало', 'дата начала', 'start']),
-    f('end_date', 'Окончание', ['окончание', 'дата окончания', 'end']),
+    f('start_date', 'Начало', ['начало', 'дата начала', 'start', 'start date', 'from date', 'period start']),
+    f('end_date', 'Окончание', ['окончание', 'дата окончания', 'end', 'end date', 'to date', 'period end']),
     f('note', 'Примечание', NOTE),
   ],
   vehicle_links: [
     f('tractor_id', 'Тягач', ['тягач', 'tractor']),
     f('trailer_id', 'Прицеп', ['прицеп', 'trailer']),
-    f('start_date', 'Начало', ['начало', 'дата начала', 'start']),
-    f('end_date', 'Окончание', ['окончание', 'дата окончания', 'end']),
+    f('start_date', 'Начало', ['начало', 'дата начала', 'start', 'start date']),
+    f('end_date', 'Окончание', ['окончание', 'дата окончания', 'end', 'end date']),
   ],
   companies: [f('name', 'Название', NAME), f('note', 'Примечание', NOTE)],
   cargo_types: [f('name', 'Название', NAME), f('note', 'Примечание', NOTE)],
   fuel_stations: [f('name', 'Название', NAME), f('note', 'Примечание', NOTE)],
   places: [
     f('name', 'Название', NAME),
-    f('address', 'Адрес', ['адрес', 'address', 'местоположение']),
+    f('address', 'Адрес', ['адрес', 'address', 'местоположение', 'location']),
+    f('coordinates', 'Координаты', ['координаты', 'coordinates', 'coords', 'геопозиция', 'geo'], 'coords'),
     f('lat', 'Широта', ['широта', 'lat', 'latitude']),
     f('lon', 'Долгота', ['долгота', 'lon', 'lng', 'longitude']),
     f('contact', 'Контакт', ['контакт', 'телефон', 'contact', 'phone', 'тел']),
-    f('load_type', 'Тип загрузки', ['тип загрузки', 'загрузка', 'load type']),
+    f('load_type', 'Тип загрузки', ['тип загрузки', 'загрузка', 'load type', 'loading type']),
     f('note', 'Примечание', NOTE),
     f('company_name', 'Фирма', ['фирма', 'компания', 'организация', 'заказчик', 'company'], 'company'),
+    f('cargo_name', 'Груз', ['груз', 'cargo'], 'cargo'),
   ],
   waybills: [
     f('number', 'Номер листа', ['номер листа', 'номер путевого листа', 'номер', '№', 'number']),
     f('name', 'Название', NAME),
-    f('date_out', 'Дата выезда', ['дата выезда', 'выезд', 'дата выхода', 'date out', 'дата начала']),
+    f('date_out', 'Дата выезда', [
+      'дата выезда',
+      'выезд',
+      'дата выхода',
+      'date out',
+      'дата начала',
+      'departure date',
+      'departure',
+      'start date',
+    ]),
     f('odometer_out', 'Одометр на выезде', ['одометр выезд', 'одометр на выезде', 'пробег выезд', 'odometer out']),
     f('fuel_out', 'Топливо на выезде', ['топливо выезд', 'дт выезд', 'бак выезд', 'fuel out']),
-    f('date_in', 'Дата приезда', ['дата приезда', 'приезд', 'дата возврата', 'date in']),
+    f('date_in', 'Дата приезда', [
+      'дата приезда',
+      'приезд',
+      'дата возврата',
+      'date in',
+      'return date',
+      'arrival date',
+      'return',
+    ]),
     f('odometer_in', 'Одометр на приезде', ['одометр приезд', 'одометр на приезде', 'пробег приезд', 'odometer in']),
     f('fuel_in', 'Топливо на приезде', ['топливо приезд', 'дт приезд', 'бак приезд', 'fuel in']),
     f('note', 'Примечание', NOTE),
@@ -97,7 +124,7 @@ export const FIELDS: Record<TableName, FieldDef[]> = {
   ],
   trips: [
     f('weight', 'Вес', ['вес', 'масса', 'тоннаж', 'weight', 'масса груза']),
-    f('amount', 'Начислено', ['начислено', 'сумма', 'стоимость', 'amount', 'price', 'оплата']),
+    f('amount', 'Начислено', ['начислено', 'сумма', 'стоимость', 'amount', 'price', 'оплата', 'accrual', 'charge']),
     f('note', 'Примечание', NOTE),
     f('status', 'Статус', ['статус', 'status']),
     f('date', 'Дата перевозки', ['дата перевозки', 'дата', 'дата рейса', 'date'], 'date'),
@@ -107,11 +134,19 @@ export const FIELDS: Record<TableName, FieldDef[]> = {
     f('cargo_name', 'Груз', ['груз', 'наименование груза', 'номенклатура', 'cargo'], 'cargo'),
   ],
   trip_points: [
-    f('seq', 'Порядок', ['порядок', 'номер по порядку', 'seq', '№']),
-    f('kind', 'Тип точки', ['тип точки', 'вид', 'операция', 'kind']),
-    f('plan_date', 'Плановая дата', ['плановая дата', 'план', 'plan date']),
-    f('fact_date', 'Фактическая дата', ['фактическая дата', 'факт', 'fact date']),
-    f('load_type', 'Тип загрузки', ['тип загрузки', 'загрузка', 'load type']),
+    f('seq', 'Порядок', ['порядок', 'номер по порядку', 'seq', '№', 'order', 'index', 'номер']),
+    f('kind', 'Тип точки', ['тип точки', 'вид', 'операция', 'kind', 'direction', 'направление']),
+    f('plan_date', 'Плановая дата', ['плановая дата', 'план', 'plan date', 'planned date', 'дата']),
+    f('fact_date', 'Фактическая дата', [
+      'фактическая дата',
+      'факт',
+      'fact date',
+      'arrived',
+      'actual',
+      'arrived at',
+      'фактическая',
+    ]),
+    f('load_type', 'Тип загрузки', ['тип загрузки', 'загрузка', 'load type', 'loading type']),
     f('weight', 'Вес', ['вес', 'масса', 'weight']),
     f('status', 'Статус', ['статус', 'status']),
     f('note', 'Примечание', NOTE),
@@ -119,18 +154,27 @@ export const FIELDS: Record<TableName, FieldDef[]> = {
     f('cargo_name', 'Груз', ['груз', 'cargo'], 'cargo'),
   ],
   refuelings: [
-    f('date', 'Дата', ['дата', 'date']),
-    f('volume', 'Количество, л', ['количество', 'литры', 'объем', 'объём', 'л', 'volume', 'liters']),
-    f('kind', 'Тип заправки', ['тип', 'способ', 'источник', 'kind']),
+    f('date', 'Дата', ['дата', 'date', 'date time', 'datetime']),
+    f('volume', 'Количество, л', [
+      'количество',
+      'литры',
+      'объем',
+      'объём',
+      'л',
+      'volume',
+      'liters',
+      'количество литров',
+    ]),
+    f('kind', 'Тип заправки', ['тип', 'способ', 'источник', 'kind', 'source', 'type']),
     f('note', 'Примечание', NOTE),
     f('station_name', 'АЗС', ['азс', 'заправка', 'станция', 'station'], 'station'),
     f('waybill_number', 'Номер путевого листа', ['путевой лист', 'номер листа', 'лист', 'waybill'], 'waybill'),
   ],
   finance_ops: [
     f('date', 'Дата', ['дата', 'date']),
-    f('kind', 'Тип операции', ['тип', 'вид операции', 'операция', 'kind']),
-    f('amount', 'Сумма', ['сумма', 'начислено', 'оплата', 'amount', 'money']),
-    f('pay_month', 'Месяц оплаты', ['месяц оплаты', 'месяц', 'период', 'pay month']),
+    f('kind', 'Тип операции', ['тип', 'вид операции', 'операция', 'kind', 'type']),
+    f('amount', 'Сумма', ['сумма', 'начислено', 'оплата', 'amount', 'money', 'accrual']),
+    f('pay_month', 'Месяц оплаты', ['месяц оплаты', 'месяц', 'период', 'pay month', 'month']),
     f('note', 'Примечание', NOTE),
   ],
   attachments: [
@@ -142,20 +186,118 @@ export const FIELDS: Record<TableName, FieldDef[]> = {
 
 /** Как файл может называться, чтобы попасть в нужную таблицу */
 export const TABLE_HINTS: Record<TableName, string[]> = {
-  vehicles: ['автомобили', 'машины', 'транспорт', 'автопарк', 'тягачи', 'прицепы', 'vehicles'],
-  vehicle_periods: ['периоды автомобилей', 'период', 'periods'],
-  vehicle_links: ['связки', 'тягач прицеп', 'links'],
-  companies: ['фирмы', 'компании', 'организации', 'заказчики', 'контрагенты', 'companies'],
-  cargo_types: ['грузы', 'номенклатура', 'cargo'],
-  fuel_stations: ['азс', 'заправки список', 'сети заправок', 'fuel stations'],
-  places: ['места', 'адреса', 'точки', 'пункты', 'places', 'locations'],
-  waybills: ['путевые листы', 'путевки', 'листы', 'waybills'],
-  trips: ['перевозки', 'рейсы', 'поездки', 'заявки', 'trips'],
-  trip_points: ['точки маршрута', 'маршрут', 'точки', 'route points'],
-  refuelings: ['заправки', 'топливо', 'заливки', 'refuelings'],
-  finance_ops: ['финансы', 'оплаты', 'платежи', 'начисления', 'деньги', 'finance', 'payments'],
+  vehicles: ['автомобили', 'машины', 'транспорт', 'автопарк', 'тягачи', 'прицепы', 'vehicles', 'vehicle'],
+  vehicle_periods: ['периоды автомобилей', 'периоды', 'период', 'periods', 'vehicle periods'],
+  vehicle_links: ['связки', 'тягач прицеп', 'links', 'vehicle links'],
+  companies: ['фирмы', 'компании', 'организации', 'заказчики', 'контрагенты', 'companies', 'company'],
+  cargo_types: ['грузы', 'номенклатура', 'cargo', 'cargos', 'cargo types'],
+  fuel_stations: ['азс', 'заправки список', 'сети заправок', 'fuel stations', 'gas stations', 'станции'],
+  places: ['места', 'адреса', 'точки', 'пункты', 'places', 'place', 'locations'],
+  waybills: ['путевые листы', 'путевки', 'листы', 'waybills', 'waybill'],
+  trips: ['перевозки', 'рейсы', 'поездки', 'заявки', 'trips', 'trip'],
+  trip_points: ['точки маршрута', 'маршрут', 'точки', 'route points', 'stops', 'stop', 'остановки'],
+  refuelings: ['заправки', 'топливо', 'заливки', 'refuelings', 'fuels', 'fuel'],
+  finance_ops: ['финансы', 'оплаты', 'платежи', 'начисления', 'деньги', 'finance', 'finances', 'payments'],
   attachments: ['документы', 'файлы', 'сканы', 'attachments'],
 };
+
+/**
+ * Колонки-ссылки: «waybillId», «vehicleId», «placeId» и подобные ведут на другую
+ * таблицу. В чужом архиве это старый идентификатор, поэтому переносим его в новый.
+ */
+const ID_LINK_TABLES: Record<string, TableName> = {
+  vehicle: 'vehicles',
+  tractor: 'vehicles',
+  trailer: 'vehicles',
+  period: 'vehicle_periods',
+  company: 'companies',
+  cargo: 'cargo_types',
+  station: 'fuel_stations',
+  'gas station': 'fuel_stations',
+  place: 'places',
+  waybill: 'waybills',
+  trip: 'trips',
+};
+
+/** Какая колонка базы принимает ссылку в каждой таблице */
+const ID_LINK_COLUMNS: Partial<Record<TableName, Record<string, string>>> = {
+  vehicle_periods: { vehicle: 'vehicle_id' },
+  vehicle_links: { tractor: 'tractor_id', vehicle: 'tractor_id', trailer: 'trailer_id' },
+  companies: { cargo: 'cargo_type_id' },
+  places: { company: 'company_id', cargo: 'cargo_type_id' },
+  waybills: { vehicle: 'vehicle_id', tractor: 'vehicle_id', trailer: 'trailer_id' },
+  trips: { waybill: 'waybill_id', cargo: 'cargo_type_id' },
+  trip_points: { trip: 'trip_id', place: 'place_id', cargo: 'cargo_type_id' },
+  refuelings: { waybill: 'waybill_id', station: 'station_id', 'gas station': 'station_id' },
+  finance_ops: { trip: 'trip_id', waybill: 'waybill_id' },
+};
+
+/** Без этих ссылок запись не вставится — NOT NULL без значения по умолчанию */
+const REQUIRED_LINKS = new Set([
+  'vehicle_periods.vehicle_id',
+  'vehicle_links.tractor_id',
+  'vehicle_links.trailer_id',
+  'trips.waybill_id',
+]);
+
+/** Порядок переноса: сначала справочники, потом документы, которые на них ссылаются */
+const IMPORT_ORDER: TableName[] = [
+  'vehicles',
+  'cargo_types',
+  'companies',
+  'fuel_stations',
+  'places',
+  'vehicle_periods',
+  'vehicle_links',
+  'waybills',
+  'trips',
+  'trip_points',
+  'refuelings',
+  'finance_ops',
+  'attachments',
+];
+
+/** Колонка со своим идентификатором записи */
+export function ownIdColumn(column: string): boolean {
+  const n = normalizeHeader(column);
+  return n === 'id' || n === 'guid' || n === 'uuid' || n === 'ключ';
+}
+
+/** Колонка ведёт на другую таблицу? Возвращает таблицу и колонку базы */
+export function idLinkOf(table: TableName, column: string): { target: TableName; column: string } | null {
+  const n = normalizeHeader(column);
+  if (ownIdColumn(column)) return null;
+  if (!n.endsWith(' id')) return null;
+  const prefix = n.slice(0, -3).trim();
+  const key = linkKey(prefix);
+  if (!key) return null;
+  const target = ID_LINK_TABLES[key];
+  if (!target || target === table) return null;
+  const local = ID_LINK_COLUMNS[table]?.[key];
+  if (!local) return null;
+  return { target, column: local };
+}
+
+/** «typical cargo» → «cargo»: в чужих архивах бывают уточняющие приставки */
+function linkKey(prefix: string): string | null {
+  if (ID_LINK_TABLES[prefix]) return prefix;
+  for (const key of Object.keys(ID_LINK_TABLES)) {
+    if (prefix.endsWith(` ${key}`)) return key;
+  }
+  return null;
+}
+
+/** Колонка — чужой идентификатор: «waybillId», «guid», «user_id» */
+export function isIdColumn(column: string): boolean {
+  return ownIdColumn(column) || normalizeHeader(column).endsWith(' id');
+}
+
+/** Служебные колонки чужого архива: ссылки на логотипы, служебные даты и т. п. */
+export function isServiceColumn(column: string): boolean {
+  const n = normalizeHeader(column);
+  if (ownIdColumn(column)) return true;
+  return /(^| )(logo|created|updated|deleted|uuid|guid|sort|order id|external id|old id|hash|version)( |$)/.test(n);
+}
 
 /* ------------------------------------------------------------------ */
 /* Чтение архива                                                      */
@@ -272,6 +414,9 @@ function readJsonBackup(text: string): ArchiveSheet[] {
 
 export function normalizeHeader(raw: string): string {
   return raw
+    // camelCase и PascalCase разбиваем на слова: departureDate → departure date
+    .replace(/([a-zа-я0-9])([A-ZА-Я])/g, '$1 $2')
+    .replace(/([A-ZА-Я]+)([A-ZА-Я][a-zа-я])/g, '$1 $2')
     .toLowerCase()
     .replace(/ё/g, 'е')
     .replace(/[^a-zа-я0-9]+/g, ' ')
@@ -337,8 +482,16 @@ export interface TableGuess {
   confidence: number;
 }
 
+/** Имя файла без расширения, без служебного номера в начале: «07-trips» → «trips» */
+export function sourceBaseName(source: string): string {
+  return source
+    .replace(/\.(csv|xlsx?|json|txt)$/i, '')
+    .replace(/^\s*\d+\s*[-_. )]*/, '')
+    .trim();
+}
+
 export function detectTable(sheet: ArchiveSheet): TableGuess {
-  const name = sheet.source.replace(/\.(csv|xlsx?|json|txt)$/i, '');
+  const name = sourceBaseName(sheet.source);
   let byName: { table: TableName; score: number } | null = null;
   for (const table of TABLES) {
     const score = Math.max(0, ...TABLE_HINTS[table].map((h) => scoreHint(name, h)));
@@ -375,6 +528,8 @@ export interface ColumnLink {
   to: string;
   label: string;
   via: 'словарь' | 'ИИ';
+  /** Колонка ведёт на другую таблицу по старому идентификатору */
+  fk?: { target: TableName; column: string };
 }
 
 export interface SheetPlan {
@@ -385,6 +540,8 @@ export interface SheetPlan {
   via: 'имя' | 'колонки' | 'ИИ';
   rows: number;
   links: ColumnLink[];
+  /** Колонка со старым идентификатором записи */
+  idColumn: string | null;
   /** Колонки архива, которым не нашлось места в базе */
   unknown: string[];
   /** Справочники, которые придётся создать */
@@ -406,10 +563,77 @@ const REF_LABELS: Record<VirtualKind, string> = {
   vehicle: 'Автомобили',
   waybill: 'Путевые листы',
   date: '',
+  coords: '',
 };
 
 export function fieldDef(table: TableName, name: string): FieldDef | undefined {
   return FIELDS[table].find((x) => x.name === name);
+}
+
+interface LinksResult {
+  links: ColumnLink[];
+  unknown: string[];
+  refs: string[];
+  idColumn: string | null;
+}
+
+/** Разобрать колонки листа: поля базы, ссылки по id и то, что не пригодилось */
+function buildLinks(
+  table: TableName | null,
+  columns: string[],
+  aiFields: Record<string, string> = {},
+): LinksResult {
+  const links: ColumnLink[] = [];
+  const unknown: string[] = [];
+  const refs = new Set<string>();
+  let idColumn: string | null = null;
+
+  for (const column of columns) {
+    if (ownIdColumn(column)) {
+      if (!idColumn) idColumn = column;
+      continue;
+    }
+    if (isServiceColumn(column)) continue;
+    if (isIdColumn(column)) {
+      // Чужой идентификатор: переносим только как ссылку на другую таблицу
+      const fk = table ? idLinkOf(table, column) : null;
+      if (fk) {
+        links.push({
+          from: column,
+          to: fk.column,
+          label: `${TABLE_TITLES[fk.target]} (по старому id)`,
+          via: 'словарь',
+          fk,
+        });
+      }
+      continue;
+    }
+    if (!table) {
+      unknown.push(column);
+      continue;
+    }
+    const aiName = aiFields[column];
+    if (aiName && allowedField(table, aiName)) {
+      const def = fieldDef(table, aiName);
+      links.push({
+        from: column,
+        to: aiName,
+        label: def?.label ?? columnTypesOf(table).get(aiName) ?? aiName,
+        via: 'ИИ',
+      });
+      if (def?.virtual && REF_LABELS[def.virtual]) refs.add(REF_LABELS[def.virtual]);
+      continue;
+    }
+    const match = bestField(table, column);
+    if (match) {
+      links.push({ from: column, to: match.field.name, label: match.field.label, via: 'словарь' });
+      if (match.field.virtual && REF_LABELS[match.field.virtual]) refs.add(REF_LABELS[match.field.virtual]);
+      continue;
+    }
+    unknown.push(column);
+  }
+
+  return { links, unknown, refs: [...refs], idColumn };
 }
 
 export function buildPlan(sheets: ArchiveSheet[]): ImportPlan {
@@ -418,23 +642,7 @@ export function buildPlan(sheets: ArchiveSheet[]): ImportPlan {
 
   for (const sheet of sheets) {
     const guess = detectTable(sheet);
-    const links: ColumnLink[] = [];
-    const unknown: string[] = [];
-    const refs = new Set<string>();
-
-    if (guess.table) {
-      for (const column of sheet.columns) {
-        const match = bestField(guess.table, column);
-        if (!match) {
-          unknown.push(column);
-          continue;
-        }
-        links.push({ from: column, to: match.field.name, label: match.field.label, via: 'словарь' });
-        if (match.field.virtual && REF_LABELS[match.field.virtual]) refs.add(REF_LABELS[match.field.virtual]);
-      }
-    } else {
-      unknown.push(...sheet.columns);
-    }
+    const built = buildLinks(guess.table, sheet.columns);
 
     plans.push({
       source: sheet.source,
@@ -443,9 +651,10 @@ export function buildPlan(sheets: ArchiveSheet[]): ImportPlan {
       confidence: guess.confidence,
       via: guess.via,
       rows: sheet.rows.length,
-      links,
-      unknown,
-      refs: [...refs],
+      links: built.links,
+      idColumn: built.idColumn,
+      unknown: built.unknown,
+      refs: built.refs,
     });
 
     if (!guess.table) {
@@ -454,14 +663,12 @@ export function buildPlan(sheets: ArchiveSheet[]): ImportPlan {
           .slice(0, 12)
           .join(', ')}. Если эти данные нужны — для них стоит завести новую таблицу.`,
       );
-    } else {
-      for (const column of unknown) {
-        advice.push(
-          `Файл «${sheet.source}»: колонка «${column}» не нашла места в таблице «${
-            TABLE_TITLES[guess.table]
-          }». Если она нужна — добавьте такое поле в базу.`,
-        );
-      }
+    } else if (built.unknown.length > 0) {
+      advice.push(
+        `Файл «${sheet.source}» (${TABLE_TITLES[guess.table]}): не нашлось места для колонок ${built.unknown
+          .map((c) => `«${c}»`)
+          .join(', ')}. Если они нужны — добавьте такие поля в базу.`,
+      );
     }
   }
 
@@ -572,32 +779,11 @@ export async function refineWithAi(sheets: ArchiveSheet[], plan: ImportPlan): Pr
         ? (hint.table as TableName)
         : base?.table ?? null;
 
-    const links: ColumnLink[] = [];
-    const unknown: string[] = [];
-    const refs = new Set<string>();
-
-    for (const column of sheet.columns) {
-      const aiField = hint?.columns?.[column];
-      const aiOk = table && typeof aiField === 'string' && allowedField(table, aiField);
-      if (aiOk && table) {
-        const def = fieldDef(table, aiField);
-        links.push({
-          from: column,
-          to: aiField,
-          label: def?.label ?? columnTypesOf(table).get(aiField) ?? aiField,
-          via: 'ИИ',
-        });
-        if (def?.virtual && REF_LABELS[def.virtual]) refs.add(REF_LABELS[def.virtual]);
-        continue;
-      }
-      const local = table ? bestField(table, column) : null;
-      if (local) {
-        links.push({ from: column, to: local.field.name, label: local.field.label, via: 'словарь' });
-        if (local.field.virtual && REF_LABELS[local.field.virtual]) refs.add(REF_LABELS[local.field.virtual]);
-      } else {
-        unknown.push(column);
-      }
+    const columnHints: Record<string, string> = {};
+    for (const [column, field] of Object.entries(hint?.columns ?? {})) {
+      if (typeof field === 'string') columnHints[column] = field;
     }
+    const built = buildLinks(table, sheet.columns, columnHints);
 
     sheetsPlan.push({
       source: sheet.source,
@@ -606,9 +792,10 @@ export async function refineWithAi(sheets: ArchiveSheet[], plan: ImportPlan): Pr
       confidence: typeof hint?.confidence === 'number' ? hint.confidence : base?.confidence ?? 0,
       via: table && hint?.table ? 'ИИ' : base?.via ?? 'колонки',
       rows: sheet.rows.length,
-      links,
-      unknown,
-      refs: [...refs],
+      links: built.links,
+      idColumn: built.idColumn,
+      unknown: built.unknown,
+      refs: built.refs,
     });
   }
 
@@ -807,6 +994,8 @@ class RefBook {
 interface PreparedRow {
   row: Record<string, unknown>;
   virtuals: Map<string, string>;
+  /** Ссылки на другие таблицы — разрешаются при переносе, когда известны новые id */
+  fks: { column: string; target: TableName; oldId: string }[];
 }
 
 /** Собрать строку для базы из строки архива по плану */
@@ -814,11 +1003,29 @@ function prepareRow(table: TableName, plan: SheetPlan, raw: Record<string, strin
   const types = columnTypesOf(table);
   const row: Record<string, unknown> = {};
   const virtuals = new Map<string, string>();
+  const fks: PreparedRow['fks'] = [];
 
   for (const link of plan.links) {
     const value = (raw[link.from] ?? '').trim();
     if (value === '') continue;
+    if (link.fk) {
+      fks.push({ column: link.fk.column, target: link.fk.target, oldId: value });
+      continue;
+    }
     const def = fieldDef(table, link.to);
+    if (def?.virtual === 'coords') {
+      // «55.7558, 37.6173» → широта и долгота
+      if (!types.has('lat') || !types.has('lon')) continue;
+      const nums = value
+        .split(/[;\s]+/)
+        .join(' ')
+        .split(/[,\s]+/)
+        .map((x) => toNumber(x))
+        .filter((x): x is number => x !== null);
+      if (nums.length >= 1) row.lat = nums[0];
+      if (nums.length >= 2) row.lon = nums[1];
+      continue;
+    }
     if (def?.virtual) {
       virtuals.set(link.to, value);
       continue;
@@ -841,7 +1048,7 @@ function prepareRow(table: TableName, plan: SheetPlan, raw: Record<string, strin
     row[link.to] = value;
   }
 
-  return { row: cleanCsvRow(table, stringify(row)), virtuals };
+  return { row: cleanCsvRow(table, stringify(row)), virtuals, fks };
 }
 
 function stringify(row: Record<string, unknown>): Record<string, string> {
@@ -860,8 +1067,23 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
   };
   const skipped: number[] = [];
   let total = 0;
+  /** Сколько ссылок между таблицами удалось восстановить */
+  let linked = 0;
 
-  for (const sheetPlan of plan.sheets) {
+  /** Старый идентификатор из архива → новый идентификатор в базе */
+  const idMaps = new Map<TableName, Map<string, string>>();
+  const mapOldId = (target: TableName, oldId: string): string | null =>
+    idMaps.get(target)?.get(oldId) ?? null;
+  /** Ссылки, которые пока не нашли адресата — поправим вторым проходом */
+  const pending: { table: TableName; id: string; column: string; target: TableName; oldId: string }[] = [];
+
+  // Сначала справочники, потом записи, которые на них ссылаются
+  const order = new Map(IMPORT_ORDER.map((t, i) => [t, i]));
+  const ordered = [...plan.sheets].sort(
+    (a, b) => (a.table ? order.get(a.table) ?? 99 : 99) - (b.table ? order.get(b.table) ?? 99 : 99),
+  );
+
+  for (const sheetPlan of ordered) {
     if (!sheetPlan.table) continue;
     const table = sheetPlan.table;
     const sheet = sheets.find((s) => s.source === sheetPlan.source);
@@ -869,44 +1091,88 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
 
     for (const raw of sheet.rows) {
       try {
-        const { row, virtuals } = prepareRow(table, sheetPlan, raw);
+        const { row, virtuals, fks } = prepareRow(table, sheetPlan, raw);
         total++;
+        // Ссылки по старым id: ищем запись, которую уже перенесли
+        for (const fk of fks) {
+          const mapped = mapOldId(fk.target, fk.oldId);
+          if (mapped) {
+            row[fk.column] = mapped;
+            linked++;
+          } else if (REQUIRED_LINKS.has(`${table}.${fk.column}`)) {
+            row[fk.column] = '';
+          }
+        }
+
+        let newId: string;
         switch (table) {
           case 'trips':
-            insertTrip(row, virtuals, books, track);
+            newId = insertTrip(row, virtuals, books);
             break;
           case 'refuelings': {
-            const station = virtuals.get('station_name');
-            if (station) row.station_id = books.ref('fuel_stations', station);
-            const number = virtuals.get('waybill_number');
-            if (number) row.waybill_id = books.waybill(number, '');
-            track(table, insertRow(table, row));
+            if (!row.station_id) {
+              const station = virtuals.get('station_name');
+              if (station) row.station_id = books.ref('fuel_stations', station);
+            }
+            if (!row.waybill_id) {
+              const number = virtuals.get('waybill_number');
+              if (number) row.waybill_id = books.waybill(number, '');
+            }
+            newId = insertRow(table, row);
             break;
           }
           case 'places': {
-            const company = virtuals.get('company_name');
-            if (company) row.company_id = books.ref('companies', company);
-            track(table, insertRow(table, row));
+            if (!row.company_id) {
+              const company = virtuals.get('company_name');
+              if (company) row.company_id = books.ref('companies', company);
+            }
+            if (!row.cargo_type_id) {
+              const cargo = virtuals.get('cargo_name');
+              if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
+            }
+            newId = insertRow(table, row);
             break;
           }
           case 'waybills': {
-            const vehicle = virtuals.get('vehicle_name');
-            if (vehicle) row.vehicle_id = books.ref('vehicles', vehicle);
-            track(table, insertRow(table, row));
+            if (!row.vehicle_id) {
+              const vehicle = virtuals.get('vehicle_name');
+              if (vehicle) row.vehicle_id = books.ref('vehicles', vehicle);
+            }
+            newId = insertRow(table, row);
             break;
           }
           case 'trip_points': {
-            const place = virtuals.get('place_name');
-            if (place) row.place_id = books.ref('places', place);
-            const cargo = virtuals.get('cargo_name');
-            if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
-            track(table, insertRow(table, row));
+            if (!row.place_id) {
+              const place = virtuals.get('place_name');
+              if (place) row.place_id = books.ref('places', place);
+            }
+            if (!row.cargo_type_id) {
+              const cargo = virtuals.get('cargo_name');
+              if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
+            }
+            newId = insertRow(table, row);
             break;
           }
           default: {
-            const cargo = virtuals.get('cargo_name');
-            if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
-            track(table, insertRow(table, row));
+            if (!row.cargo_type_id) {
+              const cargo = virtuals.get('cargo_name');
+              if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
+            }
+            newId = insertRow(table, row);
+          }
+        }
+        track(table, newId);
+
+        if (sheetPlan.idColumn) {
+          const oldId = (raw[sheetPlan.idColumn] ?? '').trim();
+          if (oldId) {
+            if (!idMaps.has(table)) idMaps.set(table, new Map());
+            idMaps.get(table)?.set(oldId, newId);
+          }
+        }
+        for (const fk of fks) {
+          if (!mapOldId(fk.target, fk.oldId)) {
+            pending.push({ table, id: newId, column: fk.column, target: fk.target, oldId: fk.oldId });
           }
         }
         inserted[table] = (inserted[table] ?? 0) + 1;
@@ -916,10 +1182,19 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
     }
   }
 
+  // Второй проход: адресат ссылки мог появиться позже
+  for (const p of pending) {
+    const mapped = mapOldId(p.target, p.oldId);
+    if (!mapped) continue;
+    updateRow(p.table, p.id, { [p.column]: mapped });
+    linked++;
+  }
+
   const added = Object.values(inserted).reduce((a, b) => a + b, 0);
   const refs = Object.entries(books.created).filter(([, n]) => n > 0);
   const parts = [`перенесено записей: ${added}`];
   if (refs.length > 0) parts.push(refs.map(([t, n]) => `${TABLE_TITLES[t as TableName] ?? t} +${n}`).join(', '));
+  if (linked > 0) parts.push(`связей между таблицами: ${linked}`);
   if (skipped.length > 0) parts.push(`пропущено строк: ${skipped.length}`);
 
   // Записи, созданные справочником, тоже должны отменяться
@@ -933,24 +1208,22 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
 }
 
 /** Перевозка: заводим лист и точки загрузки/выгрузки по названиям */
-function insertTrip(
-  row: Record<string, unknown>,
-  virtuals: Map<string, string>,
-  books: RefBook,
-  track: (table: string, id: string) => void,
-): void {
+function insertTrip(row: Record<string, unknown>, virtuals: Map<string, string>, books: RefBook): string {
   const date = virtuals.get('date') ?? '';
-  const cargo = virtuals.get('cargo_name');
-  if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
-  row.waybill_id = books.waybill(virtuals.get('waybill_number') ?? '', date ? parseDateValue(date) : '');
+  if (!row.cargo_type_id) {
+    const cargo = virtuals.get('cargo_name');
+    if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
+  }
+  if (!row.waybill_id) {
+    row.waybill_id = books.waybill(virtuals.get('waybill_number') ?? '', date ? parseDateValue(date) : '');
+  }
   const tripId = insertRow('trips', row);
-  track('trips', tripId);
 
   const from = virtuals.get('place_from');
   const to = virtuals.get('place_to');
   const day = date ? parseDateValue(date) : '';
   if (from) {
-    track('trip_points', insertRow('trip_points', {
+    insertRow('trip_points', {
       trip_id: tripId,
       seq: 1,
       kind: 'load',
@@ -958,10 +1231,10 @@ function insertTrip(
       plan_date: day,
       fact_date: day,
       status: 'done',
-    }));
+    });
   }
   if (to) {
-    track('trip_points', insertRow('trip_points', {
+    insertRow('trip_points', {
       trip_id: tripId,
       seq: from ? 2 : 1,
       kind: 'unload',
@@ -969,8 +1242,9 @@ function insertTrip(
       plan_date: day,
       fact_date: day,
       status: 'done',
-    }));
+    });
   }
+  return tripId;
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,9 +1,9 @@
 /** Настройки ИИ: адрес, ключ, модель и проверка подключения. */
 
 import { useState } from 'react';
-import { Badge, Button, Field, Icon, TextInput } from './components';
+import { Badge, Button, Field, Icon, IconButton, TextInput } from './components';
 import { useApp } from '../store';
-import { listModels, normalizeBaseUrl, readAiConfig } from '../lib/ai';
+import { keyShape, keyShapeProblem, listModels, normalizeBaseUrl, readAiConfig } from '../lib/ai';
 
 export function AiSettings() {
   const settings = useApp((s) => s.settings);
@@ -11,10 +11,16 @@ export function AiSettings() {
   const notify = useApp((s) => s.notify);
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [showKey, setShowKey] = useState(false);
 
   const cfg = readAiConfig();
   const configured = cfg !== null;
   const ready = configured && settings.ai_model.trim() !== '';
+  const keyProblem = keyShapeProblem(settings.ai_api_key);
+  const keyLine =
+    settings.ai_api_key.trim() === ''
+      ? ''
+      : [keyShape(settings.ai_api_key), keyProblem].filter((x) => x !== '').join('. ');
 
   async function check() {
     const config = readAiConfig();
@@ -58,13 +64,24 @@ export function AiSettings() {
       ) : null}
 
       <Field label="Ключ API" hint="Хранится только на устройстве, в коде приложения его нет">
-        <TextInput
-          type="password"
-          value={settings.ai_api_key}
-          onChange={(e) => saveSetting('ai_api_key', e.target.value)}
-          placeholder="sk-..."
-        />
+        <div className="row">
+          <TextInput
+            className="grow"
+            type={showKey ? 'text' : 'password'}
+            value={settings.ai_api_key}
+            onChange={(e) => saveSetting('ai_api_key', e.target.value)}
+            placeholder="sk-..."
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <IconButton
+            icon="eye"
+            title={showKey ? 'Скрыть ключ' : 'Показать ключ'}
+            onClick={() => setShowKey((v) => !v)}
+          />
+        </div>
       </Field>
+      {keyLine ? <div className={`small ${keyProblem ? 'alert alert-warn' : 'muted'}`}>{keyLine}</div> : null}
 
       <Field label="Модель">
         <TextInput

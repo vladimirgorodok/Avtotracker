@@ -226,7 +226,7 @@ async function describeError(res: Response): Promise<string> {
   }
   detail = detail.replace(/\s+/g, ' ').trim().slice(0, 300);
   const byStatus: Record<number, string> = {
-    401: 'Неверный ключ доступа',
+    401: 'Ключ отклонён сервисом',
     403: 'Доступ к модели запрещён',
     404: 'Адрес API или название модели указаны неверно',
     422: 'Сервис не принял запрос',
@@ -236,7 +236,41 @@ async function describeError(res: Response): Promise<string> {
     503: 'Сервис перегружен',
   };
   const base = byStatus[res.status] ?? `Ошибка сервиса (${res.status})`;
-  return detail ? `${base}: ${detail}` : base;
+  const hint =
+    res.status === 401
+      ? ' Проверьте, что ключ скопирован целиком и создан именно в этом сервисе.'
+      : '';
+  return detail ? `${base}: ${detail}.${hint}` : `${base}.${hint}`;
+}
+
+/**
+ * Ключ должен быть похож на настоящий: без пробелов, начинаться на «sk-» и быть
+ * достаточно длинным. Возвращает подсказку, если что-то не так.
+ */
+export function keyShapeProblem(key: string): string {
+  const k = key.trim();
+  if (!k) return '';
+  if (/\s/.test(k)) return 'В ключе есть пробел или перенос строки — скопируйте его заново.';
+  if (!/^sk-/i.test(k)) return 'Ключи обычно начинаются с «sk-». Похоже, вставлено не то значение.';
+  if (k.length < 20) return 'Ключ подозрительно короткий — возможно, скопилась только часть.';
+  return '';
+}
+
+/** Короткое и безопасное описание введённого ключа: длина и начало */
+export function keyShape(key: string): string {
+  const k = key.trim();
+  if (!k) return '';
+  const head = k.slice(0, 8);
+  return `введено ${k.length} симв., начинается на «${head}…»`;
+}
+
+/** Проверка соединения с сервисом: понятный текст вместо ошибки сети */
+async function checkNetworkError(e: unknown): Promise<never> {
+  throw new Error(
+    e instanceof Error && e.message
+      ? `Сеть недоступна или адрес указан неверно (${e.message})`
+      : 'Сеть недоступна или адрес указан неверно',
+  );
 }
 
 function headerLines(cfg: AiConfig): Record<string, string> {
@@ -248,7 +282,12 @@ function headerLines(cfg: AiConfig): Record<string, string> {
 
 /** Список доступных моделей — чтобы выбрать нужную в настройках */
 export async function listModels(cfg: AiConfig): Promise<string[]> {
-  const res = await fetch(`${cfg.baseUrl}/models`, { headers: headerLines(cfg) });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}/models`, { headers: headerLines(cfg) });
+  } catch (e) {
+    return checkNetworkError(e);
+  }
   if (!res.ok) throw new Error(await describeError(res));
   const json = (await res.json()) as { data?: unknown; models?: unknown };
   const raw = Array.isArray(json.data) ? json.data : Array.isArray(json.models) ? json.models : [];
@@ -312,16 +351,21 @@ export async function askModel(
 ): Promise<string> {
   if (!cfg.model) throw new Error('Выберите модель в настройках ИИ');
 
-  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: headerLines(cfg),
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      temperature: 0.2,
-      stream: Boolean(onDelta),
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: headerLines(cfg),
+      body: JSON.stringify({
+        model: cfg.model,
+        messages,
+        temperature: 0.2,
+        stream: Boolean(onDelta),
+      }),
+    });
+  } catch (e) {
+    return checkNetworkError(e);
+  }
   if (!res.ok) throw new Error(await describeError(res));
 
   if (onDelta && res.body) {

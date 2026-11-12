@@ -427,6 +427,8 @@ async function main() {
     loadChat,
     saveChat,
     clearChat,
+    keyShapeProblem,
+    keyShape,
   } = await import('../lib/ai');
   const { createElement } = await import('react');
   const { renderToString } = await import('react-dom/server');
@@ -576,7 +578,28 @@ async function main() {
     } catch (e) {
       errorText = e instanceof Error ? e.message : String(e);
     }
-    check('понятная ошибка при неверном ключе', errorText.includes('Неверный ключ') && errorText.includes('bad key'), errorText);
+    check('понятная ошибка при неверном ключе', errorText.includes('Ключ отклонён сервисом') && errorText.includes('bad key'), errorText);
+    check('подсказка про копирование ключа', errorText.includes('скопирован целиком'), errorText);
+
+    // Ошибка сети вместо «Failed to fetch»
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as unknown as typeof fetch;
+    let netText = '';
+    try {
+      await listModels(cfg);
+    } catch (e) {
+      netText = e instanceof Error ? e.message : String(e);
+    }
+    check('понятная ошибка при недоступной сети', netText.includes('Сеть недоступна'), netText);
+
+    eq('ключ без замечаний', keyShapeProblem('sk-aitunnel-1234567890abcdefghijklmnop'), '');
+    check('пробел в ключе замечен', keyShapeProblem('sk-ait 123').includes('пробел'));
+    check('ключ не того вида замечен', keyShapeProblem('abcdef1234567890').includes('sk-'));
+    check('короткий ключ замечен', keyShapeProblem('sk-123').includes('короткий'));
+    eq('пустой ключ без замечаний', keyShapeProblem('   '), '');
+    eq('описание ключа показывает длину', keyShape('sk-aitunnel-1234'), 'введено 16 симв., начинается на «sk-aitun…»');
+    eq('пустой ключ не описывается', keyShape('  '), '');
   } finally {
     (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
   }
@@ -900,6 +923,151 @@ async function main() {
     const months = repo.usedMonths();
     check('месяцы с данными найдены', months.length > 0);
     check('формат месяцев верный', months.every((m) => /^\d{4}-\d{2}$/.test(m)));
+
+    // Чужой архив из 11 файлов с английскими именами и camelCase-колонками
+    const archiveZip = new JSZip();
+    archiveZip.file(
+      '01-vehicles.csv',
+      'id,name,brand,model,plate,vin,year,fuelNorm,type,notes\n' +
+        'v1,Volvo FH,Volvo,FH,А123ВС777,X1Y2Z3,2019,32,tractor,\n' +
+        'v2,Schmitz,Schmitz,SCB,ВЕ4567,ZZZ,2020,,trailer,',
+    );
+    archiveZip.file(
+      '02-companies.csv',
+      'id,name,typicalCargoId,existingLogoUrl,internetLogoUrl,hostingLogoUrl\n' +
+        'c1,ООО Ромашка,k1,,,',
+    );
+    archiveZip.file(
+      '03-cargos.csv',
+      'id,name,existingLogoUrl,internetLogoUrl,hostingLogoUrl\nk1,Песок,,,\nk2,Щебень,,,',
+    );
+    archiveZip.file(
+      '04-places.csv',
+      'id,name,contact,coordinates,address,loadType,notes,companyId,typicalCargoId\n' +
+        'p1,Карьер Север,Иван 900,"55.75, 37.61",Москва,rear,,c1,k1',
+    );
+    archiveZip.file(
+      '05-periods.csv',
+      'id,name,startDate,endDate,vehicleId\npr1,2019 год,01.01.2019,31.12.2019,v1',
+    );
+    archiveZip.file(
+      '06-waybills.csv',
+      'id,name,departureDate,returnDate,odometerOut,odometerIn,fuelOut,fuelIn,notes,periodId,vehicleId,trailerId\n' +
+        'w1,Лист 1,05.11.2026,06.11.2026,100000,100500,300,250,,pr1,v1,v2',
+    );
+    archiveZip.file(
+      '07-trips.csv',
+      'id,name,cargo,weightKg,loadingType,accrual,notes,waybillId\n' +
+        't1,Рейс с песком,Песок,20000,rear,12000,,w1',
+    );
+    archiveZip.file(
+      '08-stops.csv',
+      'id,name,order,date,plannedDate,arrivedAt,placeName,direction,tripId,placeId,companyId\n' +
+        's1,Погрузка,1,05.11.2026,05.11.2026,05.11.2026,Карьер Север,load,t1,p1,c1\n' +
+        's2,Выгрузка,2,06.11.2026,06.11.2026,06.11.2026,Склад Юг,unload,t1,,c1',
+    );
+    archiveZip.file('09-gas-stations.csv', 'id,name,notes,existingLogoUrl,internetLogoUrl,hostingLogoUrl\ng1,Лукойл,,,,\n');
+    archiveZip.file(
+      '10-fuels.csv',
+      'id,name,unknownTime,liters,source,dateTime,waybillId,gasStationId\n' +
+        'f1,Заправка,,250,station,05.11.2026 08:30,w1,g1',
+    );
+    archiveZip.file(
+      '11-finances.csv',
+      'id,name,type,date,amount,month,description,reconciliationStatus,tripId,waybillId\n' +
+        'fi1,Начисление,charge,06.11.2026,12000,11.2026,За рейс,done,t1,w1',
+    );
+    const archiveSheets = await si.readArchive(await archiveZip.generateAsync({ type: 'uint8array' }), 'avtobaza.zip');
+    const archivePlan = si.buildPlan(archiveSheets);
+    const tableOf = (file: string) => archivePlan.sheets.find((s) => s.source === file)?.table ?? null;
+    eq('файлов в чужом архиве', archiveSheets.length, 11);
+    eq('01-vehicles → автомобили', tableOf('01-vehicles'), 'vehicles');
+    eq('02-companies → фирмы', tableOf('02-companies'), 'companies');
+    eq('03-cargos → грузы', tableOf('03-cargos'), 'cargo_types');
+    eq('04-places → места', tableOf('04-places'), 'places');
+    eq('05-periods → периоды', tableOf('05-periods'), 'vehicle_periods');
+    eq('06-waybills → листы', tableOf('06-waybills'), 'waybills');
+    eq('07-trips → перевозки', tableOf('07-trips'), 'trips');
+    eq('08-stops → точки', tableOf('08-stops'), 'trip_points');
+    eq('09-gas-stations → АЗС', tableOf('09-gas-stations'), 'fuel_stations');
+    eq('10-fuels → заправки', tableOf('10-fuels'), 'refuelings');
+    eq('11-finances → финансы', tableOf('11-finances'), 'finance_ops');
+
+    const linkOf = (file: string, column: string) =>
+      archivePlan.sheets.find((s) => s.source === file)?.links.find((l) => l.from === column);
+    eq('06-waybills.vehicleId — ссылка на автомобиль', linkOf('06-waybills', 'vehicleId')?.fk?.target, 'vehicles');
+    eq('07-trips.waybillId — ссылка на лист', linkOf('07-trips', 'waybillId')?.fk?.target, 'waybills');
+    eq('08-stops.tripId — ссылка на перевозку', linkOf('08-stops', 'tripId')?.fk?.target, 'trips');
+    eq('10-fuels.gasStationId — ссылка на АЗС', linkOf('10-fuels', 'gasStationId')?.fk?.target, 'fuel_stations');
+    eq('колонка id — ключ записи', archivePlan.sheets.find((s) => s.source === '07-trips')?.idColumn, 'id');
+    eq('camelCase departureDate → date_out', linkOf('06-waybills', 'departureDate')?.to, 'date_out');
+    eq('camelCase odometerIn → odometer_in', linkOf('06-waybills', 'odometerIn')?.to, 'odometer_in');
+    eq('accrual → начислено', linkOf('07-trips', 'accrual')?.to, 'amount');
+    eq('weightKg → вес', linkOf('07-trips', 'weightKg')?.to, 'weight');
+    eq('arrivedAt → фактическая дата', linkOf('08-stops', 'arrivedAt')?.to, 'fact_date');
+    eq('direction → тип точки', linkOf('08-stops', 'direction')?.to, 'kind');
+    eq('liters → количество', linkOf('10-fuels', 'liters')?.to, 'volume');
+    eq('month → месяц оплаты', linkOf('11-finances', 'month')?.to, 'pay_month');
+    check(
+      'служебные логотипы не мешают',
+      !(archivePlan.sheets.find((s) => s.source === '03-cargos')?.unknown ?? []).some((c) =>
+        c.toLowerCase().includes('logo'),
+      ),
+    );
+
+    const archiveZipResult = si.applyPlan(archiveSheets, archivePlan);
+    eq('автомобилей перенесено', archiveZipResult.inserted.vehicles, 2);
+    eq('фирм перенесено', archiveZipResult.inserted.companies, 1);
+    eq('грузов перенесено', archiveZipResult.inserted.cargo_types, 2);
+    eq('мест из файла перенесено', archiveZipResult.inserted.places, 1);
+    eq('периодов перенесено', archiveZipResult.inserted.vehicle_periods, 1);
+    eq('листов перенесено', archiveZipResult.inserted.waybills, 1);
+    eq('перевозок перенесено', archiveZipResult.inserted.trips, 1);
+    eq('точек перенесено', archiveZipResult.inserted.trip_points, 2);
+    eq('заправок перенесено', archiveZipResult.inserted.refuelings, 1);
+    eq('финансов перенесено', archiveZipResult.inserted.finance_ops, 1);
+
+    // Связи между таблицами должны восстановиться по старым идентификаторам
+    const mine = (table: string, id: string | undefined) => (archiveZipResult.ids[table] ?? []).includes(id ?? '');
+    const newVehicle = repo.refs.vehicles().find((v) => v.name === 'Volvo FH' && mine('vehicles', v.id));
+    const newWaybill = repo.waybillRepo.list().find((w) => mine('waybills', w.id));
+    const newTrip = repo.tripRepo.get((archiveZipResult.ids.trips ?? [])[0] ?? '');
+    const newPlace = repo.refs.places().find((p) => p.name === 'Карьер Север' && mine('places', p.id));
+    eq('лист связан с автомобилем', newWaybill?.vehicle_id, newVehicle?.id);
+    eq('одометр листа перенесён', newWaybill?.odometer_out, 100000);
+    eq('тоннаж листа перенесён', newWaybill?.odometer_in, 100500);
+    eq('перевозка связана с листом', newTrip?.waybill_id, newWaybill?.id);
+    eq('вес перевозки перенесён', newTrip?.weight, 20000);
+    const points = newTrip ? repo.tripRepo.points(newTrip.id) : [];
+    eq('точек у перевозки из чужого архива', points.length, 2);
+    eq('точка погрузки связана с местом', points[0]?.place_id, newPlace?.id);
+    eq('тип точки из direction', points[0]?.kind, 'load');
+    eq('тип второй точки из direction', points[1]?.kind, 'unload');
+    const newStation = repo.refs.fuelStations().find((s) => s.name === 'Лукойл' && mine('fuel_stations', s.id));
+    const fuelRow = repo.refuelRepo.list().find((f) => mine('refuelings', f.id));
+    eq('заправка связана с АЗС', fuelRow?.station_id, newStation?.id);
+    eq('заправка связана с листом', fuelRow?.waybill_id, newWaybill?.id);
+    eq('дата заправки из dateTime', fuelRow?.date, '2026-11-05');
+    eq('тип заправки из source', fuelRow?.kind, 'station');
+    eq('количество литров перенесено', fuelRow?.volume, 250);
+    const fin = repo.financeRepo.get((archiveZipResult.ids.finance_ops ?? [])[0] ?? '');
+    eq('финансы связаны с перевозкой', fin?.trip_id, newTrip?.id);
+    eq('месяц оплаты перенесён', fin?.pay_month, '2026-11');
+    eq('тип операции из type', fin?.kind, 'charge');
+    eq('сумма финансов перенесена', fin?.amount, 12000);
+    const place = repo.refs.place((archiveZipResult.ids.places ?? [])[0] ?? null);
+    eq('координаты разобраны', place?.lat, 55.75);
+    eq('долгота разобрана', place?.lon, 37.61);
+    eq('фирма места связана', place?.company_id, repo.refs.companies().find((c) => c.name === 'ООО Ромашка')?.id);
+    eq('груз места связан', place?.cargo_type_id, repo.refs.cargoTypes().find((c) => c.name === 'Песок' && mine('cargo_types', c.id))?.id);
+    eq('тип загрузки места перенесён', place?.load_type, 'rear');
+    eq('название места перенесено', place?.name, 'Карьер Север');
+    const periodVehicle = repo.vehicleRepo.periods(newVehicle?.id ?? '');
+    eq('период связан с автомобилем', periodVehicle.length, 1);
+    eq('дата начала периода перенесена', periodVehicle[0]?.start_date, '2019-01-01');
+    eq('дата конца периода перенесена', periodVehicle[0]?.end_date, '2019-12-31');
+    check('место выгрузки создано по названию', repo.refs.places().some((p) => p.name === 'Склад Юг'));
+    check('связи между таблицами посчитаны', archiveZipResult.message.includes('связей между таблицами'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

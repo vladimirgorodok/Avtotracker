@@ -11,6 +11,7 @@ import { fileToBytes, pickFile } from '../db/storage';
 import { getDb } from '../db';
 import { deleteMeta, getMeta, putMeta, softDeleteMany } from '../db/repo';
 import { isAiReady } from '../lib/ai';
+import { TABLE_TITLES } from '../lib/backup';
 import {
   applyPlan,
   buildPlan,
@@ -233,6 +234,15 @@ export default function SmartImport() {
                   {sheet.unknown.length > 0 ? (
                     <div className="small muted">Без места в базе: {sheet.unknown.join(', ')}</div>
                   ) : null}
+                  {sheet.links.filter((l) => l.fk).length > 0 ? (
+                    <div className="small muted">
+                      Связи по старым id:{' '}
+                      {sheet.links
+                        .filter((l) => l.fk)
+                        .map((l) => `${l.from} → ${TABLE_TITLES[l.fk!.target]}`)
+                        .join(', ')}
+                    </div>
+                  ) : null}
                   {sheet.refs.length > 0 ? (
                     <div className="small muted">Создадим справочники: {sheet.refs.join(', ')}</div>
                   ) : null}
@@ -245,7 +255,8 @@ export default function SmartImport() {
             </Button>
             <div className="small muted">
               Записи добавляются новыми: справочники (места, грузы, фирмы) находятся по названию или
-              создаются, а повторный перенос того же файла добавит копии.
+              создаются, а повторный перенос того же файла добавит копии. Ссылки между таблицами
+              (перевозка → лист, точка → место, заправка → АЗС) восстанавливаются по старым id.
             </div>
           </Card>
 

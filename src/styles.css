@@ -316,6 +316,11 @@ body {
   align-items: center;
 }
 
+.row .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .row.wrap {
   flex-wrap: wrap;
 }
