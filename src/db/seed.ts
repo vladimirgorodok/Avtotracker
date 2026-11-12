@@ -1,8 +1,8 @@
 /** Первичное наполнение: настройки по умолчанию и базовые справочники. */
 
 import { dbSync } from './index';
-import { countRows, insertRow, nowIso, uid } from './repo';
-import { DEFAULT_SETTINGS } from '../types';
+import { countRows, insertRow, setSetting, uid } from './repo';
+import { DEFAULT_SETTINGS, type AppSettings } from '../types';
 
 const SEED_CARGO = [
   'Грунт',
@@ -33,12 +33,11 @@ const SEED_STATIONS = [
 /** Заполнить настройки и справочники, если база пустая. Повторный вызов безопасен. */
 export function seedIfEmpty(): void {
   const db = dbSync();
-  const ts = nowIso();
 
   if (countRows('settings') === 0) {
     db.tx(() => {
       for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-        insertRow('settings', { key, value: String(value) });
+        setSetting(key as keyof AppSettings, value);
       }
     });
   }
@@ -54,9 +53,6 @@ export function seedIfEmpty(): void {
       for (const name of SEED_STATIONS) insertRow('fuel_stations', { id: uid(), name, logo: '', note: '' });
     });
   }
-
-  // если справочники есть, но нет ни одной настройки — не перезаписываем
-  void ts;
 }
 
 /** Пример данных для знакомства с приложением (вызывается вручную из настроек) */

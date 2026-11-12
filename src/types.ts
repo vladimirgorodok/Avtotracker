@@ -166,10 +166,13 @@ export interface FinanceOp extends BaseRow {
   auto: Flag;
 }
 
-/** Настройки: ключ — значение */
-export interface SettingRow extends BaseRow {
+/** Настройки: ключ — значение. Отдельная таблица без id: первичный ключ — сам ключ. */
+export interface SettingRow {
   key: string;
   value: string;
+  created_at: string;
+  updated_at: string;
+  deleted: Flag;
 }
 
 export interface AppSettings {

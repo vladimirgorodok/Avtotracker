@@ -32,3 +32,5 @@ android/local.properties
 android/app/build
 android/.gradle
 android/build
+
+.smoke-out
