@@ -906,7 +906,7 @@ async function main() {
     eq('после отмены записей столько же', repo.countRows('places'), undoBefore);
 
     // Фильтр по месяцам показывает только месяцы с данными
-    const { monthChoices } = await import('../lib/format');
+    const { monthChoices, fmtDateTime } = await import('../lib/format');
     const choices = monthChoices(['2026-03', '2024-01'], '2019-07');
     check('месяц с данными в списке', choices.includes('2026-03'));
     check('пустые месяцы не показаны', !choices.includes('2022-05'));
@@ -939,12 +939,12 @@ async function main() {
     );
     archiveZip.file(
       '03-cargos.csv',
-      'id,name,existingLogoUrl,internetLogoUrl,hostingLogoUrl\nk1,Песок,,,\nk2,Щебень,,,',
+      'id,name,existingLogoUrl,internetLogoUrl,hostingLogoUrl\nk1,Песок,,,\nk2,Щебень гранитный,,,',
     );
     archiveZip.file(
       '04-places.csv',
       'id,name,contact,coordinates,address,loadType,notes,companyId,typicalCargoId\n' +
-        'p1,Карьер Север,Иван 900,"55.75, 37.61",Москва,rear,,c1,k1',
+        'p1,Карьер Архив,Иван 900,"55.75, 37.61",Москва,rear,,c1,k1',
     );
     archiveZip.file(
       '05-periods.csv',
@@ -958,15 +958,19 @@ async function main() {
     archiveZip.file(
       '07-trips.csv',
       'id,name,cargo,weightKg,loadingType,accrual,notes,waybillId\n' +
-        't1,Рейс с песком,Песок,20000,rear,12000,,w1',
+        't1,Рейс с песком,Песок,20000,rear,12000,,w1\n' +
+        // У второй перевозки груз не указан: название не должно превратиться в груз
+        't2,08.05.2026 · МО_СОЛНЕЧНОГОРСК → Шушары,,4097,rear,11500,,w1',
     );
     archiveZip.file(
       '08-stops.csv',
       'id,name,order,date,plannedDate,arrivedAt,placeName,direction,tripId,placeId,companyId\n' +
-        's1,Погрузка,1,05.11.2026,05.11.2026,05.11.2026,Карьер Север,load,t1,p1,c1\n' +
-        's2,Выгрузка,2,06.11.2026,06.11.2026,06.11.2026,Склад Юг,unload,t1,,c1',
+        's1,Погрузка,1,05.11.2026,05.11.2026,05.11.2026,Карьер Архив,load,t1,p1,c1\n' +
+        's2,Выгрузка,2,06.11.2026,06.11.2026,06.11.2026,Склад Юг,unload,t1,,c1\n' +
+        's3,Погрузка,1,07.11.2026,07.11.2026,07.11.2026,Карьер Архив,load,t2,p1,c1\n' +
+        's4,Выгрузка,2,08.11.2026,08.11.2026,08.11.2026,Склад Юг,unload,t2,,c1',
     );
-    archiveZip.file('09-gas-stations.csv', 'id,name,notes,existingLogoUrl,internetLogoUrl,hostingLogoUrl\ng1,Лукойл,,,,\n');
+    archiveZip.file('09-gas-stations.csv', 'id,name,notes,existingLogoUrl,internetLogoUrl,hostingLogoUrl\ng1,Лукойл-Тест,,,,\n');
     archiveZip.file(
       '10-fuels.csv',
       'id,name,unknownTime,liters,source,dateTime,waybillId,gasStationId\n' +
@@ -975,7 +979,8 @@ async function main() {
     archiveZip.file(
       '11-finances.csv',
       'id,name,type,date,amount,month,description,reconciliationStatus,tripId,waybillId\n' +
-        'fi1,Начисление,charge,06.11.2026,12000,11.2026,За рейс,done,t1,w1',
+        'fi1,Начисление,charge,06.11.2026,12000,11.2026,За рейс,done,t1,w1\n' +
+        'fi2,Оплата,Оплачено,07.11.2026,12000,2026-11-01T00:00:00.000Z,Получено,done,,w1',
     );
     const archiveSheets = await si.readArchive(await archiveZip.generateAsync({ type: 'uint8array' }), 'avtobaza.zip');
     const archivePlan = si.buildPlan(archiveSheets);
@@ -1008,6 +1013,10 @@ async function main() {
     eq('direction → тип точки', linkOf('08-stops', 'direction')?.to, 'kind');
     eq('liters → количество', linkOf('10-fuels', 'liters')?.to, 'volume');
     eq('month → месяц оплаты', linkOf('11-finances', 'month')?.to, 'pay_month');
+    check('название перевозки не стало грузом', !linkOf('07-trips', 'name'));
+    check('название точки не стало местом', !linkOf('08-stops', 'name'));
+    check('название заправки не стало АЗС', !linkOf('10-fuels', 'name'));
+    check('служебная колонка unknownTime пропущена', !linkOf('10-fuels', 'unknownTime'));
     check(
       'служебные логотипы не мешают',
       !(archivePlan.sheets.find((s) => s.source === '03-cargos')?.unknown ?? []).some((c) =>
@@ -1022,20 +1031,21 @@ async function main() {
     eq('мест из файла перенесено', archiveZipResult.inserted.places, 1);
     eq('периодов перенесено', archiveZipResult.inserted.vehicle_periods, 1);
     eq('листов перенесено', archiveZipResult.inserted.waybills, 1);
-    eq('перевозок перенесено', archiveZipResult.inserted.trips, 1);
-    eq('точек перенесено', archiveZipResult.inserted.trip_points, 2);
+    eq('перевозок перенесено', archiveZipResult.inserted.trips, 2);
+    eq('точек перенесено', archiveZipResult.inserted.trip_points, 4);
     eq('заправок перенесено', archiveZipResult.inserted.refuelings, 1);
-    eq('финансов перенесено', archiveZipResult.inserted.finance_ops, 1);
+    eq('финансов перенесено', archiveZipResult.inserted.finance_ops, 2);
 
     // Связи между таблицами должны восстановиться по старым идентификаторам
     const mine = (table: string, id: string | undefined) => (archiveZipResult.ids[table] ?? []).includes(id ?? '');
     const newVehicle = repo.refs.vehicles().find((v) => v.name === 'Volvo FH' && mine('vehicles', v.id));
     const newWaybill = repo.waybillRepo.list().find((w) => mine('waybills', w.id));
     const newTrip = repo.tripRepo.get((archiveZipResult.ids.trips ?? [])[0] ?? '');
-    const newPlace = repo.refs.places().find((p) => p.name === 'Карьер Север' && mine('places', p.id));
+    const newPlace = repo.refs.places().find((p) => p.name === 'Карьер Архив' && mine('places', p.id));
     eq('лист связан с автомобилем', newWaybill?.vehicle_id, newVehicle?.id);
     eq('одометр листа перенесён', newWaybill?.odometer_out, 100000);
     eq('тоннаж листа перенесён', newWaybill?.odometer_in, 100500);
+    eq('лист с датой приезда закрыт', newWaybill?.status, 'closed');
     eq('перевозка связана с листом', newTrip?.waybill_id, newWaybill?.id);
     eq('вес перевозки перенесён', newTrip?.weight, 20000);
     const points = newTrip ? repo.tripRepo.points(newTrip.id) : [];
@@ -1043,7 +1053,15 @@ async function main() {
     eq('точка погрузки связана с местом', points[0]?.place_id, newPlace?.id);
     eq('тип точки из direction', points[0]?.kind, 'load');
     eq('тип второй точки из direction', points[1]?.kind, 'unload');
-    const newStation = repo.refs.fuelStations().find((s) => s.name === 'Лукойл' && mine('fuel_stations', s.id));
+    eq('выполненная точка отмечена', points[0]?.status, 'done');
+    eq('перевозка с начислением — «начислена»', newTrip?.status, 'charged');
+    const secondTrip = repo.tripRepo.get((archiveZipResult.ids.trips ?? [])[1] ?? '');
+    eq('выполненная перевозка без начисления — «выполнена»', secondTrip?.status, 'done');
+    check(
+      'название перевозки без груза не стало грузом',
+      !repo.refs.cargoTypes().some((c) => c.name.includes('МО_СОЛНЕЧН')),
+    );
+    const newStation = repo.refs.fuelStations().find((s) => s.name === 'Лукойл-Тест' && mine('fuel_stations', s.id));
     const fuelRow = repo.refuelRepo.list().find((f) => mine('refuelings', f.id));
     eq('заправка связана с АЗС', fuelRow?.station_id, newStation?.id);
     eq('заправка связана с листом', fuelRow?.waybill_id, newWaybill?.id);
@@ -1055,19 +1073,41 @@ async function main() {
     eq('месяц оплаты перенесён', fin?.pay_month, '2026-11');
     eq('тип операции из type', fin?.kind, 'charge');
     eq('сумма финансов перенесена', fin?.amount, 12000);
+    const pay = repo.financeRepo.get((archiveZipResult.ids.finance_ops ?? [])[1] ?? '');
+    eq('«Оплачено» — это поступление', pay?.kind, 'payment');
+    eq('месяц оплаты из момента времени', pay?.pay_month, '2026-11');
     const place = repo.refs.place((archiveZipResult.ids.places ?? [])[0] ?? null);
     eq('координаты разобраны', place?.lat, 55.75);
     eq('долгота разобрана', place?.lon, 37.61);
     eq('фирма места связана', place?.company_id, repo.refs.companies().find((c) => c.name === 'ООО Ромашка')?.id);
     eq('груз места связан', place?.cargo_type_id, repo.refs.cargoTypes().find((c) => c.name === 'Песок' && mine('cargo_types', c.id))?.id);
     eq('тип загрузки места перенесён', place?.load_type, 'rear');
-    eq('название места перенесено', place?.name, 'Карьер Север');
+    eq('название места перенесено', place?.name, 'Карьер Архив');
     const periodVehicle = repo.vehicleRepo.periods(newVehicle?.id ?? '');
     eq('период связан с автомобилем', periodVehicle.length, 1);
     eq('дата начала периода перенесена', periodVehicle[0]?.start_date, '2019-01-01');
     eq('дата конца периода перенесена', periodVehicle[0]?.end_date, '2019-12-31');
     check('место выгрузки создано по названию', repo.refs.places().some((p) => p.name === 'Склад Юг'));
     check('связи между таблицами посчитаны', archiveZipResult.message.includes('связей между таблицами'));
+
+    // Повторный перенос того же архива не должен плодить справочники
+    const cargosBefore = repo.refs.cargoTypes().length;
+    const repeat = si.applyPlan(archiveSheets, archivePlan);
+    eq('грузы не задвоились', repeat.inserted.cargo_types ?? 0, 0);
+    eq('автомобили не задвоились', repeat.inserted.vehicles ?? 0, 0);
+    eq('фирмы не задвоились', repeat.inserted.companies ?? 0, 0);
+    eq('АЗС не задвоились', repeat.inserted.fuel_stations ?? 0, 0);
+    eq('места не задвоились', repeat.inserted.places ?? 0, 0);
+    eq('справочник грузов не вырос', repo.refs.cargoTypes().length, cargosBefore);
+    check('в итоге сказано про уже бывшие записи', repeat.message.includes('уже были в базе'));
+
+    // Даты и месяцы из чужого архива: местная полночь записана как момент времени в UTC
+    eq('полночь МСК → тот же день', si.parseDateValue('2026-11-10T21:00:00.000Z'), '2026-11-11');
+    eq('момент времени → местная дата', si.parseDateValue('2026-11-11T12:37:00.000Z'), '2026-11-11');
+    eq('месяц из момента времени', si.parseMonthValue('2026-11-01T00:00:00.000Z'), '2026-11');
+    eq('месяц из полной даты', si.parseMonthValue('2026-11-12'), '2026-11');
+    eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
+    eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

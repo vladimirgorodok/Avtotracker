@@ -22,8 +22,11 @@ export function fmtDate(iso: string | null | undefined): string {
 
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
+  const s = String(iso);
+  // Дата без времени — так и показываем: иначе полночь UTC превращается в «03:00».
+  if (!/[T ]\d{1,2}:\d{2}/.test(s)) return fmtDate(s);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
   return `${fmtDate(toIsoDate(d))}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 

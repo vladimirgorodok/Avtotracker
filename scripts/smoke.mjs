@@ -49,4 +49,11 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'package.json'), '{"type":"commonjs"}\n');
 
 console.log('Запуск проверки…\n');
-execFileSync('node', [join('.smoke-out', 'smoke.js')], { cwd: root, stdio: 'inherit' });
+// Архивы чужих программ хранят местную полночь как момент времени в UTC
+// («2026-11-10T21:00:00.000Z» = 11.11.2026 00:00 по Москве). Как и на телефоне
+// пользователя, проверяем в московском поясе.
+execFileSync('node', [join('.smoke-out', 'smoke.js')], {
+  cwd: root,
+  stdio: 'inherit',
+  env: { ...process.env, TZ: 'Europe/Moscow' },
+});

@@ -16,6 +16,8 @@ import { dbSync } from '../db';
 import { insertRow, updateRow } from '../db/repo';
 import { TABLES, type TableName } from '../types';
 import { cleanCsvRow, columnTypesOf, decodeText, parseCsv, toNumber, TABLE_TITLES } from './backup';
+import { monthKey, toIsoDate } from './format';
+import { refreshTripStatus } from './actions';
 import { askModel, readAiConfig } from './ai';
 
 /* ------------------------------------------------------------------ */
@@ -44,7 +46,10 @@ export interface FieldDef {
 const f = (name: string, label: string, hints: string[], virtual?: VirtualKind): FieldDef => ({
   name,
   label,
-  hints: [name, ...hints],
+  // У полей-посредников (cargo_name, place_name, station_name) своё имя в базу не
+  // попадает, и как подсказка оно вредно: из-за него колонка «name» из чужого
+  // архива притягивалась к грузу, месту или АЗС.
+  hints: virtual ? hints : [name, ...hints],
   virtual,
 });
 
@@ -296,7 +301,9 @@ export function isIdColumn(column: string): boolean {
 export function isServiceColumn(column: string): boolean {
   const n = normalizeHeader(column);
   if (ownIdColumn(column)) return true;
-  return /(^| )(logo|created|updated|deleted|uuid|guid|sort|order id|external id|old id|hash|version)( |$)/.test(n);
+  return /(^| )(logo|created|updated|deleted|uuid|guid|sort|order id|external id|old id|hash|version|unknown)( |$)/.test(
+    n,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -858,7 +865,12 @@ const ENUMS: Record<string, Record<string, string>> = {
     payment: 'payment',
     поступило: 'payment',
     оплата: 'payment',
+    оплачено: 'payment',
+    заплачено: 'payment',
+    поступление: 'payment',
+    зачислено: 'payment',
     приход: 'payment',
+    paid: 'payment',
   },
   'places.load_type': { rear: 'rear', зад: 'rear', задняя: 'rear', side: 'side', бок: 'side', боковая: 'side', top: 'top', верх: 'top', верхняя: 'top' },
 };
@@ -874,6 +886,12 @@ function matchEnum(map: Record<string, string>, raw: string): string | null {
 export function parseDateValue(raw: string): string {
   const s = raw.trim();
   if (s === '') return '';
+  // Момент времени с зоной («2026-11-10T21:00:00.000Z») — это местная полночь,
+  // записанная в UTC. Переводим в местную дату устройства, иначе день уезжает назад.
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s) && /(z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return toIsoDate(d);
+  }
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
   const dot = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
@@ -907,7 +925,11 @@ const MONTHS = [
 export function parseMonthValue(raw: string): string {
   const s = raw.trim().toLowerCase();
   if (s === '') return '';
-  const iso = s.match(/^(\d{4})-(\d{1,2})$/);
+  if (/^\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}/.test(s) && /(z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return monthKey(toIsoDate(d));
+  }
+  const iso = s.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}`;
   const dot = s.match(/^(\d{1,2})[./](\d{4})$/);
   if (dot) return `${dot[2]}-${dot[1].padStart(2, '0')}`;
@@ -989,6 +1011,64 @@ class RefBook {
     this.createdIds.waybills.push(id);
     return id;
   }
+
+  /** Запомнить перенесённую запись справочника, чтобы искать её по названию */
+  keep(table: string, row: Record<string, unknown>, id: string): void {
+    if (!this.maps.has(table)) return;
+    const key = normalizeHeader(String(row.name ?? ''));
+    if (key) this.remember(table, key, id);
+  }
+}
+
+/** Справочники не должны дублироваться: помним уже занятые названия */
+class RefGuard {
+  private seen = new Map<string, Map<string, string>>();
+
+  constructor() {
+    this.scan('vehicles', 'id, name, plate');
+    this.scan('companies', 'id, name');
+    this.scan('cargo_types', 'id, name');
+    this.scan('fuel_stations', 'id, name');
+    this.scan('places', 'id, name, address');
+  }
+
+  private scan(table: string, columns: string): void {
+    const keys = columns.split(',').map((c) => c.trim());
+    const rows = dbSync().all<Record<string, unknown>>(`SELECT ${columns} FROM ${table} WHERE deleted = 0`);
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      const key = keys
+        .filter((c) => c !== 'id')
+        .map((c) => normalizeHeader(String(row[c] ?? '')))
+        .join('|');
+      if (key.replace(/\|/g, '') !== '') map.set(key, String(row.id));
+    }
+    this.seen.set(table, map);
+  }
+
+  /** Ключ записи: у мест — название с адресом, у машин — ещё и госномер */
+  private key(table: TableName, row: Record<string, unknown>): string | null {
+    if (!['vehicles', 'companies', 'cargo_types', 'fuel_stations', 'places'].includes(table)) return null;
+    const name = normalizeHeader(String(row.name ?? ''));
+    if (!name) return null;
+    if (table === 'vehicles') return `${name}|${normalizeHeader(String(row.plate ?? ''))}`;
+    if (table === 'places') return `${name}|${normalizeHeader(String(row.address ?? ''))}`;
+    return name;
+  }
+
+  /** Запись с таким же названием уже есть — вернём её id */
+  find(table: TableName, row: Record<string, unknown>): string | null {
+    const key = this.key(table, row);
+    if (key === null) return null;
+    return this.seen.get(table)?.get(key) ?? null;
+  }
+
+  remember(table: TableName, row: Record<string, unknown>, id: string): void {
+    const key = this.key(table, row);
+    if (key === null) return;
+    if (!this.seen.has(table)) this.seen.set(table, new Map());
+    this.seen.get(table)?.set(key, id);
+  }
 }
 
 interface PreparedRow {
@@ -1060,6 +1140,7 @@ function stringify(row: Record<string, unknown>): Record<string, string> {
 /** Перенести данные по готовому плану */
 export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult {
   const books = new RefBook();
+  const guard = new RefGuard();
   const inserted: Record<string, number> = {};
   const ids: Record<string, string[]> = {};
   const track = (table: string, id: string) => {
@@ -1067,6 +1148,8 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
   };
   const skipped: number[] = [];
   let total = 0;
+  /** Записи справочников, которые уже были в базе — не дублируем их */
+  let repeats = 0;
   /** Сколько ссылок между таблицами удалось восстановить */
   let linked = 0;
 
@@ -1105,6 +1188,20 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
         }
 
         let newId: string;
+
+        /** Такая запись справочника уже есть: связываем старый id с найденной */
+        const alreadyThere = (): boolean => {
+          const existing = guard.find(table, row);
+          if (existing === null) return false;
+          repeats++;
+          const oldId = sheetPlan.idColumn ? (raw[sheetPlan.idColumn] ?? '').trim() : '';
+          if (oldId) {
+            if (!idMaps.has(table)) idMaps.set(table, new Map());
+            idMaps.get(table)?.set(oldId, existing);
+          }
+          return true;
+        };
+
         switch (table) {
           case 'trips':
             newId = insertTrip(row, virtuals, books);
@@ -1130,7 +1227,10 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
               const cargo = virtuals.get('cargo_name');
               if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
             }
+            if (alreadyThere()) continue;
             newId = insertRow(table, row);
+            guard.remember('places', row, newId);
+            books.keep('places', row, newId);
             break;
           }
           case 'waybills': {
@@ -1138,6 +1238,8 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
               const vehicle = virtuals.get('vehicle_name');
               if (vehicle) row.vehicle_id = books.ref('vehicles', vehicle);
             }
+            // В чужом архиве статуса нет: лист с датой приезда уже закрыт
+            if (!row.status) row.status = row.date_in ? 'closed' : 'open';
             newId = insertRow(table, row);
             break;
           }
@@ -1150,6 +1252,8 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
               const cargo = virtuals.get('cargo_name');
               if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
             }
+            // Точка с фактической датой уже выполнена
+            if (!row.status) row.status = row.fact_date ? 'done' : 'planned';
             newId = insertRow(table, row);
             break;
           }
@@ -1158,7 +1262,11 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
               const cargo = virtuals.get('cargo_name');
               if (cargo) row.cargo_type_id = books.ref('cargo_types', cargo);
             }
+            // Справочники не дублируем: то же название уже есть — оставляем как есть
+            if (alreadyThere()) continue;
             newId = insertRow(table, row);
+            guard.remember(table, row, newId);
+            books.keep(table, row, newId);
           }
         }
         track(table, newId);
@@ -1190,11 +1298,25 @@ export function applyPlan(sheets: ArchiveSheet[], plan: ImportPlan): ApplyResult
     linked++;
   }
 
+  // Статусы перевозок: считаем по точкам архива, затем отмечаем уже начисленные
+  const chargedTrips = new Set(
+    dbSync()
+      .all<{ trip_id: string }>(
+        "SELECT DISTINCT trip_id FROM finance_ops WHERE deleted = 0 AND kind = 'charge' AND trip_id <> ''",
+      )
+      .map((r) => r.trip_id),
+  );
+  for (const tripId of ids.trips ?? []) {
+    refreshTripStatus(tripId);
+    if (chargedTrips.has(tripId)) updateRow('trips', tripId, { status: 'charged' });
+  }
+
   const added = Object.values(inserted).reduce((a, b) => a + b, 0);
   const refs = Object.entries(books.created).filter(([, n]) => n > 0);
   const parts = [`перенесено записей: ${added}`];
   if (refs.length > 0) parts.push(refs.map(([t, n]) => `${TABLE_TITLES[t as TableName] ?? t} +${n}`).join(', '));
   if (linked > 0) parts.push(`связей между таблицами: ${linked}`);
+  if (repeats > 0) parts.push(`уже были в базе: ${repeats}`);
   if (skipped.length > 0) parts.push(`пропущено строк: ${skipped.length}`);
 
   // Записи, созданные справочником, тоже должны отменяться
