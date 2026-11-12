@@ -632,6 +632,7 @@ async function main() {
     },
     { label: 'Справочники', route: '/refs', url: '/refs', load: () => import('../pages/Refs') },
     { label: 'Обмен данными', route: '/data', url: '/data', load: () => import('../pages/Data') },
+    { label: 'Умный импорт', route: '/data/smart', url: '/data/smart', load: () => import('../pages/SmartImport') },
     { label: 'Ещё', route: '/more', url: '/more', load: () => import('../pages/More') },
     { label: 'Настройки', route: '/settings', url: '/settings', load: () => import('../pages/Settings') },
     { label: 'ИИ-помощник', route: '/assistant', url: '/assistant', load: () => import('../pages/Assistant') },
