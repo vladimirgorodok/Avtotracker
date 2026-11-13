@@ -1471,6 +1471,82 @@ async function main() {
     }
   }
 
+  console.log('\n21. Настройки отдельным файлом');
+  {
+    const { buildSettingsFile, applySettingsFile } = await import('../lib/backup');
+    const before = repo.getSettings();
+    repo.setSetting('ai_api_key', 'test-key-123');
+    repo.setSetting('ai_model', 'test-model');
+    repo.setSetting('supabase_url', 'https://example.supabase.co');
+    repo.setSetting('base_amount', 12000);
+
+    const text = buildSettingsFile();
+    const payload = JSON.parse(text) as { kind?: string; settings: { key: string; value: string }[] };
+    eq('файл помечен как настройки', payload.kind, 'settings');
+    check(
+      'в файле есть ключ ИИ',
+      payload.settings.some((s) => s.key === 'ai_api_key' && s.value === 'test-key-123'),
+    );
+    check('в файле есть адрес облака', payload.settings.some((s) => s.key === 'supabase_url'));
+    check(
+      'в файле есть ставки',
+      payload.settings.some((s) => s.key === 'base_amount' && s.value === '12000'),
+    );
+
+    // «Переустановка»: настройки пустые, файл возвращает их
+    repo.setSetting('ai_api_key', '');
+    repo.setSetting('ai_model', '');
+    repo.setSetting('supabase_url', '');
+    repo.setSetting('base_amount', 10500);
+    const applied = applySettingsFile(text);
+    check('настройки применены', applied >= 4, `(${applied})`);
+    eq('ключ ИИ восстановлен', repo.getSettings().ai_api_key, 'test-key-123');
+    eq('модель восстановлена', repo.getSettings().ai_model, 'test-model');
+    eq('адрес облака восстановлен', repo.getSettings().supabase_url, 'https://example.supabase.co');
+    eq('ставка восстановлена', repo.getSettings().base_amount, 12000);
+
+    // Через общий импорт: файл только с настройками не требует таблиц
+    const viaImport = importJson(text);
+    eq('импорт настроек не трогает данные', viaImport.inserted, 0);
+    check('импорт настроек объясняет результат', viaImport.message.includes('настроек'));
+
+    // Лишние ключи игнорируются, чужой файл — понятная ошибка
+    const junk = JSON.stringify({
+      kind: 'settings',
+      settings: [
+        { key: 'нет_такой_настройки', value: '1' },
+        { key: 'ai_model', value: 'm2' },
+      ],
+    });
+    eq('применяется только известное', applySettingsFile(junk), 1);
+    eq('известное значение обновилось', repo.getSettings().ai_model, 'm2');
+    let bad = '';
+    try {
+      applySettingsFile('{"tables":{}}');
+    } catch (e) {
+      bad = e instanceof Error ? e.message : '';
+    }
+    check('чужой файл отклонён с объяснением', bad.includes('настройки'));
+
+    // Экран настроек: карточка переноса настроек на месте
+    const mod = await import('../pages/Settings');
+    const html = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/settings'] },
+        createElement(mod.default as never),
+      ) as never,
+    );
+    check('в настройках есть сохранение в файл', html.includes('Сохранить настройки в файл'));
+    check('в настройках есть загрузка из файла', html.includes('Загрузить настройки из файла'));
+
+    // Вернуть исходные значения
+    repo.setSetting('ai_api_key', before.ai_api_key);
+    repo.setSetting('ai_model', before.ai_model);
+    repo.setSetting('supabase_url', before.supabase_url);
+    repo.setSetting('base_amount', before.base_amount);
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

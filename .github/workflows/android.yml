@@ -39,10 +39,22 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          AVTOBAZA_VERSION_CODE: ${{ github.run_number }}
+          AVTOBAZA_VERSION_NAME: 1.0.${{ github.run_number }}
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk avtobaza-debug.apk
+
+      - name: Show signature
+        run: |
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$apksigner" ]; then
+            "$apksigner" verify --print-certs avtobaza-debug.apk | head -4
+          else
+            echo "apksigner не найден — подпись не проверена"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -57,7 +69,7 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest avtobaza-debug.apk \
             --title "АвтоБаза (последняя сборка)" \
-            --notes "Автоматическая сборка из ветки main, коммит ${GITHUB_SHA::7}" \
+            --notes "Автоматическая сборка из ветки main, коммит ${GITHUB_SHA::7}, версия 1.0.${{ github.run_number }}. Ставится поверх предыдущей версии." \
             --prerelease
 
       - name: Publish tagged release

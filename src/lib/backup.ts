@@ -3,7 +3,7 @@
 import { dbSync } from '../db';
 import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/repo';
 import { saveBinaryFile } from '../db/storage';
-import { TABLES, type AppSettings, type TableName } from '../types';
+import { DEFAULT_SETTINGS, TABLES, type AppSettings, type TableName } from '../types';
 import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
 import { summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
 import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
@@ -138,6 +138,64 @@ export function dumpAll(): Record<string, Record<string, unknown>[]> {
 
 function stamp(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/* ------------------------------------------------------------------ */
+/* Настройки отдельным файлом                                          */
+/* ------------------------------------------------------------------ */
+
+/** Ключи настроек, которые можно переносить файлом (включая ключи ИИ и облака) */
+function settingKeys(): string[] {
+  return Object.keys(DEFAULT_SETTINGS);
+}
+
+/**
+ * Файл настроек: ставки, тема, адрес и ключ ИИ, адрес и ключ облака, вход в облако.
+ * Нужен, чтобы после переустановки или на новом телефоне не настраивать всё заново.
+ */
+export function buildSettingsFile(): string {
+  const allowed = new Set(settingKeys());
+  const settings = allSettings()
+    .filter((s) => allowed.has(s.key))
+    .map((s) => ({ key: s.key, value: String(s.value ?? '') }));
+  return JSON.stringify(
+    {
+      app: 'avtobaza',
+      version: 1,
+      kind: 'settings',
+      exported_at: nowIso(),
+      settings,
+    },
+    null,
+    1,
+  );
+}
+
+/** Прочитать файл настроек и применить его. Возвращает, сколько значений применили. */
+export function applySettingsFile(text: string): number {
+  const payload = JSON.parse(text) as { kind?: string; settings?: { key?: unknown; value?: unknown }[] };
+  if (!Array.isArray(payload.settings)) {
+    throw new Error('Файл не похож на настройки АвтоБазы');
+  }
+  const allowed = new Set(settingKeys());
+  let applied = 0;
+  for (const item of payload.settings) {
+    const key = String(item?.key ?? '');
+    if (!allowed.has(key)) continue;
+    setSetting(key as keyof AppSettings, item?.value === null || item?.value === undefined ? '' : String(item.value));
+    applied++;
+  }
+  if (applied === 0) throw new Error('В файле нет настроек АвтоБазы');
+  return applied;
+}
+
+/** Сохранить настройки в файл (на телефоне — через «Поделиться», в браузере — скачиванием) */
+export async function exportSettingsFile(): Promise<void> {
+  await saveBinaryFile(
+    `avtobaza-nastroyki-${stamp()}.json`,
+    buildSettingsFile(),
+    'application/json',
+  );
 }
 
 /** ZIP с CSV: по одному файлу на таблицу */
@@ -302,6 +360,17 @@ export function importJson(text: string, overwrite = false): ImportResult {
     tables?: Record<string, Record<string, unknown>[]>;
     settings?: { key: string; value: string }[];
   };
+  // Файл только с настройками (см. exportSettingsFile): данные не трогаем
+  if (!payload.tables && Array.isArray(payload.settings)) {
+    const applied = applySettingsFile(text);
+    return {
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      files: 0,
+      message: `настроек восстановлено: ${applied}`,
+    };
+  }
   if (!payload.tables) throw new Error('Файл не похож на резервную копию АвтоБазы');
 
   const db = dbSync();

@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { App as CapApp } from '@capacitor/app';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
 import { applyTheme, useApp } from '../store';
 import { dbStats } from '../db/repo';
@@ -8,6 +9,8 @@ import { SyncPanel } from '../ui/SyncPanel';
 import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
+import { applySettingsFile, exportSettingsFile } from '../lib/backup';
+import { fileToText, pickFile } from '../db/storage';
 import type { AppPalette } from '../types';
 
 export default function SettingsPage() {
@@ -17,8 +20,39 @@ export default function SettingsPage() {
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
   const revision = useApp((s) => s.revision);
+  const [appInfo, setAppInfo] = useState<{ version: string; build: string } | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stats = useMemo(() => dbStats(), [revision]);
+
+  useEffect(() => {
+    void CapApp.getInfo()
+      .then((info) => setAppInfo({ version: info.version, build: info.build }))
+      .catch(() => setAppInfo(null));
+  }, []);
+
+  /** Настройки файлом: после переустановки не надо ничего вводить заново */
+  async function saveSettingsToFile() {
+    try {
+      await exportSettingsFile();
+      notify('Файл настроек готов — сохраните его', 'ok');
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Не удалось сохранить настройки', 'err');
+    }
+  }
+
+  async function loadSettingsFromFile() {
+    const file = await pickFile('.json,application/json');
+    if (!file) return;
+    try {
+      const applied = applySettingsFile(await fileToText(file));
+      useApp.getState().init();
+      const fresh = useApp.getState().settings;
+      applyTheme(fresh.theme, fresh.palette);
+      notify(`Настройки восстановлены: ${applied}`, 'ok');
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Не удалось прочитать файл настроек', 'err');
+    }
+  }
 
   return (
     <Page title="Настройки" onBack={() => navigate('/more')}>
@@ -200,11 +234,35 @@ export default function SettingsPage() {
         <SyncPanel />
       </Card>
 
+      <Card title="Настройки в файле" actions={<Icon name="doc" />}>
+        <div className="small muted">
+          В файл попадает всё, что вы вводили руками: ставки, оформление, адрес и ключ ИИ-помощника,
+          адрес и ключ облака, вход в облако. Справочники и поездки — это данные, они сохраняются в
+          «Обмене данными» (полная копия). Перед переустановкой приложения или при смене телефона
+          сохраните настройки в файл, после — загрузите из него.
+        </div>
+        <Button icon="download" onClick={() => void saveSettingsToFile()}>
+          Сохранить настройки в файл
+        </Button>
+        <Button icon="upload" onClick={() => void loadSettingsFromFile()}>
+          Загрузить настройки из файла
+        </Button>
+        <Button icon="copy" onClick={() => navigate('/data')}>
+          Полная копия: данные и настройки
+        </Button>
+      </Card>
+
       <Card title="Данные и диагностика" actions={<Icon name="warning" />}>
         <div className="grid-2">
           <div className="kv">
             <div className="kv-label">Хранилище</div>
             <div className="kv-value small">{stats.storage}</div>
+          </div>
+          <div className="kv">
+            <div className="kv-label">Версия приложения</div>
+            <div className="kv-value small">
+              {appInfo ? `${appInfo.version} (сборка ${appInfo.build})` : '—'}
+            </div>
           </div>
           <div className="kv">
             <div className="kv-label">Версия схемы</div>

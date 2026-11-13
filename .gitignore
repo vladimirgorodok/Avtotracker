@@ -28,6 +28,9 @@ dist-ssr
 .env*
 *.keystore
 *.jks
+# Исключение: ключ подписи APK лежит в репозитории осознанно (см. README):
+# только одна и та же подпись позволяет ставить новую версию поверх старой.
+!android/keystore/avtobaza.jks
 android/local.properties
 android/app/build
 android/.gradle

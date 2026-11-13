@@ -1,5 +1,18 @@
 apply plugin: 'com.android.application'
 
+// Подпись постоянным ключом из репозитория (android/keystore/avtobaza.jks).
+// Без него новые сборки подписывались бы разными отладочными ключами, и Android
+// отказывался бы ставить их поверх старой версии.
+def keystoreFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystoreFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystoreFile))
+}
+
+// Номер сборки и версия: в CI приходят из workflow, локально — запасные значения
+def buildCode = (System.getenv('AVTOBAZA_VERSION_CODE') ?: '2').toInteger()
+def buildName = System.getenv('AVTOBAZA_VERSION_NAME') ?: '1.0.2'
+
 android {
     namespace = "ru.avtobaza.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +20,8 @@ android {
         applicationId "ru.avtobaza.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode buildCode
+        versionName buildName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +29,28 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        stable {
+            if (keystoreFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'] ?: 'keystore/avtobaza.jks')
+                storePassword keystoreProps['storePassword'] ?: ''
+                keyAlias keystoreProps['keyAlias'] ?: 'avtobaza'
+                keyPassword keystoreProps['keyPassword'] ?: ''
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.stable
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.stable
+            }
         }
     }
 }
