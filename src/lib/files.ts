@@ -97,6 +97,20 @@ export function bytesToDataUrl(bytes: Uint8Array, mime = 'image/jpeg'): string {
   return `data:${mime};base64,${toBase64(bytes)}`;
 }
 
+/** Разбирает data URL обратно в байты — например, чтобы сохранить картинку файлом */
+export function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; mime: string } | null {
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!match) return null;
+  const mime = match[1] && match[1] !== '' ? match[1] : 'image/png';
+  const body = match[3] ?? '';
+  if (match[2]) return { bytes: fromBase64(body), mime };
+  try {
+    return { bytes: new TextEncoder().encode(decodeURIComponent(body)), mime };
+  } catch {
+    return null;
+  }
+}
+
 /** Уменьшить изображение, чтобы база и облако не разрастались */
 export async function downscaleImage(
   file: Blob,
@@ -153,6 +167,34 @@ async function drawToJpeg(source: BitmapLike, maxSize: number, quality: number):
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
   if (!blob) throw new Error('Не удалось сжать изображение');
   return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
+ * Картинка → data URL для хранения в справочнике.
+ * Прозрачность сохраняется (PNG), фотографии сжимаются в JPEG.
+ */
+export async function imageToDataUrl(blob: Blob, maxSize = 256, quality = 0.85): Promise<string> {
+  const keepAlpha = /png|svg|webp|gif/i.test(blob.type);
+  const source = await loadBitmap(blob);
+  const scale = Math.min(1, maxSize / Math.max(source.width, source.height));
+  const w = Math.max(1, Math.round(source.width * scale));
+  const h = Math.max(1, Math.round(source.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Не удалось подготовить изображение');
+  if (!keepAlpha) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(source as unknown as CanvasImageSource, 0, 0, w, h);
+  if ('close' in source && typeof source.close === 'function') source.close();
+  const out = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, keepAlpha ? 'image/png' : 'image/jpeg', quality),
+  );
+  if (!out) throw new Error('Не удалось сжать изображение');
+  return bytesToDataUrl(new Uint8Array(await out.arrayBuffer()), out.type);
 }
 
 /** Сколько места занимают файлы (приблизительно, для диагностики) */

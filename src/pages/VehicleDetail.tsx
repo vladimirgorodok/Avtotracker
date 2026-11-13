@@ -16,6 +16,7 @@ import {
 } from '../ui/components';
 import { useApp } from '../store';
 import { insertRow, softDelete, uid, updateRow, vehicleRepo, waybillRepo } from '../db/repo';
+import { PicturePicker } from '../ui/PictureSearch';
 import { fmtDate, plural } from '../lib/format';
 import type { Vehicle } from '../types';
 
@@ -30,6 +31,7 @@ export default function VehicleDetail() {
   const [form, setForm] = useState<Vehicle | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [period, setPeriod] = useState<{ id: string | null; start_date: string | null; end_date: string | null; note: string }>({
     id: null,
     start_date: null,
@@ -98,14 +100,16 @@ export default function VehicleDetail() {
     notify('Автомобиль сохранён', 'ok');
   }
 
+  /** Логотип сразу попадает и в форму, и в базу */
+  function applyLogo(url: string) {
+    setForm((f) => (f ? { ...f, logo: url } : f));
+    updateRow('vehicles', vehicleId, { logo: url });
+    touch();
+  }
+
   async function pickLogo(file: File) {
     const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      setForm((f) => (f ? { ...f, logo: url } : f));
-      updateRow('vehicles', form!.id, { logo: url });
-      touch();
-    };
+    reader.onload = () => applyLogo(String(reader.result));
     reader.readAsDataURL(file);
   }
 
@@ -184,8 +188,8 @@ export default function VehicleDetail() {
             onChange={(e) => setForm({ ...form, note: e.target.value })}
           />
         </Field>
-        <Field label="Логотип">
-          <div className="row">
+        <Field label="Логотип" hint="можно подобрать помощником по названию">
+          <div className="row wrap">
             <label className="btn btn-soft">
               <Icon name="upload" />
               <span>Файл</span>
@@ -199,12 +203,19 @@ export default function VehicleDetail() {
                 }}
               />
             </label>
+            <Button
+              icon="ai"
+              disabled={form.name.trim() === '' && form.plate.trim() === ''}
+              onClick={() => setPickerOpen(true)}
+            >
+              Найти
+            </Button>
             <TextInput
               value={form.logo.startsWith('data:') ? '' : form.logo}
               placeholder="Ссылка на изображение"
               onChange={(e) => setForm({ ...form, logo: e.target.value })}
             />
-            {form.logo ? <Button variant="danger" icon="trash" onClick={() => setForm({ ...form, logo: '' })} /> : null}
+            {form.logo ? <Button variant="danger" icon="trash" onClick={() => applyLogo('')} /> : null}
           </div>
         </Field>
         <Field label="Архив">
@@ -344,6 +355,16 @@ export default function VehicleDetail() {
           navigate('/vehicles');
         }}
       />
+
+      {pickerOpen ? (
+        <PicturePicker
+          name={form.name.trim() !== '' ? form.name : form.plate}
+          kind="vehicle"
+          title="Подобрать значок техники"
+          onClose={() => setPickerOpen(false)}
+          onPick={(value) => applyLogo(value)}
+        />
+      ) : null}
     </Page>
   );
 }

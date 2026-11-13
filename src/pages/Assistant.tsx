@@ -127,6 +127,24 @@ export default function Assistant() {
       </Card>
 
       <Card
+        title="Значки и логотипы"
+        actions={
+          <Badge tone="info">
+            <Icon name="search" size={14} /> по названию
+          </Badge>
+        }
+      >
+        <div className="small muted">
+          Помощник подберёт логотип фирмы или значок груза, АЗС и техники по названию: покажет до 30 картинок
+          из открытых источников, а вы выберете подходящую. Для фирм перебираются варианты с «ООО», «АО» и
+          другими формами, для грузов — значки из интернета.
+        </div>
+        <Button variant="primary" icon="search" block onClick={() => navigate('/assistant/pictures')}>
+          Найти логотип или значок
+        </Button>
+      </Card>
+
+      <Card
         title="Помощник"
         actions={
           <Badge tone={ready ? 'ok' : 'neutral'}>

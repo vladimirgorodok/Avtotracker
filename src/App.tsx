@@ -22,6 +22,7 @@ import MorePage from './pages/More';
 import SettingsPage from './pages/Settings';
 import Assistant from './pages/Assistant';
 import OrderFromFiles from './pages/OrderFromFiles';
+import PictureFinder from './pages/PictureFinder';
 import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
@@ -283,6 +284,7 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />
+              <Route path="/assistant/pictures" element={<PictureFinder />} />
             </Routes>
             <BottomNav onCreate={() => setCreateOpen(true)} />
             <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} />

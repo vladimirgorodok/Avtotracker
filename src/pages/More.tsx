@@ -30,6 +30,7 @@ export default function MorePage() {
     },
     { to: '/data', title: 'Обмен данными', sub: 'Экспорт, импорт, резервные копии', icon: 'share' },
     { to: '/assistant', title: 'ИИ-помощник', sub: 'Разбор заявок и расчёты', icon: 'ai' },
+    { to: '/assistant/pictures', title: 'Значки и логотипы', sub: 'Подбор картинок по названию', icon: 'search' },
     { to: '/settings', title: 'Настройки', sub: 'Ставки, тема, синхронизация', icon: 'settings' },
   ];
 

@@ -1547,6 +1547,199 @@ async function main() {
     repo.setSetting('base_amount', before.base_amount);
   }
 
+  console.log('\n22. Подбор логотипов и значков по названию');
+  {
+    const pics = await import('../lib/pictures');
+    const { dataUrlToBytes } = await import('../lib/files');
+
+    // Название: чистка, организационные формы, латиница
+    eq('кавычки и скобки убраны', pics.cleanName('ООО «Ромашка» (Москва)'), 'ООО Ромашка Москва');
+    eq('организационная форма убрана', pics.stripLegalForm('ООО «Ромашка»'), 'Ромашка');
+    eq('латиница', pics.translit('Грузовик'), 'Gruzovik');
+    const companyVariants = pics.nameVariants('Маловасилевский ООО', 'company');
+    check('вариант без формы', companyVariants.includes('Маловасилевский'));
+    check('вариант «ООО Название»', companyVariants.includes('ООО Маловасилевский'));
+    check('вариант «Название ООО»', companyVariants.includes('Маловасилевский ООО'));
+    check('вариант латиницей', companyVariants.includes('Malovasilevskiy'));
+    check('вариантов несколько', companyVariants.length >= 4, `(${companyVariants.length})`);
+
+    // Грузы: понятные всем наборам слова
+    eq('груз по-английски', pics.englishWords('Цемент', 'cargo').join(','), 'cement');
+    const cargoQuery = pics.localQuery('Кирпич', 'cargo');
+    check('значок груза ищется и по-английски', cargoQuery.icon.includes('brick'));
+    check('значок груза ищется и латиницей', cargoQuery.icon.includes('Kirpich'));
+    check('для груза есть значок по умолчанию', cargoQuery.icon.includes('cargo box'));
+    const companyQuery = pics.localQuery('ООО «Газпром»', 'company');
+    eq('для значков первым идёт латиница', companyQuery.icon[0], 'Gazprom');
+    eq('для интернета первым идёт «название + logo»', companyQuery.web[0], 'Газпром logo');
+    check('варианты с «ООО» тоже проверяются', companyQuery.web.some((q) => q.includes('ООО')));
+    eq('адрес сайта по названию', pics.guessDomain('ООО «Газпром»'), 'gazprom.ru');
+    eq('адрес сайта приводится к виду', pics.cleanDomain('https://www.gazprom.ru/about?x=1'), 'gazprom.ru');
+    eq('не адрес — пусто', pics.cleanDomain('нет такого'), '');
+
+    // Ответ помощника: только JSON, мусор не ломает поиск
+    const aiAnswer = pics.parsePictureQuery(
+      '```json\n{"icon":["romashka"],"web":["romashka logo"],"domain":"romashka.ru","note":"Ромашка"}\n```',
+    );
+    eq('помощник понял название', aiAnswer?.icon[0], 'romashka');
+    eq('помощник подсказал адрес', aiAnswer?.domain, 'romashka.ru');
+    check('варианты от помощника помечены', aiAnswer?.byAi === true);
+    eq('без JSON — ничего не понятно', pics.parsePictureQuery('Извините, не могу'), null);
+
+    // Разбор источников
+    const icons = pics.parseIconify({ icons: ['mdi:truck', 'logos:gazprom'] });
+    eq('значки разобраны', icons.length, 2);
+    eq('обычный значок', icons[0]?.kind, 'icon');
+    eq('фирменный логотип', icons[1]?.kind, 'logo');
+    check('ссылка на значок собрана', icons[0]?.url.includes('/mdi/truck.svg') === true);
+    check('логотип крупнее значка', (icons[1]?.url.includes('height=256') ?? false) === true);
+
+    const commons = pics.parseCommons({
+      query: {
+        pages: {
+          '1': {
+            title: 'File:Gazprom Neft - logo.png',
+            imageinfo: [{ thumburl: 'https://thumb/gazprom.png', url: 'https://full/gazprom.png', width: 1200, mime: 'image/png' }],
+          },
+          '2': { title: 'File:Гимн.ogg', imageinfo: [{ url: 'https://x/a.ogg', width: 900, mime: 'audio/ogg' }] },
+          '3': { title: 'File:Точка.png', imageinfo: [{ url: 'https://x/small.png', width: 20, mime: 'image/png' }] },
+        },
+      },
+    });
+    eq('из Викисклада взято только годное', commons.length, 1);
+    eq('подпись без «File:» и расширения', commons[0]?.title, 'Gazprom Neft - logo');
+    eq('логотип узнан по названию файла', commons[0]?.kind, 'logo');
+    eq('берём уменьшенную копию', commons[0]?.thumb, 'https://thumb/gazprom.png');
+
+    const favicons = pics.faviconHits('gazprom.ru');
+    eq('значков сайта три', favicons.length, 3);
+    eq('без адреса значков нет', pics.faviconHits('').length, 0);
+
+    const dupes = pics.dedupeHits([
+      { id: 'a', title: 'a', source: 's', url: 'https://x/1.png', thumb: 'https://x/1.png', kind: 'icon' },
+      { id: 'b', title: 'b', source: 's', url: 'http://X/1.png', thumb: 'http://X/1.png', kind: 'icon' },
+      { id: 'c', title: 'c', source: 's', url: 'https://x/2.png', thumb: 'https://x/2.png', kind: 'photo' },
+    ]);
+    eq('одинаковые картинки схлопнуты', dupes.length, 2);
+    const sorted = pics.sortHits([
+      { id: 'p', title: 'p', source: 's', url: 'https://x/p.png', thumb: '', kind: 'photo' },
+      { id: 'i', title: 'i', source: 's', url: 'https://x/i.svg', thumb: '', kind: 'icon' },
+      { id: 'l', title: 'l', source: 's', url: 'https://x/l.png', thumb: '', kind: 'logo' },
+      { id: 's', title: 's', source: 's', url: 'https://x/s.png', thumb: '', kind: 'logo', site: 'x.ru' },
+    ]);
+    eq('сначала логотипы, потом значки, потом фото', sorted.map((h) => h.kind).join(','), 'logo,logo,icon,photo');
+    eq('значок сайта — последним из логотипов', sorted[1]?.id, 's');
+    check('картинок показываем много', pics.MAX_HITS >= 10, `(${pics.MAX_HITS})`);
+
+    // Поиск целиком: подставной интернет отвечает значками и Викискладом
+    const originalFetch22 = globalThis.fetch;
+    const stages: string[] = [];
+    const fakeFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.iconify.design')) {
+        return new Response(JSON.stringify({ icons: ['logos:gazprom', 'mdi:truck'] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('commons.wikimedia.org')) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                '1': {
+                  title: 'File:Gazprom logo.png',
+                  imageinfo: [{ thumburl: 'https://thumb/g.png', url: 'https://full/g.png', width: 800, mime: 'image/png' }],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.includes('chat/completions')) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"icon":["gazprom"],"web":["gazprom logo"],"domain":"gazprom.ru","note":"Газпром"}' } }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error('нет сети');
+    }) as unknown as typeof fetch;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fakeFetch;
+
+    try {
+      const found = await pics.searchPictures({
+        name: 'ООО «Газпром»',
+        kind: 'company',
+        cfg: null,
+        onProgress: (p) => stages.push(p.stage),
+      });
+      check('картинки нашлись', found.hits.length >= 2, `(${found.hits.length})`);
+      eq('первым идёт логотип', found.hits[0]?.kind, 'logo');
+      check('видно, сколько нашлось', found.notes.some((n) => n.includes('Найдено картинок')));
+      eq('шаги поиска по порядку', stages.join(','), 'variants,icons,icons,logos,logos,sites,done');
+      eq('адрес сайта найден на устройстве', found.query.domain, 'gazprom.ru');
+      check('без ключа варианты местные', found.query.byAi === false);
+
+      // Помощник с ключом: варианты приходят от модели
+      const aiFound = await pics.searchPictures({
+        name: 'ООО «Газпром»',
+        kind: 'company',
+        cfg: { baseUrl: 'https://api.example/v1', key: 'sk-test', model: 'test-model' },
+      });
+      check('варианты от помощника использованы', aiFound.query.byAi === true);
+      eq('запросы помощника первыми', aiFound.query.icon[0], 'gazprom');
+      eq('пояснение помощника сохранено', aiFound.query.note, 'Газпром');
+
+      // Один источник упал — поиск всё равно работает
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('api.iconify.design')) throw new Error('сеть недоступна');
+        if (url.includes('commons.wikimedia.org')) {
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: {
+                  '1': {
+                    title: 'File:Gazprom logo.png',
+                    imageinfo: [{ thumburl: 'https://thumb/g.png', url: 'https://full/g.png', width: 800, mime: 'image/png' }],
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error('нет сети');
+      }) as unknown as typeof fetch;
+      const partial = await pics.searchPictures({ name: 'Газпром', kind: 'company', cfg: null });
+      check('при сбое значков картинки всё равно есть', partial.hits.length > 0);
+      check('сказано, что значки не ответили', partial.notes.some((n) => n.includes('Наборы значков')));
+    } finally {
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch22;
+    }
+
+    // Картинка из файла обратно в байты — так её сохраняют файлом
+    const decoded = dataUrlToBytes('data:image/png;base64,AAAA');
+    eq('data URL разобран', decoded?.bytes.length, 3);
+    eq('вид картинки сохранён', decoded?.mime, 'image/png');
+
+    // Экран подбора собирается
+    const finderMod = await import('../pages/PictureFinder');
+    const finderHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/assistant/pictures'] },
+        createElement(finderMod.default as never),
+      ) as never,
+    );
+    check('экран «Значки и логотипы» собирается', finderHtml.includes('Поиск картинки'));
+    check('на экране есть выбор, куда поставить', finderHtml.includes('Куда поставить'));
+    check('на экране есть кнопка поиска', finderHtml.includes('Найти'));
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

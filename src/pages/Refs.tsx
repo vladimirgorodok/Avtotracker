@@ -16,8 +16,10 @@ import {
 } from '../ui/components';
 import { useApp } from '../store';
 import { countRows, insertRow, refs, softDelete, uid, updateRow } from '../db/repo';
+import { PicturePicker } from '../ui/PictureSearch';
 import { fmtCoords, parseCoords } from '../lib/format';
 import { LOAD_TYPES, type CargoType, type Company, type FuelStation, type Place } from '../types';
+import type { PictureKind } from '../lib/pictures';
 import { listAll } from '../db/repo';
 
 type Tab = 'companies' | 'places' | 'cargo' | 'stations';
@@ -32,6 +34,8 @@ export default function Refs() {
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<{ kind: Tab; id: string | null } | null>(null);
   const [confirm, setConfirm] = useState<{ kind: Tab; id: string } | null>(null);
+  /** Подбор картинки помощником: окно открывает родитель, чтобы не прятать его внутрь карточки */
+  const [pictureRequest, setPictureRequest] = useState<PictureRequest | null>(null);
 
   useEffect(() => {
     if (params.get('new') === '1') {
@@ -203,7 +207,18 @@ export default function Refs() {
           touch();
           notify(msg, 'ok');
         }}
+        onFindPicture={setPictureRequest}
       />
+
+      {pictureRequest ? (
+        <PicturePicker
+          name={pictureRequest.name}
+          kind={pictureRequest.kind}
+          title={`Подобрать: ${pictureRequest.name || pictureTitle(pictureRequest.kind)}`}
+          onClose={() => setPictureRequest(null)}
+          onPick={(value) => pictureRequest.apply(value)}
+        />
+      ) : null}
 
       <Confirm
         open={confirm !== null}
@@ -222,16 +237,32 @@ export default function Refs() {
   );
 }
 
+/** Запрос на подбор картинки: что искать и куда поставить найденное */
+interface PictureRequest {
+  name: string;
+  kind: PictureKind;
+  apply: (v: string) => void;
+}
+
+function pictureTitle(kind: PictureKind): string {
+  if (kind === 'cargo') return 'значок груза';
+  if (kind === 'station') return 'логотип АЗС';
+  if (kind === 'vehicle') return 'значок техники';
+  return 'логотип фирмы';
+}
+
 function RefEditor({
   editor,
   onClose,
   onDelete,
   onSaved,
+  onFindPicture,
 }: {
   editor: { kind: Tab; id: string | null } | null;
   onClose: () => void;
   onDelete: (kind: Tab, id: string) => void;
   onSaved: (msg: string) => void;
+  onFindPicture: (req: PictureRequest) => void;
 }) {
   const revision = useApp((s) => s.revision);
   const [company, setCompany] = useState<Company | null>(null);
@@ -335,9 +366,14 @@ function RefEditor({
     reader.readAsDataURL(file);
   }
 
-  const logoRow = (value: string, apply: (v: string) => void) => (
-    <Field label="Логотип">
-      <div className="row">
+  const logoRow = (
+    value: string,
+    apply: (v: string) => void,
+    find: { name: string; kind: PictureKind },
+    label = 'Логотип',
+  ) => (
+    <Field label={label} hint="можно подобрать помощником">
+      <div className="row wrap">
         <label className="btn btn-soft">
           <Icon name="upload" />
           <span>Файл</span>
@@ -351,6 +387,13 @@ function RefEditor({
             }}
           />
         </label>
+        <Button
+          icon="ai"
+          onClick={() => onFindPicture({ name: find.name, kind: find.kind, apply })}
+          disabled={find.name.trim() === ''}
+        >
+          Найти
+        </Button>
         <TextInput
           value={value.startsWith('data:') ? '' : value}
           placeholder="Ссылка"
@@ -396,7 +439,10 @@ function RefEditor({
               placeholder="Не выбран"
             />
           </Field>
-          {logoRow(company.logo, (v) => setCompany({ ...company, logo: v }))}
+          {logoRow(company.logo, (v) => setCompany({ ...company, logo: v }), {
+            name: company.name,
+            kind: 'company',
+          })}
           <Field label="Примечания">
             <TextInput value={company.note} onChange={(e) => setCompany({ ...company, note: e.target.value })} />
           </Field>
@@ -480,7 +526,12 @@ function RefEditor({
           <Field label="Груз" required>
             <TextInput value={cargo.name} onChange={(e) => setCargo({ ...cargo, name: e.target.value })} />
           </Field>
-          {logoRow(cargo.icon, (v) => setCargo({ ...cargo, icon: v }))}
+          {logoRow(
+            cargo.icon,
+            (v) => setCargo({ ...cargo, icon: v }),
+            { name: cargo.name, kind: 'cargo' },
+            'Значок',
+          )}
           <Field label="Примечания">
             <TextInput value={cargo.note} onChange={(e) => setCargo({ ...cargo, note: e.target.value })} />
           </Field>
@@ -492,7 +543,10 @@ function RefEditor({
           <Field label="АЗС" required>
             <TextInput value={station.name} onChange={(e) => setStation({ ...station, name: e.target.value })} />
           </Field>
-          {logoRow(station.logo, (v) => setStation({ ...station, logo: v }))}
+          {logoRow(station.logo, (v) => setStation({ ...station, logo: v }), {
+            name: station.name,
+            kind: 'station',
+          })}
           <Field label="Примечания">
             <TextInput value={station.note} onChange={(e) => setStation({ ...station, note: e.target.value })} />
           </Field>
