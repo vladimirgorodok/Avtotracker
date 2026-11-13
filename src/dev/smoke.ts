@@ -722,6 +722,9 @@ async function main() {
     );
     check('Свечение берёт цвет из гаммы', css.includes('rgba(var(--brand-rgb)'));
     check('Заставка берёт фон из гаммы', css.includes('background: var(--splash-bg)'));
+    check('Поле выбора — своя раскрывашка, а не <select>', css.includes('.select-trigger'));
+    check('Раскрытый список выбора со своим фоном', css.includes('.select-menu'));
+    check('В списке выбора видно логотип записи', css.includes('.opt-avatar'));
   } catch (e) {
     check('CSS читает отступы системных панелей', false, e instanceof Error ? e.message : String(e));
   }
@@ -1824,6 +1827,66 @@ async function main() {
     check('экран «Значки и логотипы» собирается', finderHtml.includes('Поиск картинки'));
     check('на экране есть выбор, куда поставить', finderHtml.includes('Куда поставить'));
     check('на экране есть кнопка поиска', finderHtml.includes('Найти'));
+  }
+
+  console.log('\n23. Логотипы и значки в списках выбора');
+  {
+    const { Select, SelectMenu } = await import('../ui/components');
+    const logo = 'data:image/png;base64,AAAA';
+    const options = [
+      { value: 'c1', label: 'ООО «Ромашка»', logo },
+      { value: 'c2', label: 'ИП Петров' },
+      { value: 'c3', label: 'ООО «Василёк»', logo, hint: 'Москва' },
+    ];
+
+    // Выбранная запись: название и логотип видны прямо в поле
+    const closed = renderToString(
+      createElement(Select as never, { value: 'c1', onChange: () => {}, options } as never) as never,
+    );
+    check('в поле видно название записи', closed.includes('ООО «Ромашка»'));
+    check('в поле виден логотип записи', closed.includes(`src="${logo}"`));
+    check('это не <select>: в него логотип не поставить', !closed.includes('<select'));
+    const empty = renderToString(
+      createElement(
+        Select as never,
+        { value: null, onChange: () => {}, options, placeholder: 'Не выбрана' } as never,
+      ) as never,
+    );
+    check('без выбора видна подсказка', empty.includes('Не выбрана'));
+    check('без выбора логотипа в поле нет', !empty.includes('opt-avatar'));
+
+    // Раскрытый список: логотип у каждой записи, у остальных — место под него
+    const menu = renderToString(
+      createElement(
+        SelectMenu as never,
+        { value: 'c2', options, placeholder: 'Не выбрана', onPick: () => {} } as never,
+      ) as never,
+    );
+    check('в списке видны все записи', options.every((o) => menu.includes(o.label)));
+    check('в списке видны логотипы', menu.includes(`src="${logo}"`));
+    eq('место под логотип есть у каждой строки', menu.split('opt-avatar').length - 1, options.length);
+    check('подсказка записи видна', menu.includes('Москва'));
+    check('выбранная запись помечена', menu.includes('is-active'));
+    check('список помечен как список выбора', menu.includes('role="listbox"'));
+
+    // Связка с экранами: в списках выбора справочников подставлен логотип записи.
+    // Экраны читают запись по адресу в useEffect, а при сборке на сервере они не
+    // выполняются, поэтому проверяем по исходникам экранов.
+    const withPictures = [
+      'pages/Refs.tsx',
+      'pages/TripDetail.tsx',
+      'pages/RefuelDetail.tsx',
+      'pages/WaybillDetail.tsx',
+      'pages/PictureFinder.tsx',
+      'pages/OrderFromFiles.tsx',
+      'ui/PlacePicker.tsx',
+    ];
+    let wired = 0;
+    for (const file of withPictures) {
+      const src = await (await fetch(`file://${process.cwd()}/src/${file}`)).text();
+      if (src.includes('logo:')) wired++;
+    }
+    eq('логотипы подставлены во все списки выбора справочников', wired, withPictures.length);
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

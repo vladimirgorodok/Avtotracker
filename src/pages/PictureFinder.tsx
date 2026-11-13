@@ -28,6 +28,8 @@ interface Target {
   id: string;
   name: string;
   hasPicture: boolean;
+  /** Уже сохранённая картинка записи — показываем её в списке выбора */
+  picture: string;
 }
 
 function fileStamp(): string {
@@ -45,18 +47,19 @@ export default function PictureFinder() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const targets = useMemo<Target[]>(() => {
     if (kind === 'company') {
-      return refs.companies().map((c) => ({ id: c.id, name: c.name, hasPicture: c.logo !== '' }));
+      return refs.companies().map((c) => ({ id: c.id, name: c.name, hasPicture: c.logo !== '', picture: c.logo }));
     }
     if (kind === 'cargo') {
-      return refs.cargoTypes().map((c) => ({ id: c.id, name: c.name, hasPicture: c.icon !== '' }));
+      return refs.cargoTypes().map((c) => ({ id: c.id, name: c.name, hasPicture: c.icon !== '', picture: c.icon }));
     }
     if (kind === 'station') {
-      return refs.fuelStations().map((s) => ({ id: s.id, name: s.name, hasPicture: s.logo !== '' }));
+      return refs.fuelStations().map((s) => ({ id: s.id, name: s.name, hasPicture: s.logo !== '', picture: s.logo }));
     }
     return refs.vehicles().map((v) => ({
       id: v.id,
       name: `${v.name}${v.plate ? ` (${v.plate})` : ''}`,
       hasPicture: v.logo !== '',
+      picture: v.logo,
     }));
   }, [kind, revision]);
 
@@ -110,6 +113,7 @@ export default function PictureFinder() {
             options={targets.map((t) => ({
               value: t.id,
               label: `${t.name}${t.hasPicture ? '' : ' — без картинки'}`,
+              logo: t.picture,
             }))}
           />
         </Field>

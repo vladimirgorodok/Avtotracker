@@ -435,7 +435,7 @@ function RefEditor({
             <Select
               value={company.cargo_type_id}
               onChange={(v) => setCompany({ ...company, cargo_type_id: v })}
-              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name }))}
+              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
               placeholder="Не выбран"
             />
           </Field>
@@ -458,7 +458,7 @@ function RefEditor({
             <Select
               value={place.company_id}
               onChange={(v) => setPlace({ ...place, company_id: v })}
-              options={refs.companies().map((c) => ({ value: c.id, label: c.name }))}
+              options={refs.companies().map((c) => ({ value: c.id, label: c.name, logo: c.logo }))}
               placeholder="Не выбрана"
             />
           </Field>
@@ -506,7 +506,7 @@ function RefEditor({
             <Select
               value={place.cargo_type_id}
               onChange={(v) => setPlace({ ...place, cargo_type_id: v })}
-              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name }))}
+              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
               placeholder="Не выбран"
             />
           </Field>

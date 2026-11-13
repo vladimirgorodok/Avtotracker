@@ -235,7 +235,11 @@ export default function WaybillDetail() {
           <Select
             value={form.vehicle_id}
             onChange={(v) => set('vehicle_id', v)}
-            options={vehicles.map((v) => ({ value: v.id, label: v.plate ? `${v.name} · ${v.plate}` : v.name }))}
+            options={vehicles.map((v) => ({
+              value: v.id,
+              label: v.plate ? `${v.name} · ${v.plate}` : v.name,
+              logo: v.logo,
+            }))}
             placeholder="Не выбран"
           />
         </Field>
@@ -260,7 +264,11 @@ export default function WaybillDetail() {
               <Select
                 value={form.trailer_id}
                 onChange={(v) => set('trailer_id', v)}
-                options={trailers.map((v) => ({ value: v.id, label: v.plate ? `${v.name} · ${v.plate}` : v.name }))}
+                options={trailers.map((v) => ({
+                  value: v.id,
+                  label: v.plate ? `${v.name} · ${v.plate}` : v.name,
+                  logo: v.logo,
+                }))}
                 placeholder="Не выбран"
               />
             </Field>

@@ -122,7 +122,7 @@ export function PlacePicker({
                     }}
                   >
                     <span className="avatar">
-                      <Icon name="pin" />
+                      {company?.logo ? <img src={company.logo} alt="" /> : <Icon name="pin" />}
                     </span>
                     <span className="li-main">
                       <span className="li-title">{p.name}</span>
@@ -147,7 +147,7 @@ export function PlacePicker({
             <Select
               value={companyId}
               onChange={setCompanyId}
-              options={refs.companies().map((c) => ({ value: c.id, label: c.name }))}
+              options={refs.companies().map((c) => ({ value: c.id, label: c.name, logo: c.logo }))}
               placeholder="Не выбрана"
             />
           </Field>
@@ -177,7 +177,7 @@ export function PlacePicker({
             <Select
               value={cargoId}
               onChange={setCargoId}
-              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name }))}
+              options={refs.cargoTypes().map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
               placeholder="Не выбран"
             />
           </Field>

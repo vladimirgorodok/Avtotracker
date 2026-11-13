@@ -241,7 +241,7 @@ export default function TripDetail() {
             <Select
               value={form.cargo_type_id}
               onChange={(v) => set('cargo_type_id', v)}
-              options={cargoTypes.map((c) => ({ value: c.id, label: c.name }))}
+              options={cargoTypes.map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
               placeholder="Не выбран"
               className=""
             />
@@ -450,7 +450,7 @@ export default function TripDetail() {
                   const current = refs.place(pointDraft.place_id);
                   if (current && current.company_id !== v) setPointDraft({ ...pointDraft, place_id: null });
                 }}
-                options={companies.map((c) => ({ value: c.id, label: c.name }))}
+                options={companies.map((c) => ({ value: c.id, label: c.name, logo: c.logo }))}
                 placeholder="Все фирмы"
               />
             </Field>
@@ -471,6 +471,7 @@ export default function TripDetail() {
                   options={placesForCompany.map((p) => ({
                     value: p.id,
                     label: p.address ? `${p.name} · ${p.address}` : p.name,
+                    logo: refs.company(p.company_id)?.logo ?? '',
                   }))}
                   placeholder="Не выбрано"
                 />
@@ -520,7 +521,7 @@ export default function TripDetail() {
               <Select
                 value={pointDraft.cargo_type_id}
                 onChange={(v) => setPointDraft({ ...pointDraft, cargo_type_id: v })}
-                options={cargoTypes.map((c) => ({ value: c.id, label: c.name }))}
+                options={cargoTypes.map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
                 placeholder="Не выбран"
               />
             </Field>

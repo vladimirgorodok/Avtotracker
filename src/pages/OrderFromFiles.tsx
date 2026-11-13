@@ -73,6 +73,7 @@ function RefSelect({
   label,
   value,
   options,
+  logos,
   onChange,
   placeholder,
   hint,
@@ -81,6 +82,8 @@ function RefSelect({
   label: string;
   value: string;
   options: string[];
+  /** Логотипы справочника по названию записи */
+  logos?: Record<string, string>;
   onChange: (v: string) => void;
   placeholder: string;
   hint?: string;
@@ -106,7 +109,7 @@ function RefSelect({
             onChange(v ?? '');
           }}
           options={[
-            ...options.map((o) => ({ value: o, label: o })),
+            ...options.map((o) => ({ value: o, label: o, logo: logos?.[o] ?? '' })),
             { value: '__other__', label: 'Другое — вписать название' },
           ]}
         />
@@ -164,11 +167,21 @@ export default function OrderFromFiles() {
 
   const cargoNames = useMemo(() => [...new Set(refs.cargoTypes().map((c) => c.name))], [revision]);
   const companyNames = useMemo(() => [...new Set(refs.companies().map((c) => c.name))], [revision]);
+  // Название → картинка: в списках выбора показываем значок записи
+  const cargoLogos = useMemo(
+    () => Object.fromEntries(refs.cargoTypes().map((c) => [c.name, c.icon])),
+    [revision],
+  );
+  const companyLogos = useMemo(
+    () => Object.fromEntries(refs.companies().map((c) => [c.name, c.logo])),
+    [revision],
+  );
   const placeOptions = useMemo(
     () =>
       refs.places().map((p) => ({
         value: p.id,
         label: p.address ? `${p.name} — ${p.address}` : p.name,
+        logo: refs.company(p.company_id)?.logo ?? '',
       })),
     [revision],
   );
@@ -492,6 +505,7 @@ export default function OrderFromFiles() {
                 label="Груз"
                 value={draft.cargo}
                 options={cargoNames}
+                logos={cargoLogos}
                 onChange={(v) => patch({ cargo: v })}
                 placeholder="Не указан"
                 hint="список из справочника грузов"
@@ -564,6 +578,7 @@ export default function OrderFromFiles() {
                       label="Фирма"
                       value={place?.company ?? ''}
                       options={companyNames}
+                      logos={companyLogos}
                       disabled={!place}
                       placeholder={place ? 'Не указана' : 'сначала выберите место'}
                       hint={place ? 'список из справочника фирм' : undefined}
@@ -689,6 +704,7 @@ export default function OrderFromFiles() {
                     label="Фирма"
                     value={pl.company}
                     options={companyNames}
+                    logos={companyLogos}
                     placeholder="Не указана"
                     hint="список из справочника фирм"
                     onChange={(v) => setPlaceCompany(pl.key, v)}

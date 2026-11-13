@@ -125,7 +125,7 @@ export default function RefuelDetail() {
             <Select
               value={form.station_id}
               onChange={(v) => setForm({ ...form, station_id: v })}
-              options={stations.map((s) => ({ value: s.id, label: s.name }))}
+              options={stations.map((s) => ({ value: s.id, label: s.name, logo: s.logo }))}
               placeholder="Не выбрана"
             />
           </Field>

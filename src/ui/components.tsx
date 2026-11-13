@@ -1,6 +1,6 @@
 /** Общие элементы интерфейса. */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { monthChoices, monthLabel } from '../lib/format';
 import { usedMonths } from '../db/repo';
 import { useApp } from '../store';
@@ -144,32 +144,139 @@ export function NumberInput({
   );
 }
 
+/**
+ * Логотип или значок записи в списке выбора. У записи без картинки остаётся
+ * невидимое место — так названия в списке стоят ровно в столбик.
+ */
+export function OptionAvatar({ logo }: { logo?: string }) {
+  if (!logo) return <span className="opt-avatar is-empty" />;
+  return (
+    <span className="opt-avatar">
+      <img src={logo} alt="" loading="lazy" />
+    </span>
+  );
+}
+
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+  hint?: string;
+  /** Логотип или значок записи: data URL либо ссылка */
+  logo?: string;
+}
+
+/**
+ * Поле выбора из списка. У записи с логотипом (фирма, груз, АЗС, автомобиль)
+ * логотип виден и в самом поле, и в раскрытом списке — поэтому это не <select>,
+ * а своя раскрывашка: в <option> картинку поставить нельзя.
+ */
 export function Select<T extends string>({
   value,
   onChange,
   options,
   placeholder = '—',
-  ...rest
+  disabled,
+  className = '',
+  title,
+  id,
+  'aria-label': ariaLabel,
 }: {
   value: T | null;
   onChange: (v: T | null) => void;
-  options: { value: T; label: string; hint?: string }[];
+  options: SelectOption<T>[];
   placeholder?: string;
-} & Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'value' | 'onChange'>) {
+  disabled?: boolean;
+  className?: string;
+  title?: string;
+  id?: string;
+  'aria-label'?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value) ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [open]);
+
+  function pick(v: T | null) {
+    setOpen(false);
+    onChange(v);
+  }
+
   return (
-    <select
-      {...rest}
-      className={`input select ${rest.className ?? ''}`}
-      value={value ?? ''}
-      onChange={(e) => onChange((e.target.value || null) as T | null)}
+    <div
+      ref={wrapRef}
+      className={`select-wrap ${className}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setOpen(false);
+      }}
     >
-      <option value="">{placeholder}</option>
+      <button
+        type="button"
+        id={id}
+        title={title}
+        aria-label={ariaLabel}
+        className="input select select-trigger"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {selected?.logo ? <OptionAvatar logo={selected.logo} /> : null}
+        <span className="select-label">{selected ? selected.label : placeholder}</span>
+      </button>
+      {open ? (
+        <SelectMenu value={value} options={options} placeholder={placeholder} onPick={pick} />
+      ) : null}
+    </div>
+  );
+}
+
+/** Раскрытый список поля выбора: строки с логотипами и значками */
+export function SelectMenu<T extends string>({
+  value,
+  options,
+  placeholder,
+  onPick,
+}: {
+  value: T | null;
+  options: SelectOption<T>[];
+  placeholder: string;
+  onPick: (v: T | null) => void;
+}) {
+  const anyLogo = options.some((o) => o.logo);
+  return (
+    <div className="select-menu" role="listbox">
+      <button
+        type="button"
+        role="option"
+        aria-selected={value === null}
+        className={`select-option ${value === null ? 'is-active' : ''}`}
+        onClick={() => onPick(null)}
+      >
+        <span className="select-label muted">{placeholder}</span>
+      </button>
       {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
+        <button
+          key={o.value}
+          type="button"
+          role="option"
+          aria-selected={o.value === value}
+          className={`select-option ${o.value === value ? 'is-active' : ''}`}
+          onClick={() => onPick(o.value)}
+        >
+          {o.logo ? <OptionAvatar logo={o.logo} /> : anyLogo ? <OptionAvatar /> : null}
+          <span className="select-label">{o.label}</span>
+          {o.hint ? <span className="select-hint">{o.hint}</span> : null}
+        </button>
       ))}
-    </select>
+    </div>
   );
 }
 
