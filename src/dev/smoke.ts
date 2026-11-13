@@ -1612,8 +1612,38 @@ async function main() {
     eq('берём уменьшенную копию', commons[0]?.thumb, 'https://thumb/gazprom.png');
 
     const favicons = pics.faviconHits('gazprom.ru');
-    eq('значков сайта три', favicons.length, 3);
+    eq('значков сайта четыре', favicons.length, 4);
+    check('есть значок от Яндекса', favicons.some((h) => h.source.includes('Яндекс')));
+    check('есть значок от DuckDuckGo', favicons.some((h) => h.url.includes('duckduckgo')));
     eq('без адреса значков нет', pics.faviconHits('').length, 0);
+
+    // Викиданные: официальный сайт и логотип фирмы
+    const wikiSearch = pics.parseWikidataSearch({
+      search: [{ id: 'Q3927', label: 'Газпром' }, { id: 'нет', label: 'мусор' }],
+    });
+    eq('запись Викиданных разобрана', wikiSearch.length, 1);
+    eq('номер записи', wikiSearch[0]?.id, 'Q3927');
+    const wikiEntity = pics.parseWikidataEntity(
+      {
+        entities: {
+          Q3927: {
+            claims: {
+              P856: [{ mainsnak: { datavalue: { value: 'https://www.gazprom.ru/about' } } }],
+              P154: [{ mainsnak: { datavalue: { value: 'File:Газпром лого.svg' } } }],
+            },
+          },
+        },
+      },
+      'Q3927',
+    );
+    eq('официальный сайт из Викиданных', wikiEntity.domain, 'gazprom.ru');
+    eq('файл логотипа из Викиданных', wikiEntity.logo, 'File:Газпром лого.svg');
+    eq('пустая запись — без сайта и логотипа', pics.parseWikidataEntity({}, 'Q1').domain, '');
+    check(
+      'ссылка на логотип из Викисклада',
+      pics.commonsFileUrl('File:Logo.svg').includes('Special:FilePath/Logo.svg?width=256'),
+    );
+    eq('без имени файла ссылки нет', pics.commonsFileUrl('File:'), '');
 
     const dupes = pics.dedupeHits([
       { id: 'a', title: 'a', source: 's', url: 'https://x/1.png', thumb: 'https://x/1.png', kind: 'icon' },
@@ -1657,6 +1687,27 @@ async function main() {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      if (url.includes('wbsearchentities')) {
+        return new Response(JSON.stringify({ search: [{ id: 'Q3927', label: 'Газпром' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('wbgetentities')) {
+        return new Response(
+          JSON.stringify({
+            entities: {
+              Q3927: {
+                claims: {
+                  P856: [{ mainsnak: { datavalue: { value: 'https://www.gazprom.ru/' } } }],
+                  P154: [{ mainsnak: { datavalue: { value: 'File:Gazprom logo.svg' } } }],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       if (url.includes('chat/completions')) {
         return new Response(
           JSON.stringify({
@@ -1679,8 +1730,14 @@ async function main() {
       check('картинки нашлись', found.hits.length >= 2, `(${found.hits.length})`);
       eq('первым идёт логотип', found.hits[0]?.kind, 'logo');
       check('видно, сколько нашлось', found.notes.some((n) => n.includes('Найдено картинок')));
-      eq('шаги поиска по порядку', stages.join(','), 'variants,icons,icons,logos,logos,sites,done');
+      eq(
+        'шаги поиска по порядку',
+        stages.join(','),
+        'variants,icons,icons,logos,logos,sites,sites,done',
+      );
       eq('адрес сайта найден на устройстве', found.query.domain, 'gazprom.ru');
+      check('логотип из Викиданных найден', found.hits.some((h) => h.source.includes('Викиданные')));
+      check('значки сайта найдены', found.hits.some((h) => h.site === 'gazprom.ru'));
       check('без ключа варианты местные', found.query.byAi === false);
 
       // Помощник с ключом: варианты приходят от модели
@@ -1692,6 +1749,31 @@ async function main() {
       check('варианты от помощника использованы', aiFound.query.byAi === true);
       eq('запросы помощника первыми', aiFound.query.icon[0], 'gazprom');
       eq('пояснение помощника сохранено', aiFound.query.note, 'Газпром');
+
+      // Викиданные подсказали другой адрес — ищем значки по нему и говорим об этом
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('wbsearchentities')) {
+          return new Response(JSON.stringify({ search: [{ id: 'Q1', label: 'Газпром нефть' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (url.includes('wbgetentities')) {
+          return new Response(
+            JSON.stringify({
+              entities: {
+                Q1: { claims: { P856: [{ mainsnak: { datavalue: { value: 'https://www.gazprom-neft.ru/' } } }] } },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error('нет сети');
+      }) as unknown as typeof fetch;
+      const other = await pics.searchPictures({ name: 'Газпром нефть', kind: 'company', cfg: null });
+      check('значки сайта взяты с адреса из Викиданных', other.hits.some((h) => h.site === 'gazprom-neft.ru'));
+      check('сказано, какой сайт найден', other.notes.some((n) => n.includes('gazprom-neft.ru')));
 
       // Один источник упал — поиск всё равно работает
       (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL) => {

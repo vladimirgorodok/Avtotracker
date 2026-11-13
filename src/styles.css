@@ -131,6 +131,23 @@ body,
   margin: 0;
 }
 
+/*
+  Приложение никогда не шире экрана. Если что-то не поместилось (длинный адрес,
+  ссылка, номер), оно обрезается по краю, но не растягивает подложку: иначе
+  страницу можно увести в пустой фон, а заставка и меню «уезжают» в сторону.
+  clip (а не hidden) не создаёт прокрутку и не мешает «липкой» шапке.
+*/
+html,
+body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+/* Подложка всегда под цвет приложения, а не под тёмный цвет заставки */
+html {
+  background: var(--bg);
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -138,11 +155,14 @@ body {
   font-size: 15px;
   line-height: 1.4;
   overscroll-behavior-y: none;
+  /* Длинное слово без пробелов (ссылка, номер) не вылезает за карточку */
+  overflow-wrap: break-word;
 }
 
 .app-shell {
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-height: 100%;
   max-width: 720px;
   margin: 0 auto;
@@ -425,6 +445,20 @@ body {
   color: var(--muted);
   border: 1px solid var(--line);
   white-space: nowrap;
+  /*
+    Плашка не шире карточки. Раньше длинный адрес в плашке растягивал страницу
+    шире экрана: уезжали меню и заставка, а справа оставался пустой фон.
+  */
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Плашки-ссылки (адрес, маршрут, контакт): длинный текст переносится по строкам */
+a.badge {
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: left;
+  line-height: 1.3;
 }
 
 .badge-ok {

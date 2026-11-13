@@ -4,7 +4,9 @@
  * Ключ и аккаунт не нужны — картинки берутся из открытых источников:
  *   • Iconify — значки и фирменные логотипы (наборы logos, thesvg, simple-icons, arcticons…);
  *   • Викисклад (Wikimedia Commons) — настоящие логотипы и фотографии;
- *   • значки сайтов (Яндекс, Google, Clearbit) — когда известен адрес фирмы.
+ *   • Викиданные (Wikidata) — официальный сайт и логотип фирмы: так находятся
+ *     российские фирмы, которых нет в зарубежных наборах значков;
+ *   • значки сайтов (Яндекс, Google, DuckDuckGo, Clearbit) — когда известен адрес фирмы.
  *
  * ИИ-помощник, если он настроен, готовит варианты названия: убирает и добавляет
  * «ООО», «АО» и подобные формы, пишет название латиницей, подсказывает адрес сайта
@@ -566,7 +568,118 @@ export function faviconHits(domain: string): PictureHit[] {
       kind: 'logo',
       site: domain,
     },
+    {
+      id: `duckduckgo:${domain}`,
+      title: `Значок ${domain}`,
+      source: 'Значок сайта · DuckDuckGo',
+      url: `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+      thumb: `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+      kind: 'logo',
+      site: domain,
+    },
   ];
+}
+
+/* ------------------------------------------------------------------ */
+/* Викиданные: официальный сайт и логотип фирмы                       */
+/* ------------------------------------------------------------------ */
+
+const WIKIDATA = 'https://www.wikidata.org/w/api.php';
+
+/** Разбор поиска Викиданных: подходящие записи (Q-номера) */
+export function parseWikidataSearch(payload: unknown): { id: string; title: string }[] {
+  const list = (payload as { search?: unknown } | null)?.search;
+  if (!Array.isArray(list)) return [];
+  const out: { id: string; title: string }[] = [];
+  for (const raw of list) {
+    const item = raw as { id?: unknown; label?: unknown };
+    const id = String(item.id ?? '');
+    if (!/^Q\d+$/.test(id)) continue;
+    out.push({ id, title: String(item.label ?? id).trim() || id });
+  }
+  return out;
+}
+
+/** Ссылка на файл логотипа из Викисклада по имени файла («File:Logo.svg») */
+export function commonsFileUrl(file: string, width = 256): string {
+  const name = file
+    .replace(/^File:/i, '')
+    .replace(/_/g, ' ')
+    .trim();
+  if (name === '') return '';
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=${width}`;
+}
+
+/** Разбор записи Викиданных: адрес сайта (P856) и файл логотипа (P154) */
+export function parseWikidataEntity(payload: unknown, id: string): { domain: string; logo: string } {
+  const entities = (payload as { entities?: Record<string, unknown> } | null)?.entities;
+  const entity = entities?.[id] as { claims?: Record<string, unknown> } | undefined;
+  const claims = entity?.claims;
+  if (!claims) return { domain: '', logo: '' };
+  const first = (prop: string): string => {
+    const list = claims[prop];
+    if (!Array.isArray(list)) return '';
+    for (const raw of list) {
+      const snak = (raw as { mainsnak?: { datavalue?: { value?: unknown } } }).mainsnak;
+      const value = snak?.datavalue?.value;
+      if (typeof value === 'string' && value !== '') return value;
+    }
+    return '';
+  };
+  return { domain: cleanDomain(first('P856')), logo: first('P154') };
+}
+
+/**
+ * Ищет фирму в Викиданных и возвращает её официальный сайт и логотип.
+ * Открытый API, без ключа: `origin=*` разрешает запрос из приложения.
+ */
+export async function searchWikidata(name: string): Promise<{ domain: string; hits: PictureHit[] }> {
+  const clean = stripLegalForm(name);
+  if (clean.length < 2) return { domain: '', hits: [] };
+
+  const search = new URLSearchParams({
+    action: 'wbsearchentities',
+    search: clean,
+    language: 'ru',
+    uselang: 'ru',
+    limit: '3',
+    format: 'json',
+    origin: '*',
+  });
+  const found = await fetchWithTimeout(`${WIKIDATA}?${search.toString()}`);
+  if (!found.ok) throw new Error(`Викиданные недоступны (${found.status})`);
+  const items = parseWikidataSearch(await found.json());
+  if (items.length === 0) return { domain: '', hits: [] };
+
+  const entities = new URLSearchParams({
+    action: 'wbgetentities',
+    ids: items.map((i) => i.id).join('|'),
+    props: 'claims',
+    format: 'json',
+    origin: '*',
+  });
+  const res = await fetchWithTimeout(`${WIKIDATA}?${entities.toString()}`);
+  if (!res.ok) throw new Error(`Викиданные недоступны (${res.status})`);
+  const payload = await res.json();
+
+  const hits: PictureHit[] = [];
+  let domain = '';
+  for (const item of items) {
+    const info = parseWikidataEntity(payload, item.id);
+    if (domain === '' && info.domain !== '') domain = info.domain;
+    const logo = commonsFileUrl(info.logo);
+    if (logo !== '') {
+      hits.push({
+        id: `wikidata:${item.id}`,
+        title: item.title,
+        source: 'Логотип · Викиданные',
+        url: logo,
+        thumb: commonsFileUrl(info.logo, 96),
+        kind: 'logo',
+      });
+    }
+  }
+  return { domain, hits: hits.slice(0, 6) };
 }
 
 /** Одинаковые картинки из разных источников показываем один раз */
@@ -640,9 +753,29 @@ export async function searchPictures(opts: {
   if (web.failed > 0) notes.push('Викисклад не ответил — проверьте интернет');
   onProgress?.({ stage: 'logos', text: 'Логотипы и картинки найдены', found: dedupeHits(hits).length });
 
-  if (query.domain !== '') {
-    onProgress?.({ stage: 'sites', text: `Смотрю значки сайта ${query.domain}` });
-    hits.push(...faviconHits(query.domain));
+  /*
+    Викиданные знают официальный сайт и логотип фирмы — по ним находятся
+    российские фирмы, которых нет в зарубежных наборах значков. Для груза
+    эта проверка бессмысленна, поэтому её пропускаем.
+  */
+  let siteDomain = query.domain;
+  if (kind !== 'cargo') {
+    onProgress?.({ stage: 'sites', text: 'Ищу фирму в Викиданных' });
+    try {
+      const wiki = await searchWikidata(name);
+      hits.push(...wiki.hits);
+      if (wiki.domain !== '' && wiki.domain !== query.domain) {
+        siteDomain = wiki.domain;
+        notes.push(`Официальный сайт: ${wiki.domain}`);
+      }
+    } catch {
+      // Викиданные не ответили — ищем по догадке об адресе
+    }
+  }
+
+  if (siteDomain !== '') {
+    onProgress?.({ stage: 'sites', text: `Смотрю значки сайта ${siteDomain}` });
+    hits.push(...faviconHits(siteDomain));
   }
 
   const result = sortHits(dedupeHits(hits)).slice(0, MAX_HITS);
