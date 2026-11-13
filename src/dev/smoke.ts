@@ -709,6 +709,10 @@ async function main() {
     check('CSS читает отступы системных панелей', css.includes('var(--safe-area-inset-top'));
     check('Шапка отступает под строку состояния', css.includes('padding-top: calc(12px + var(--safe-top))'));
     check('Нижнее меню отступает от полосы жестов', css.includes('height: calc(var(--nav-h) + var(--safe-bottom))'));
+    check('Подложка не шире экрана', css.includes('overflow-x: clip'));
+    check('Подложка под цвет приложения', css.includes('html {\n  background: var(--bg);\n}'));
+    check('Плашка не шире карточки', css.includes('max-width: 100%'));
+    check('Длинная ссылка-плашка переносится', css.includes('a.badge') && css.includes('overflow-wrap: break-word'));
     check('Гамма по умолчанию — тёмно-синяя', css.includes('--brand: #0f4c81'));
     check('Есть бирюзовая гамма', css.includes("[data-palette='teal']"));
     check('Бирюзовая гамма перекрывает тёмную тему', css.includes("[data-theme='dark'][data-palette='teal']"));
