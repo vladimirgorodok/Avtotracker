@@ -161,15 +161,45 @@ export function buildOrderMessages(files: AttachedFile[]): AiMessage[] {
   ];
 }
 
+/** Что сейчас делает помощник — показывается на экране, пока идёт разбор */
+export type OrderStage = 'files' | 'sending' | 'receiving' | 'parsing' | 'matching';
+
+export interface OrderProgress {
+  stage: OrderStage;
+  text: string;
+  /** Сколько знаков ответа уже получено (при чтении потоком) */
+  chars?: number;
+}
+
 /** Разобрать заявку: ключ и модель должны быть заданы в настройках */
-export async function extractOrder(files: AttachedFile[]): Promise<{ order: ParsedOrder; raw: string }> {
+export async function extractOrder(
+  files: AttachedFile[],
+  onProgress?: (p: OrderProgress) => void,
+): Promise<{ order: ParsedOrder; draft: OrderDraft; raw: string }> {
   const cfg = readAiConfig();
   if (!cfg || !cfg.model) {
     throw new Error('Сначала укажите адрес, ключ и модель ИИ в настройках');
   }
   if (files.length === 0) throw new Error('Прикрепите хотя бы один файл');
-  const raw = await askModel(cfg, buildOrderMessages(files));
-  return { order: parseOrderJson(raw), raw };
+
+  const images = files.filter((f) => f.kind === 'image').length;
+  const texts = files.length - images;
+  const parts: string[] = [`файлов ${files.length}`];
+  if (images > 0) parts.push(`фото ${images}`);
+  if (texts > 0) parts.push(`текстовых ${texts}`);
+  onProgress?.({ stage: 'sending', text: `Отправляю помощнику: ${parts.join(', ')}` });
+
+  const raw = await askModel(cfg, buildOrderMessages(files), (_delta, full) => {
+    onProgress?.({ stage: 'receiving', text: 'Читаю ответ помощника', chars: full.length });
+  });
+
+  onProgress?.({ stage: 'parsing', text: 'Разбираю ответ и собираю маршрут' });
+  const order = parseOrderJson(raw);
+
+  onProgress?.({ stage: 'matching', text: 'Сверяю фирмы и места со справочником' });
+  const draft = buildDraft(order);
+
+  return { order, draft, raw };
 }
 
 export function canReadFiles(): boolean {
@@ -493,7 +523,6 @@ function missingFields(place: Place, draft: { address: string; contact: string; 
 /** Ответ модели → черновик с предложениями по справочникам */
 export function buildDraft(order: ParsedOrder): OrderDraft {
   const places = refs.places();
-  const companies = refs.companies();
   const placeDrafts = new Map<string, OrderPlaceDraft>();
 
   order.points.forEach((point, index) => {
@@ -539,24 +568,6 @@ export function buildDraft(order: ParsedOrder): OrderDraft {
     }
   }
 
-  const companyDrafts = new Map<string, OrderCompanyDraft>();
-  for (const item of placeDrafts.values()) {
-    const name = item.company.trim();
-    if (!name) continue;
-    const key = normalizeName(name);
-    if (!key || companyDrafts.has(key)) continue;
-    const match = matchCompany(name, companies);
-    companyDrafts.set(key, {
-      key,
-      name,
-      action: match && match.score >= 0.75 ? 'link' : 'add',
-      linkId: match?.company.id ?? null,
-      linkName: match?.company.name ?? '',
-      score: match?.score ?? 0,
-      reasons: match?.reasons ?? [],
-    });
-  }
-
   const missing = [...order.missing];
   if (order.weight === null) missing.push('вес груза');
   order.points.forEach((p, i) => {
@@ -564,7 +575,7 @@ export function buildDraft(order: ParsedOrder): OrderDraft {
     if (!p.place && !p.address) missing.push(`место точки ${i + 1}`);
   });
 
-  return {
+  return syncCompanies({
     title: order.title,
     cargo: order.cargo,
     vehicle: order.vehicle,
@@ -581,7 +592,52 @@ export function buildDraft(order: ParsedOrder): OrderDraft {
       placeKey: placeKeyOf(p.place, p.address, p.coords),
     })),
     places: [...placeDrafts.values()],
-    companies: [...companyDrafts.values()],
+    companies: [],
+  });
+}
+
+/** Пересобрать список фирм после правки мест: решения пользователя остаются */
+export function syncCompanies(draft: OrderDraft): OrderDraft {
+  const companies = refs.companies();
+  const took = new Map(draft.companies.map((c) => [c.key, c]));
+  const next = new Map<string, OrderCompanyDraft>();
+
+  for (const item of draft.places) {
+    const name = item.company.trim();
+    if (!name) continue;
+    const key = normalizeName(name);
+    if (!key || next.has(key)) continue;
+    const made = took.get(key);
+    // Такую фирму уже разбирали и пользователь мог решить за него — не переспрашиваем
+    if (made && made.name === name) {
+      next.set(key, made);
+      continue;
+    }
+    const match = matchCompany(name, companies);
+    next.set(key, {
+      key,
+      name,
+      action: match && match.score >= 0.75 ? 'link' : 'add',
+      linkId: match?.company.id ?? null,
+      linkName: match?.company.name ?? '',
+      score: match?.score ?? 0,
+      reasons: match?.reasons ?? [],
+    });
+  }
+
+  return { ...draft, companies: [...next.values()] };
+}
+
+/** Привязать место заявки к выбранному вручную месту из справочника */
+export function linkPlaceTo(item: OrderPlaceDraft, place: Place): OrderPlaceDraft {
+  return {
+    ...item,
+    action: 'link',
+    linkId: place.id,
+    linkName: place.name,
+    score: 1,
+    reasons: ['выбрано вручную'],
+    fill: missingFields(place, item),
   };
 }
 

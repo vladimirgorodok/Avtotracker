@@ -1360,6 +1360,91 @@ async function main() {
     }
     check('на пустом ответе понятная ошибка', emptyError.includes('заявку'));
 
+    // Выбор фирмы вручную: список фирм пересобирается, решения не теряются
+    const renamed = ord.syncCompanies({
+      ...draft,
+      places: draft.places.map((p, i) => (i === 0 ? { ...p, company: 'Тестовая фирма' } : p)),
+    });
+    eq('фирма из списка попала в черновик', renamed.companies.length, 1);
+    eq('существующая фирма узнана', renamed.companies[0]?.action, 'link');
+    eq('фирма привязана к справочнику', renamed.companies[0]?.linkId, company);
+    const kept = ord.syncCompanies({
+      ...renamed,
+      companies: renamed.companies.map((c) => ({ ...c, action: 'skip' as const })),
+    });
+    eq('решение пользователя по фирме не сбрасывается', kept.companies[0]?.action, 'skip');
+    const brandNew = ord.syncCompanies({
+      ...draft,
+      places: draft.places.map((p, i) => (i === 0 ? { ...p, company: 'Совсем Новая Фирма' } : p)),
+    });
+    eq('незнакомая фирма из списка — на добавление', brandNew.companies[0]?.action, 'add');
+
+    // Ручная привязка места из справочника
+    const linked = ord.linkPlaceTo(draft.places[0]!, repo.refs.place(placeB)!);
+    eq('место привязано вручную', linked.linkId, placeB);
+    eq('сказано, что выбрано вручную', linked.reasons[0], 'выбрано вручную');
+    const emptyPlace = repo.insertRow('places', {
+      name: 'Пустое место Тест',
+      company_id: null,
+      address: '',
+      lat: null,
+      lon: null,
+      contact: '',
+      load_type: null,
+      cargo_type_id: null,
+      note: '',
+    });
+    const toEmpty = ord.linkPlaceTo(
+      { ...draft.places[0]!, address: 'Москва, Ленина 1', contact: '+70000000000', coords: '55.7, 37.6' },
+      repo.refs.place(emptyPlace)!,
+    );
+    eq('для пустого места предложено дополнить', toEmpty.fill.join(', '), 'Адрес, Контакт, Координаты');
+
+    // Разбор через помощника: ход работы виден по шагам, черновик собирается сразу
+    const originalFetch20 = globalThis.fetch;
+    const stages: string[] = [];
+    const streamAnswer = JSON.stringify({
+      title: 'Т',
+      cargo: 'Кирпич',
+      points: [{ kind: 'load', place: 'Склад А' }],
+    });
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { stream?: boolean };
+      if (!body.stream) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: streamAnswer } }] })}\n\n`),
+          );
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const run = await ord.extractOrder(
+        [{ name: 'заявка.txt', kind: 'text', data: 'загрузка склад А 12.11.2026', size: 26 }],
+        (p) => stages.push(p.chars ? `${p.stage}:${p.chars}` : p.stage),
+      );
+      eq('черновик собран сразу при разборе', run.draft.points.length, 1);
+      eq('место узнано при разборе', run.draft.places[0]?.linkId, placeA);
+      eq('первый шаг — отправка', stages[0], 'sending');
+      check('видно чтение ответа', stages.some((s) => s.startsWith('receiving:')));
+      check('шаги идут по порядку', stages.includes('parsing') && stages[stages.length - 1] === 'matching');
+    } finally {
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch20;
+    }
+
     check('за раз принимается несколько файлов', ord.MAX_FILES >= 3);
 
     {

@@ -1019,6 +1019,61 @@ body {
   display: block;
   height: 100%;
   background: var(--ok);
+  transition: width 0.35s ease;
+}
+
+/* Ход работы ИИ: шаги разбора заявки */
+.progress-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-steps {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.progress-step.done {
+  color: var(--text);
+}
+
+.progress-step.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.progress-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  color: var(--ok);
+}
+
+.progress-step.active .progress-dot {
+  border-color: var(--accent, var(--ok));
+  color: var(--ok);
 }
 
 .fab-space {

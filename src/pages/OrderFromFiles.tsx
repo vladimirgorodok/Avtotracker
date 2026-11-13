@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -13,27 +13,50 @@ import {
   Select,
   TextInput,
 } from '../ui/components';
+import { PlacePicker } from '../ui/PlacePicker';
 import { useApp } from '../store';
+import { refs } from '../db/repo';
 import { addPhoto } from '../lib/documents';
+import { fmtNumber } from '../lib/format';
 import {
   MAX_FILES,
   applyDraft,
-  buildDraft,
   canReadFiles,
   describeOrderResult,
   extractOrder,
   fileToAttachment,
+  linkPlaceTo,
   recheckPlace,
+  syncCompanies,
   type AttachedFile,
   type OrderDraft,
   type OrderDraftPoint,
   type OrderPlaceDraft,
+  type OrderProgress,
+  type OrderStage,
 } from '../lib/order';
+import type { Id } from '../types';
 
 /** Приложенный файл: то, что ушло помощнику, и сам файл — чтобы приложить его к поездке */
 interface Picked {
   att: AttachedFile;
   file: File;
+}
+
+/** Шаги разбора — по ним видно, чем сейчас занят помощник */
+const ORDER_STEPS: { stage: OrderStage; label: string }[] = [
+  { stage: 'files', label: 'Читаю приложенные файлы' },
+  { stage: 'sending', label: 'Отправляю помощнику' },
+  { stage: 'receiving', label: 'Получаю ответ' },
+  { stage: 'parsing', label: 'Разбираю ответ и собираю маршрут' },
+  { stage: 'matching', label: 'Сверяю фирмы и места со справочником' },
+];
+
+type Progress = OrderProgress | { stage: 'done'; text: string; chars?: number };
+
+function stepIndex(stage: Progress['stage']): number {
+  if (stage === 'done') return ORDER_STEPS.length;
+  return ORDER_STEPS.findIndex((s) => s.stage === stage);
 }
 
 function sizeLabel(bytes: number): string {
@@ -42,11 +65,72 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
 }
 
+/**
+ * Поле со списком из справочника: значения берутся готовыми, но можно выбрать
+ * «другое» и вписать своё название — оно попадёт в справочник при создании поездки.
+ */
+function RefSelect({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  hint,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  placeholder: string;
+  hint?: string;
+  disabled?: boolean;
+}) {
+  const [other, setOther] = useState(false);
+  const unknown = value.trim() !== '' && !options.includes(value);
+  const showOther = other || unknown;
+
+  return (
+    <>
+      <Field label={label} hint={hint}>
+        <Select
+          value={showOther ? '__other__' : value || null}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(v) => {
+            if (v === '__other__') {
+              setOther(true);
+              return;
+            }
+            setOther(false);
+            onChange(v ?? '');
+          }}
+          options={[
+            ...options.map((o) => ({ value: o, label: o })),
+            { value: '__other__', label: 'Другое — вписать название' },
+          ]}
+        />
+      </Field>
+      {showOther ? (
+        <Field label="Своё название" hint="его добавят в справочник">
+          <TextInput
+            value={value}
+            disabled={disabled}
+            placeholder="Введите название"
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </Field>
+      ) : null}
+    </>
+  );
+}
+
 export default function OrderFromFiles() {
   const navigate = useNavigate();
   const settings = useApp((s) => s.settings);
   const notify = useApp((s) => s.notify);
   const touch = useApp((s) => s.touch);
+  const revision = useApp((s) => s.revision);
 
   const [picked, setPicked] = useState<Picked[]>([]);
   const [busy, setBusy] = useState(false);
@@ -55,11 +139,39 @@ export default function OrderFromFiles() {
   const [comment, setComment] = useState('');
   const [draft, setDraft] = useState<OrderDraft | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [seconds, setSeconds] = useState(0);
+  const [pickerKey, setPickerKey] = useState<string | null>(null);
+  /** Файлы поменяли после разбора — данные на экране надо обновить */
+  const [stale, setStale] = useState(false);
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
+  const progressRef = useRef<HTMLDivElement | null>(null);
 
   const ready = canReadFiles();
+
+  /** Секунды на часах, пока помощник работает */
+  useEffect(() => {
+    if (!busy) return;
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
+
+  useEffect(() => {
+    if (busy) progressRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [busy, progress?.stage]);
+
+  const cargoNames = useMemo(() => [...new Set(refs.cargoTypes().map((c) => c.name))], [revision]);
+  const companyNames = useMemo(() => [...new Set(refs.companies().map((c) => c.name))], [revision]);
+  const placeOptions = useMemo(
+    () =>
+      refs.places().map((p) => ({
+        value: p.id,
+        label: p.address ? `${p.name} — ${p.address}` : p.name,
+      })),
+    [revision],
+  );
 
   const summary = useMemo(() => {
     if (!draft) return null;
@@ -81,25 +193,32 @@ export default function OrderFromFiles() {
       setError(`Больше ${MAX_FILES} файлов за раз помощник не разберёт`);
       return;
     }
+    const files = Array.from(list).slice(0, free);
     setBusy(true);
+    setSeconds(0);
+    if (draft) setStale(true);
     const next: Picked[] = [];
     const bad: string[] = [];
-    for (const file of Array.from(list).slice(0, free)) {
+    for (let i = 0; i < files.length; i++) {
+      setProgress({ stage: 'files', text: `Читаю файл ${i + 1} из ${files.length}: ${files[i].name}` });
       try {
-        next.push({ att: await fileToAttachment(file), file });
+        next.push({ att: await fileToAttachment(files[i]), file: files[i] });
       } catch (e) {
-        bad.push(`${file.name}: ${e instanceof Error ? e.message : 'не читается'}`);
+        bad.push(`${files[i].name}: ${e instanceof Error ? e.message : 'не читается'}`);
       }
     }
     setPicked((prev) => [...prev, ...next]);
+    setProgress({
+      stage: 'done',
+      text: next.length > 0 ? `Файлы готовы к разбору: ${next.length}` : 'Ни один файл не прочитался',
+    });
     setBusy(false);
     if (bad.length > 0) setError(bad.join('; '));
-    if (next.length > 0) setDraft(null);
   }
 
   function removeFile(index: number) {
     setPicked((prev) => prev.filter((_, i) => i !== index));
-    setDraft(null);
+    if (draft) setStale(true);
   }
 
   async function parse() {
@@ -107,14 +226,22 @@ export default function OrderFromFiles() {
     setBusy(true);
     setError('');
     setComment('');
+    setSeconds(0);
+    setProgress({ stage: 'sending', text: 'Готовлю файлы к отправке' });
     try {
-      const { order, raw } = await extractOrder(picked.map((p) => p.att));
-      const built = buildDraft(order);
+      const { draft: built, raw } = await extractOrder(picked.map((p) => p.att), (p) => setProgress(p));
       setDraft(built);
+      setStale(false);
       setComment(raw.trim());
+      setProgress({
+        stage: 'done',
+        text: `Готово: точек ${built.points.length}, фирм ${built.companies.length}, мест ${built.places.length}`,
+      });
       notify('Заявка разобрана — проверьте данные', 'ok');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось разобрать файлы');
+      const text = e instanceof Error ? e.message : 'Не удалось разобрать файлы';
+      setError(text);
+      setProgress({ stage: 'done', text: `Не получилось: ${text}` });
     } finally {
       setBusy(false);
     }
@@ -141,6 +268,30 @@ export default function OrderFromFiles() {
     );
   }
 
+  /** Фирма у точки — это фирма её места; после смены обновляем список фирм */
+  function setPlaceCompany(key: string, company: string) {
+    if (!key) return;
+    setDraft((d) =>
+      d ? syncCompanies({ ...d, places: d.places.map((p) => (p.key === key ? { ...p, company } : p)) }) : d,
+    );
+  }
+
+  /** Привязать место заявки к выбранному вручную месту из справочника */
+  function linkTo(key: string, placeId: Id | null) {
+    setDraft((d) => {
+      if (!d) return d;
+      const places = d.places.map((p) => {
+        if (p.key !== key) return p;
+        if (!placeId) {
+          return { ...p, action: 'add' as const, linkId: null, linkName: '', score: 0, reasons: [], fill: [] };
+        }
+        const found = refs.place(placeId);
+        return found ? linkPlaceTo(p, found) : p;
+      });
+      return syncCompanies({ ...d, places });
+    });
+  }
+
   async function create() {
     if (!draft || creating) return;
     setCreating(true);
@@ -164,12 +315,58 @@ export default function OrderFromFiles() {
     }
   }
 
+  const stage = progress ? stepIndex(progress.stage) : 0;
+  const percent =
+    progress === null
+      ? 0
+      : progress.stage === 'done'
+        ? 100
+        : Math.round(((stage + (busy ? 0.5 : 0)) / (ORDER_STEPS.length + 1)) * 100 + 10);
+
   return (
     <Page title="Заявка из файла" onBack={() => navigate('/assistant')}>
       <Card
         title="Файлы заявки"
         actions={<Badge tone={ready ? 'ok' : 'warn'}>{picked.length > 0 ? `файлов: ${picked.length}` : 'пусто'}</Badge>}
       >
+        {progress ? (
+          <div className="progress-box" ref={progressRef}>
+            <div className="progress-head">
+              <span className={busy ? 'spin' : ''}>
+                <Icon name={busy ? 'refresh' : progress.stage === 'done' ? 'check' : 'ai'} size={16} />
+              </span>
+              <span className="small">{progress.text}</span>
+              <span style={{ flex: 1 }} />
+              <span className="small muted">
+                {busy ? `${seconds} с` : ''}
+                {progress.chars ? `${busy ? ' · ' : ''}${fmtNumber(progress.chars)} знаков` : ''}
+              </span>
+            </div>
+            <div className="progress">
+              <i style={{ width: `${Math.min(100, percent)}%` }} />
+            </div>
+            <div className="progress-steps">
+              {ORDER_STEPS.map((s, i) => (
+                <div
+                  key={s.stage}
+                  className={`progress-step ${i < stage ? 'done' : ''} ${i === stage && busy ? 'active' : ''}`}
+                >
+                  <span className="progress-dot">
+                    {i < stage || (!busy && progress.stage === 'done') ? (
+                      <Icon name="check" size={11} />
+                    ) : i === stage && busy ? (
+                      <span className="spin">
+                        <Icon name="refresh" size={11} />
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="small">{s.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="small muted">
           Приложите фото заявки или файл с текстом (несколько сразу). Помощник прочитает даты, груз и точки
           маршрута, сверит фирмы и места со справочником и предложит, что добавить, а что дополнить.
@@ -189,6 +386,13 @@ export default function OrderFromFiles() {
           <div className="alert alert-err">
             <Icon name="warning" />
             <span>{error}</span>
+          </div>
+        ) : null}
+
+        {stale ? (
+          <div className="alert alert-warn">
+            <Icon name="warning" />
+            <span>Файлы изменились — нажмите «Разобрать заявку», чтобы обновить данные на экране.</span>
           </div>
         ) : null}
 
@@ -216,10 +420,10 @@ export default function OrderFromFiles() {
         />
 
         <div className="row wrap">
-          <Button icon="eye" onClick={() => cameraRef.current?.click()}>
+          <Button icon="eye" disabled={busy} onClick={() => cameraRef.current?.click()}>
             Сфотографировать
           </Button>
-          <Button icon="upload" onClick={() => fileRef.current?.click()}>
+          <Button icon="upload" disabled={busy} onClick={() => fileRef.current?.click()}>
             Выбрать файлы
           </Button>
         </div>
@@ -239,7 +443,7 @@ export default function OrderFromFiles() {
                     {p.att.kind === 'image' ? 'фото' : 'текст'} · {sizeLabel(p.att.size)}
                   </span>
                 </span>
-                <Button icon="trash" onClick={() => removeFile(i)} />
+                <Button icon="trash" disabled={busy} onClick={() => removeFile(i)} />
               </div>
             ))}
           </div>
@@ -252,7 +456,7 @@ export default function OrderFromFiles() {
           disabled={busy || !ready || picked.length === 0}
           onClick={() => void parse()}
         >
-          {busy ? 'Читаю файлы…' : 'Разобрать заявку'}
+          {busy ? `Работаю… ${seconds} с` : 'Разобрать заявку'}
         </Button>
       </Card>
 
@@ -284,13 +488,14 @@ export default function OrderFromFiles() {
               <TextInput value={draft.title} onChange={(e) => patch({ title: e.target.value })} />
             </Field>
             <div className="grid-2">
-              <Field label="Груз">
-                <TextInput
-                  value={draft.cargo}
-                  placeholder="не указан"
-                  onChange={(e) => patch({ cargo: e.target.value })}
-                />
-              </Field>
+              <RefSelect
+                label="Груз"
+                value={draft.cargo}
+                options={cargoNames}
+                onChange={(v) => patch({ cargo: v })}
+                placeholder="Не указан"
+                hint="список из справочника грузов"
+              />
               <Field label="Вес, кг">
                 <NumberInput value={draft.weight} onValue={(v) => patch({ weight: v })} />
               </Field>
@@ -313,57 +518,67 @@ export default function OrderFromFiles() {
           </Card>
 
           <Card title="Точки маршрута">
-            <div className="small muted">Проверьте порядок, даты и места — можно поправить прямо здесь</div>
+            <div className="small muted">Проверьте порядок, даты, места и фирмы — можно поправить прямо здесь</div>
             <div className="stack-sm">
-              {draft.points.map((p, i) => (
-                <div key={`${p.kind}-${i}`} className={`point ${p.kind === 'load' ? 'point-load' : 'point-unload'}`}>
-                  <div className="point-head">
-                    <span className="point-num">{i + 1}</span>
-                    <Badge tone={p.kind === 'load' ? 'info' : 'err'}>
-                      {p.kind === 'load' ? 'Погрузка' : 'Выгрузка'}
-                    </Badge>
-                    <span className="point-kind">
-                      {draft.places.find((pl) => pl.key === p.placeKey)?.name || 'Место не выбрано'}
-                    </span>
-                  </div>
-                  <div className="grid-2">
-                    <Field label="Тип">
+              {draft.points.map((p, i) => {
+                const place = draft.places.find((pl) => pl.key === p.placeKey);
+                return (
+                  <div key={`${p.kind}-${i}`} className={`point ${p.kind === 'load' ? 'point-load' : 'point-unload'}`}>
+                    <div className="point-head">
+                      <span className="point-num">{i + 1}</span>
+                      <Badge tone={p.kind === 'load' ? 'info' : 'err'}>
+                        {p.kind === 'load' ? 'Погрузка' : 'Выгрузка'}
+                      </Badge>
+                      <span className="point-kind">
+                        {place?.name || 'Место не выбрано'}
+                        {place?.company ? ` · ${place.company}` : ''}
+                      </span>
+                    </div>
+                    <div className="grid-2">
+                      <Field label="Тип">
+                        <Select
+                          value={p.kind}
+                          onChange={(v) => patchPoint(i, { kind: v ?? 'unload' })}
+                          options={[
+                            { value: 'load', label: 'Погрузка' },
+                            { value: 'unload', label: 'Выгрузка' },
+                          ]}
+                        />
+                      </Field>
+                      <Field label="Дата">
+                        <DateInput value={p.date || null} onChange={(v) => patchPoint(i, { date: v ?? '' })} />
+                      </Field>
+                    </div>
+                    <Field label="Место">
                       <Select
-                        value={p.kind}
-                        onChange={(v) => patchPoint(i, { kind: v ?? 'unload' })}
-                        options={[
-                          { value: 'load', label: 'Погрузка' },
-                          { value: 'unload', label: 'Выгрузка' },
-                        ]}
+                        value={p.placeKey || null}
+                        onChange={(v) => patchPoint(i, { placeKey: v ?? '' })}
+                        placeholder="Не указано"
+                        options={draft.places.map((pl) => ({
+                          value: pl.key,
+                          label: pl.name || pl.address || 'Место из заявки',
+                        }))}
                       />
                     </Field>
-                    <Field label="Дата">
-                      <DateInput value={p.date || null} onChange={(v) => patchPoint(i, { date: v ?? '' })} />
+                    <RefSelect
+                      label="Фирма"
+                      value={place?.company ?? ''}
+                      options={companyNames}
+                      disabled={!place}
+                      placeholder={place ? 'Не указана' : 'сначала выберите место'}
+                      hint={place ? 'список из справочника фирм' : undefined}
+                      onChange={(v) => setPlaceCompany(p.placeKey, v)}
+                    />
+                    <Field label="Примечание к точке">
+                      <TextInput value={p.note} onChange={(e) => patchPoint(i, { note: e.target.value })} />
                     </Field>
                   </div>
-                  <Field label="Место">
-                    <Select
-                      value={p.placeKey || null}
-                      onChange={(v) => patchPoint(i, { placeKey: v ?? '' })}
-                      placeholder="Не указано"
-                      options={draft.places.map((pl) => ({
-                        value: pl.key,
-                        label: pl.name || pl.address || 'Место из заявки',
-                      }))}
-                    />
-                  </Field>
-                  <Field label="Примечание к точке">
-                    <TextInput value={p.note} onChange={(e) => patchPoint(i, { note: e.target.value })} />
-                  </Field>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
 
-          <Card
-            title="Места в справочнике"
-            actions={<Badge tone="info">{draft.places.length}</Badge>}
-          >
+          <Card title="Места в справочнике" actions={<Badge tone="info">{draft.places.length}</Badge>}>
             <div className="small muted">
               Похожие места уже есть в справочнике — их можно использовать и дополнить, а новые добавить.
             </div>
@@ -415,6 +630,20 @@ export default function OrderFromFiles() {
                     </Button>
                   </div>
 
+                  <Field label="Место из справочника" hint="выбор вручную привяжет заявку к нему">
+                    <Select
+                      value={pl.linkId}
+                      placeholder="Не выбрано"
+                      onChange={(id) => linkTo(pl.key, id)}
+                      options={placeOptions}
+                    />
+                  </Field>
+                  <div className="row wrap">
+                    <Button icon="search" onClick={() => setPickerKey(pl.key)}>
+                      Найти или создать место
+                    </Button>
+                  </div>
+
                   {pl.linkId && pl.fill.length > 0 && pl.action === 'link' ? (
                     <label className="row small">
                       <input
@@ -456,16 +685,15 @@ export default function OrderFromFiles() {
                       />
                     </Field>
                   </div>
-                  <Field label="Фирма">
-                    <TextInput
-                      value={pl.company}
-                      placeholder="не указана"
-                      onChange={(e) => patchPlace(pl.key, { company: e.target.value })}
-                    />
-                  </Field>
-                  <div className="small muted">
-                    Точек заявки на этом месте: {pl.points.length}
-                  </div>
+                  <RefSelect
+                    label="Фирма"
+                    value={pl.company}
+                    options={companyNames}
+                    placeholder="Не указана"
+                    hint="список из справочника фирм"
+                    onChange={(v) => setPlaceCompany(pl.key, v)}
+                  />
+                  <div className="small muted">Точек заявки на этом месте: {pl.points.length}</div>
                 </div>
               ))}
             </div>
@@ -564,12 +792,28 @@ export default function OrderFromFiles() {
                 {rawOpen ? 'Скрыть ответ помощника' : 'Показать ответ помощника'}
               </Button>
               <span style={{ flex: 1 }} />
-              <Button icon="undo" onClick={() => setDraft(null)}>
+              <Button
+                icon="undo"
+                onClick={() => {
+                  setDraft(null);
+                  setProgress(null);
+                  setStale(false);
+                }}
+              >
                 Сбросить разбор
               </Button>
             </div>
             {rawOpen ? <pre className="raw-answer">{comment}</pre> : null}
           </Card>
+
+          <PlacePicker
+            open={pickerKey !== null}
+            onClose={() => setPickerKey(null)}
+            onPick={(place) => {
+              if (pickerKey) linkTo(pickerKey, place.id);
+              setPickerKey(null);
+            }}
+          />
         </>
       ) : null}
     </Page>
