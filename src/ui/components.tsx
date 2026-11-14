@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { monthChoices, monthLabel } from '../lib/format';
 import { usedMonths } from '../db/repo';
 import { useApp } from '../store';
+import { SELECT_SEARCH_FROM, filterOptions, type SelectOption } from './select';
 
 /** Месяцы с данными; база может быть ещё не готова */
 function safeUsedMonths(): string[] {
@@ -157,14 +158,6 @@ export function OptionAvatar({ logo }: { logo?: string }) {
   );
 }
 
-export interface SelectOption<T extends string> {
-  value: T;
-  label: string;
-  hint?: string;
-  /** Логотип или значок записи: data URL либо ссылка */
-  logo?: string;
-}
-
 /**
  * Поле выбора из списка. У записи с логотипом (фирма, груз, АЗС, автомобиль)
  * логотип виден и в самом поле, и в раскрытом списке — поэтому это не <select>,
@@ -238,7 +231,7 @@ export function Select<T extends string>({
   );
 }
 
-/** Раскрытый список поля выбора: строки с логотипами и значками */
+/** Раскрытый список поля выбора: поиск по буквам, строки с логотипами и значками */
 export function SelectMenu<T extends string>({
   value,
   options,
@@ -250,32 +243,55 @@ export function SelectMenu<T extends string>({
   placeholder: string;
   onPick: (v: T | null) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const searchable = options.length >= SELECT_SEARCH_FROM;
+  const shown = filterOptions(options, query);
   const anyLogo = options.some((o) => o.logo);
+
   return (
-    <div className="select-menu" role="listbox">
-      <button
-        type="button"
-        role="option"
-        aria-selected={value === null}
-        className={`select-option ${value === null ? 'is-active' : ''}`}
-        onClick={() => onPick(null)}
-      >
-        <span className="select-label muted">{placeholder}</span>
-      </button>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="option"
-          aria-selected={o.value === value}
-          className={`select-option ${o.value === value ? 'is-active' : ''}`}
-          onClick={() => onPick(o.value)}
-        >
-          {o.logo ? <OptionAvatar logo={o.logo} /> : anyLogo ? <OptionAvatar /> : null}
-          <span className="select-label">{o.label}</span>
-          {o.hint ? <span className="select-hint">{o.hint}</span> : null}
-        </button>
-      ))}
+    <div className="select-menu">
+      {searchable ? (
+        <input
+          className="input select-search"
+          placeholder="Поиск по списку"
+          value={query}
+          autoFocus
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            const first = shown[0];
+            if (first) onPick(first.value);
+          }}
+        />
+      ) : null}
+      <div className="select-options" role="listbox">
+        {query.trim() === '' ? (
+          <button
+            type="button"
+            role="option"
+            aria-selected={value === null}
+            className={`select-option ${value === null ? 'is-active' : ''}`}
+            onClick={() => onPick(null)}
+          >
+            <span className="select-label muted">{placeholder}</span>
+          </button>
+        ) : null}
+        {shown.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="option"
+            aria-selected={o.value === value}
+            className={`select-option ${o.value === value ? 'is-active' : ''}`}
+            onClick={() => onPick(o.value)}
+          >
+            {o.logo ? <OptionAvatar logo={o.logo} /> : anyLogo ? <OptionAvatar /> : null}
+            <span className="select-label">{o.label}</span>
+            {o.hint ? <span className="select-hint">{o.hint}</span> : null}
+          </button>
+        ))}
+        {shown.length === 0 ? <div className="select-empty">Ничего не найдено</div> : null}
+      </div>
     </div>
   );
 }

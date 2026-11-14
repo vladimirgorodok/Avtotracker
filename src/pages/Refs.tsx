@@ -13,6 +13,7 @@ import {
   Select,
   Tabs,
   TextInput,
+  type IconName,
 } from '../ui/components';
 import { useApp } from '../store';
 import { countRows, insertRow, refs, softDelete, uid, updateRow } from '../db/repo';
@@ -214,6 +215,7 @@ export default function Refs() {
         <PicturePicker
           name={pictureRequest.name}
           kind={pictureRequest.kind}
+          current={pictureRequest.current}
           title={`Подобрать: ${pictureRequest.name || pictureTitle(pictureRequest.kind)}`}
           onClose={() => setPictureRequest(null)}
           onPick={(value) => pictureRequest.apply(value)}
@@ -241,6 +243,8 @@ export default function Refs() {
 interface PictureRequest {
   name: string;
   kind: PictureKind;
+  /** Нынешняя картинка записи */
+  current: string;
   apply: (v: string) => void;
 }
 
@@ -325,6 +329,23 @@ function RefEditor({
     stations: 'АЗС',
   };
 
+  const kinds: Record<Tab, string> = {
+    companies: 'Фирма',
+    places: 'Место',
+    cargo: 'Груз',
+    stations: 'АЗС',
+  };
+
+  /** Карточка записи: сразу видно её название и нынешний логотип или значок */
+  const head: { name: string; picture: string; icon: IconName } =
+    editor.kind === 'companies'
+      ? { name: company?.name ?? '', picture: company?.logo ?? '', icon: 'box' }
+      : editor.kind === 'places'
+        ? { name: place?.name ?? '', picture: '', icon: 'pin' }
+        : editor.kind === 'cargo'
+          ? { name: cargo?.name ?? '', picture: cargo?.icon ?? '', icon: 'box' }
+          : { name: station?.name ?? '', picture: station?.logo ?? '', icon: 'fuel' };
+
   function save() {
     if (editor!.kind === 'companies' && company) {
       const payload = { name: company.name, cargo_type_id: company.cargo_type_id, logo: company.logo, note: company.note };
@@ -389,7 +410,7 @@ function RefEditor({
         </label>
         <Button
           icon="ai"
-          onClick={() => onFindPicture({ name: find.name, kind: find.kind, apply })}
+          onClick={() => onFindPicture({ name: find.name, kind: find.kind, current: value, apply })}
           disabled={find.name.trim() === ''}
         >
           Найти
@@ -426,6 +447,19 @@ function RefEditor({
         </>
       }
     >
+      <div className="row">
+        <span className="avatar" style={{ width: 64, height: 64 }}>
+          {head.picture ? <img src={head.picture} alt="" /> : <Icon name={head.icon} size={28} />}
+        </span>
+        <div className="li-main">
+          <div className="li-title">{head.name || 'Новая запись'}</div>
+          <div className="li-sub">
+            {kinds[editor.kind]}
+            {head.picture ? (editor.kind === 'cargo' ? ' · значок задан' : ' · логотип задан') : ''}
+          </div>
+        </div>
+      </div>
+
       {editor.kind === 'companies' && company ? (
         <>
           <Field label="Фирма" required>

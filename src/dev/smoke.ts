@@ -725,6 +725,7 @@ async function main() {
     check('Поле выбора — своя раскрывашка, а не <select>', css.includes('.select-trigger'));
     check('Раскрытый список выбора со своим фоном', css.includes('.select-menu'));
     check('В списке выбора видно логотип записи', css.includes('.opt-avatar'));
+    check('В списке выбора есть поиск по буквам', css.includes('.select-search'));
   } catch (e) {
     check('CSS читает отступы системных панелей', false, e instanceof Error ? e.message : String(e));
   }
@@ -1832,6 +1833,7 @@ async function main() {
   console.log('\n23. Логотипы и значки в списках выбора');
   {
     const { Select, SelectMenu } = await import('../ui/components');
+    const { filterOptions, SELECT_SEARCH_FROM } = await import('../ui/select');
     const logo = 'data:image/png;base64,AAAA';
     const options = [
       { value: 'c1', label: 'ООО «Ромашка»', logo },
@@ -1869,6 +1871,33 @@ async function main() {
     check('выбранная запись помечена', menu.includes('is-active'));
     check('список помечен как список выбора', menu.includes('role="listbox"'));
 
+    // Поиск по набору букв: список отбирается по названию и подсказке
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      value: `v${i}`,
+      label: `Фирма ${i}`,
+      logo: i === 0 ? logo : '',
+    }));
+    eq('без букв виден весь список', filterOptions(many, '').length, many.length);
+    eq('буквы отбирают записи', filterOptions(many, 'фирма 3').length, 1);
+    eq('регистр не важен', filterOptions(many, 'ФИРМА').length, many.length);
+    eq(
+      'ищем и по подсказке записи',
+      filterOptions([{ value: 'a', label: 'Ромашка', hint: 'Москва' }], 'москва').length,
+      1,
+    );
+    eq('ничего не нашлось — пусто', filterOptions(many, 'ззз').length, 0);
+    check('поиск стоит в длинных списках', SELECT_SEARCH_FROM <= many.length, `(с ${SELECT_SEARCH_FROM} записей)`);
+
+    const longMenu = renderToString(
+      createElement(
+        SelectMenu as never,
+        { value: null, options: many, placeholder: 'Не выбрана', onPick: () => {} } as never,
+      ) as never,
+    );
+    check('в длинном списке есть поле поиска', longMenu.includes('select-search'));
+    check('поле поиска подписано', longMenu.includes('Поиск по списку'));
+    check('в коротком списке поиска нет', !menu.includes('select-search'));
+
     // Связка с экранами: в списках выбора справочников подставлен логотип записи.
     // Экраны читают запись по адресу в useEffect, а при сборке на сервере они не
     // выполняются, поэтому проверяем по исходникам экранов.
@@ -1887,6 +1916,42 @@ async function main() {
       if (src.includes('logo:')) wired++;
     }
     eq('логотипы подставлены во все списки выбора справочников', wired, withPictures.length);
+  }
+
+  console.log('\n24. Логотип в карточке записи');
+  {
+    const { PictureSearch } = await import('../ui/PictureSearch');
+    const logo = 'data:image/png;base64,AAAA';
+    const html = renderToString(
+      createElement(
+        PictureSearch as never,
+        { initialName: 'Ромашка', showKind: false, current: logo, onPick: () => {} } as never,
+      ) as never,
+    );
+    check('видно нынешнюю картинку записи', html.includes(`src="${logo}"`));
+    check('сказано, что новая её заменит', html.includes('новая её заменит'));
+    const empty = renderToString(
+      createElement(
+        PictureSearch as never,
+        { initialName: 'Ромашка', showKind: false, onPick: () => {} } as never,
+      ) as never,
+    );
+    check('без нынешней картинки подсказки нет', !empty.includes('новая её заменит'));
+  }
+
+  console.log('\n25. Экран «Ещё»: разделы переключателем');
+  {
+    const moreMod = await import('../pages/More');
+    const html = renderToString(
+      createElement(MemoryRouter, { initialEntries: ['/more'] }, createElement(moreMod.default as never)) as never,
+    );
+    check('виден переключатель разделов', html.includes('Данные') && html.includes('Сервисы'));
+    check('сначала показаны записи учёта', html.includes('Путевые листы') && html.includes('Автомобили'));
+    check('подсказка раздела на месте', html.includes('Путевые листы, поездки, заправки'));
+    check(
+      'сервисы убраны во вторую половину',
+      !html.includes('Справочники') && !html.includes('Обмен данными') && !html.includes('Значки и логотипы'),
+    );
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

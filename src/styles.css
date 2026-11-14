@@ -478,11 +478,32 @@ body {
   border-radius: 12px;
   background: var(--card);
   box-shadow: 0 10px 24px rgba(12, 25, 32, 0.16);
-  max-height: min(320px, 55vh);
+  max-height: min(360px, 60vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.select-search {
+  padding: 8px 10px;
+  font-size: 14px;
+  flex: none;
+}
+
+.select-options {
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.select-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .select-option {

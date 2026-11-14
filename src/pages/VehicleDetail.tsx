@@ -360,6 +360,7 @@ export default function VehicleDetail() {
         <PicturePicker
           name={form.name.trim() !== '' ? form.name : form.plate}
           kind="vehicle"
+          current={form.logo}
           title="Подобрать значок техники"
           onClose={() => setPickerOpen(false)}
           onPick={(value) => applyLogo(value)}

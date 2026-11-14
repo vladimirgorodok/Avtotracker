@@ -36,11 +36,14 @@ export function PictureSearch({
   initialName,
   initialKind = 'company',
   showKind = true,
+  current = '',
   onPick,
 }: {
   initialName: string;
   initialKind?: PictureKind;
   showKind?: boolean;
+  /** Нынешняя картинка записи — показываем её, чтобы видеть, что меняем */
+  current?: string;
   onPick: (value: string, hit: PictureHit) => void;
 }) {
   const notify = useApp((s) => s.notify);
@@ -134,6 +137,17 @@ export function PictureSearch({
         </Field>
       ) : null}
 
+      {current ? (
+        <div className="row">
+          <span className="avatar" style={{ width: 48, height: 48 }}>
+            <img src={current} alt="" />
+          </span>
+          <div className="li-main">
+            <div className="li-sub">Сейчас стоит эта картинка — новая её заменит</div>
+          </div>
+        </div>
+      ) : null}
+
       {progress ? (
         <div className="progress-box" ref={boxRef}>
           <div className="progress-head">
@@ -225,12 +239,15 @@ export function PictureSearch({
 export function PicturePicker({
   name,
   kind,
+  current = '',
   title = 'Подобрать логотип или значок',
   onClose,
   onPick,
 }: {
   name: string;
   kind: PictureKind;
+  /** Нынешняя картинка записи */
+  current?: string;
   title?: string;
   onClose: () => void;
   onPick: (value: string, hit: PictureHit) => void;
@@ -241,6 +258,7 @@ export function PicturePicker({
         initialName={name}
         initialKind={kind}
         showKind={false}
+        current={current}
         onPick={(value, hit) => {
           onPick(value, hit);
           onClose();

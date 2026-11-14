@@ -117,6 +117,21 @@ export default function PictureFinder() {
             }))}
           />
         </Field>
+        {target ? (
+          <div className="row">
+            <span className="avatar" style={{ width: 56, height: 56 }}>
+              {target.picture ? <img src={target.picture} alt="" /> : <Icon name="box" size={24} />}
+            </span>
+            <div className="li-main">
+              <div className="li-title">{target.name}</div>
+              <div className="li-sub">
+                {target.hasPicture
+                  ? 'Сейчас стоит эта картинка — новая её заменит'
+                  : 'Картинки пока нет — выбранная встанет на это место'}
+              </div>
+            </div>
+          </div>
+        ) : null}
         {targets.length === 0 ? (
           <div className="small muted">Записей этого вида пока нет — сначала заведите их в справочнике.</div>
         ) : null}
@@ -143,6 +158,7 @@ export default function PictureFinder() {
           initialName={searchName}
           initialKind={kind}
           showKind={false}
+          current={target?.picture ?? ''}
           onPick={apply}
         />
       </Card>
