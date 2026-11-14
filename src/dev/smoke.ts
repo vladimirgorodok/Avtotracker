@@ -662,6 +662,7 @@ async function main() {
     { label: 'Обмен данными', route: '/data', url: '/data', load: () => import('../pages/Data') },
     { label: 'Умный импорт', route: '/data/smart', url: '/data/smart', load: () => import('../pages/SmartImport') },
     { label: 'Ещё', route: '/more', url: '/more', load: () => import('../pages/More') },
+    { label: 'Поиск по всему', route: '/search', url: '/search', load: () => import('../pages/Search') },
     { label: 'Настройки', route: '/settings', url: '/settings', load: () => import('../pages/Settings') },
     { label: 'ИИ-помощник', route: '/assistant', url: '/assistant', load: () => import('../pages/Assistant') },
   ];
@@ -1946,12 +1947,79 @@ async function main() {
       createElement(MemoryRouter, { initialEntries: ['/more'] }, createElement(moreMod.default as never)) as never,
     );
     check('виден переключатель разделов', html.includes('Данные') && html.includes('Сервисы'));
-    check('сначала показаны записи учёта', html.includes('Путевые листы') && html.includes('Автомобили'));
-    check('подсказка раздела на месте', html.includes('Путевые листы, поездки, заправки'));
+    check(
+      'сначала показаны записи учёта со справочниками',
+      html.includes('Путевые листы') && html.includes('Автомобили') && html.includes('Справочники'),
+    );
+    check('подсказка раздела на месте', html.includes('Поиск по всему, путевые листы, поездки'));
     check(
       'сервисы убраны во вторую половину',
-      !html.includes('Справочники') && !html.includes('Обмен данными') && !html.includes('Значки и логотипы'),
+      !html.includes('Обмен данными') && !html.includes('Значки и логотипы') && !html.includes('Настройки'),
     );
+    check('в данных есть вход в общий поиск', html.includes('Поиск по всему'));
+  }
+
+  console.log('\n26. Поиск по всему');
+  {
+    const { globalSearch, SEARCH_KINDS } = await import('../lib/search');
+
+    const empty = globalSearch('');
+    eq('пустая строка — ничего не ищем', empty.total, 0);
+    eq('пустая строка — пустой список', empty.hits.length, 0);
+
+    const byPlate = globalSearch('а123вс');
+    check('поиск по номеру машины находит технику', byPlate.byKind.vehicle >= 1, `(найдено ${byPlate.byKind.vehicle})`);
+    check('и её путевой лист', byPlate.byKind.waybill >= 1);
+    check(
+      'находка техники ведёт в карточку',
+      byPlate.hits.some((h) => h.kind === 'vehicle' && h.to === `/vehicles/${vehicleId}`),
+    );
+
+    const byPlace = globalSearch('склад б');
+    check('поиск по месту находит само место', byPlace.hits.some((h) => h.kind === 'place' && h.title === 'Склад Б'));
+    check('поиск по месту находит поездку', byPlace.hits.some((h) => h.kind === 'trip'));
+
+    const byAddress = globalSearch('тверь');
+    check('поиск по адресу находит место', byAddress.hits.some((h) => h.kind === 'place'));
+
+    const byCompany = globalSearch('тестовая фирма');
+    check(
+      'поиск по фирме ведёт в справочник',
+      byCompany.hits.some((h) => h.kind === 'company' && h.to === `/refs?tab=companies&id=${company}`),
+    );
+    eq('регистр не важен', globalSearch('ТЕСТОВАЯ ФИРМА').byKind.company, byCompany.byKind.company);
+
+    const byNote = globalSearch('зарплата');
+    check('поиск по заметке находит операцию', byNote.hits.some((h) => h.kind === 'finance'));
+
+    const cargoName = repo.refs.cargoTypes()[0].name;
+    check('поиск по грузу находит груз', globalSearch(cargoName).hits.some((h) => h.kind === 'cargo'));
+
+    const stationName = repo.refs.fuelStations()[0].name;
+    check('поиск по АЗС находит АЗС', globalSearch(stationName).hits.some((h) => h.kind === 'station'));
+
+    const byVolume = globalSearch('700');
+    check('поиск по литрам находит заправку', byVolume.hits.some((h) => h.kind === 'refueling'));
+
+    const all = globalSearch('а');
+    check(
+      'у каждой находки есть название, уточнение и адрес',
+      all.hits.every((h) => h.title.trim() !== '' && h.sub.trim() !== '' && h.to.startsWith('/')),
+    );
+    check('находки идут в порядке разделов', all.hits.length > 0);
+
+    const limited = globalSearch('а', 1);
+    eq('ограничение по разделу соблюдено', limited.hits.length, SEARCH_KINDS.filter((k) => limited.byKind[k.kind] > 0).length);
+    check('общее число находок не меньше показанных', limited.total >= limited.hits.length);
+
+    eq('чего нет — того не находим', globalSearch('жжжжж').total, 0);
+
+    const searchMod = await import('../pages/Search');
+    const html = renderToString(
+      createElement(MemoryRouter, { initialEntries: ['/search'] }, createElement(searchMod.default as never)) as never,
+    );
+    check('экран поиска собирается', html.includes('Поиск по всему'));
+    check('подсказка, что можно искать', html.includes('Начните вводить'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

@@ -16,8 +16,12 @@ type MoreTab = 'data' | 'services';
 
 /** Разделы экрана «Ещё»: сверху — записи учёта, снизу — справочники и сервисы */
 const TABS: { id: MoreTab; label: string; hint: string }[] = [
-  { id: 'data', label: 'Данные', hint: 'Путевые листы, поездки, заправки, финансы и техника' },
-  { id: 'services', label: 'Сервисы', hint: 'Справочники, облако, обмен данными, помощник и настройки' },
+  {
+    id: 'data',
+    label: 'Данные',
+    hint: 'Поиск по всему, путевые листы, поездки, заправки, финансы, техника и справочники',
+  },
+  { id: 'services', label: 'Сервисы', hint: 'Облако, обмен данными, помощник, значки и настройки' },
 ];
 
 export default function MorePage() {
@@ -26,15 +30,16 @@ export default function MorePage() {
   const [tab, setTab] = useState<MoreTab>('data');
 
   const dataItems: { to: string; title: string; sub: string; icon: IconName }[] = [
+    { to: '/search', title: 'Поиск по всему', sub: 'Найти запись в любом разделе', icon: 'search' },
     { to: '/waybills', title: 'Путевые листы', sub: `${countRows('waybills')} записей`, icon: 'doc' },
     { to: '/trips', title: 'Поездки', sub: `${countRows('trips')} перевозок`, icon: 'route' },
     { to: '/refuelings', title: 'Заправки', sub: `${countRows('refuelings')} записей`, icon: 'fuel' },
     { to: '/finance', title: 'Финансы', sub: `${countRows('finance_ops')} операций`, icon: 'money' },
     { to: '/vehicles', title: 'Автомобили', sub: `${countRows('vehicles')} единиц техники`, icon: 'car' },
+    { to: '/refs', title: 'Справочники', sub: 'Фирмы, места, грузы, АЗС', icon: 'pin' },
   ];
 
   const serviceItems: { to: string; title: string; sub: string; icon: IconName }[] = [
-    { to: '/refs', title: 'Справочники', sub: 'Фирмы, места, грузы, АЗС', icon: 'pin' },
     { to: '/settings', title: 'Облачная синхронизация', sub: syncSub(), icon: 'refresh' },
     { to: '/data', title: 'Обмен данными', sub: 'Экспорт, импорт, резервные копии', icon: 'share' },
     { to: '/assistant', title: 'ИИ-помощник', sub: 'Разбор заявок и расчёты', icon: 'ai' },

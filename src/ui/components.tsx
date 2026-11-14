@@ -433,14 +433,26 @@ export function StatCard({
   );
 }
 
-export function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function SearchBar({
+  value,
+  onChange,
+  autoFocus,
+  placeholder = 'Поиск',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  /** Сразу ставим курсор в поле — для отдельного экрана поиска */
+  autoFocus?: boolean;
+  placeholder?: string;
+}) {
   return (
     <div className="searchbar">
       <Icon name="search" />
       <input
         className="search-input"
-        placeholder="Поиск"
+        placeholder={placeholder}
         value={value}
+        autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
       />
       {value ? (

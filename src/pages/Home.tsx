@@ -80,6 +80,15 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     <div className="page">
       <header className="topbar">
         <h1>Главная</h1>
+        <div className="topbar-actions">
+          <Button
+            variant="soft"
+            icon="search"
+            aria-label="Поиск по всему"
+            title="Поиск по всему"
+            onClick={() => navigate('/search')}
+          />
+        </div>
       </header>
       <div className="page-body">
         <div className="filters">
@@ -92,7 +101,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           </Button>
           <MonthPicker value={month} onChange={setMonth} />
         </div>
-        <SearchBar value={search} onChange={setSearch} />
+        <SearchBar value={search} onChange={setSearch} placeholder="Фильтр по поездкам" />
 
         {sync.configured && sync.signedIn ? (
           <div className={`sync-bar ${sync.pending > 0 ? '' : 'ok'}`}>

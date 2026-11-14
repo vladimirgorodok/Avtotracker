@@ -39,12 +39,17 @@ export default function Refs() {
   const [pictureRequest, setPictureRequest] = useState<PictureRequest | null>(null);
 
   useEffect(() => {
-    if (params.get('new') === '1') {
-      setEditor({ kind: tab, id: null });
-      const next = new URLSearchParams(params);
-      next.delete('new');
-      setParams(next, { replace: true });
-    }
+    const wantNew = params.get('new') === '1';
+    const openId = params.get('id');
+    if (!wantNew && !openId) return;
+    // Раздел тоже берём из адреса: сюда приходят из поиска по всему
+    const kind = (params.get('tab') as Tab) || tab;
+    if (kind !== tab) setTab(kind);
+    setEditor({ kind, id: wantNew ? null : openId });
+    const next = new URLSearchParams(params);
+    next.delete('new');
+    next.delete('id');
+    setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 

@@ -23,6 +23,7 @@ import SettingsPage from './pages/Settings';
 import Assistant from './pages/Assistant';
 import OrderFromFiles from './pages/OrderFromFiles';
 import PictureFinder from './pages/PictureFinder';
+import Search from './pages/Search';
 import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
@@ -281,6 +282,7 @@ export default function App() {
               <Route path="/data" element={<DataPage />} />
               <Route path="/data/smart" element={<SmartImport />} />
               <Route path="/more" element={<MorePage />} />
+              <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />
