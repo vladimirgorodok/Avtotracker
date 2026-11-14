@@ -7,7 +7,7 @@ import {
   Empty,
   Icon,
   MonthPicker,
-  SearchBar,
+  SearchEntry,
   StatCard,
 } from '../ui/components';
 import { useApp } from '../store';
@@ -24,7 +24,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const revision = useApp((s) => s.revision);
   const settings = useApp((s) => s.settings);
   const [month, setMonth] = useState<string>(() => monthKey(new Date().toISOString()));
-  const [search, setSearch] = useState('');
   const [syncing, setSyncing] = useState(false);
   const sync = useMemo(() => syncState(), [revision]);
   const touch = useApp((s) => s.touch);
@@ -41,23 +40,16 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
 
     const trips = sortTrips(tripRepo.all().map(summarizeTrip));
     const current = trips.find((t) => !t.completed && t.nextPoint) ?? null;
-    const needle = search.trim().toLowerCase();
     const filtered = trips.filter((t) => {
-      if (month) {
-        const wb = waybillRepo.get(t.trip.waybill_id);
-        const key = monthKey(wb?.date_out ?? t.trip.created_at);
-        if (key !== month) return false;
-      }
-      if (!needle) return true;
-      return (
-        t.title.toLowerCase().includes(needle) ||
-        (refs.cargoType(t.trip.cargo_type_id)?.name ?? '').toLowerCase().includes(needle)
-      );
+      if (!month) return true;
+      const wb = waybillRepo.get(t.trip.waybill_id);
+      const key = monthKey(wb?.date_out ?? t.trip.created_at);
+      return key === month;
     });
 
     return { openWaybill, lastWaybill, openSummary, charged, paid, trips: filtered, current };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision, month, search]);
+  }, [revision, month]);
 
   /** Закрыть точку «сегодня»; после последней точки открываем карточку поездки для начисления. */
   function completePoint(point: TripPoint, tripId: string) {
@@ -80,15 +72,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     <div className="page">
       <header className="topbar">
         <h1>Главная</h1>
-        <div className="topbar-actions">
-          <Button
-            variant="soft"
-            icon="search"
-            aria-label="Поиск по всему"
-            title="Поиск по всему"
-            onClick={() => navigate('/search')}
-          />
-        </div>
       </header>
       <div className="page-body">
         <div className="filters">
@@ -101,7 +84,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           </Button>
           <MonthPicker value={month} onChange={setMonth} />
         </div>
-        <SearchBar value={search} onChange={setSearch} placeholder="Фильтр по поездкам" />
+        <SearchEntry text="Поиск по всему: листы, поездки, справочники" onClick={() => navigate('/search')} />
 
         {sync.configured && sync.signedIn ? (
           <div className={`sync-bar ${sync.pending > 0 ? '' : 'ok'}`}>

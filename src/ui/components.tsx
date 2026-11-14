@@ -464,6 +464,20 @@ export function SearchBar({
   );
 }
 
+/**
+ * Поле-приглашение: выглядит как строка поиска, а открывает отдельный экран
+ * поиска по всей базе — так на «Главной» сразу понятно, что искать можно везде.
+ */
+export function SearchEntry({ text, onClick }: { text: string; onClick: () => void }) {
+  return (
+    <button type="button" className="searchbar search-entry" onClick={onClick}>
+      <Icon name="search" />
+      <span className="search-input search-entry-text">{text}</span>
+      <Icon name="nav" size={16} />
+    </button>
+  );
+}
+
 export function MonthPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   // Список строится по данным базы: пустые годы и месяцы не показываем
   const options = useMemo(() => monthChoices(safeUsedMonths(), value), [value]);

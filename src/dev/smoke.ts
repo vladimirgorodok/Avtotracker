@@ -2020,6 +2020,19 @@ async function main() {
     );
     check('экран поиска собирается', html.includes('Поиск по всему'));
     check('подсказка, что можно искать', html.includes('Начните вводить'));
+
+    const homeMod = await import('../pages/Home');
+    const homeHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/'] },
+        createElement(homeMod.default as never, { onCreate: () => {} } as never),
+      ) as never,
+    );
+    check(
+      'на «Главной» поле поиска открывает общий поиск',
+      homeHtml.includes('search-entry') && homeHtml.includes('Поиск по всему'),
+    );
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
