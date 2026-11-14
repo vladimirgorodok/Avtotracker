@@ -36,6 +36,14 @@ function fileStamp(): string {
   return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 }
 
+/** Карточка записи: куда вести, если картинку поставили файлом с этого экрана */
+function cardPath(kind: PictureKind, id: string): string {
+  if (kind === 'vehicle') return `/vehicles/${id}`;
+  if (kind === 'cargo') return `/refs?tab=cargo&id=${id}`;
+  if (kind === 'station') return `/refs?tab=stations&id=${id}`;
+  return `/refs?tab=companies&id=${id}`;
+}
+
 export default function PictureFinder() {
   const navigate = useNavigate();
   const notify = useApp((s) => s.notify);
@@ -66,7 +74,7 @@ export default function PictureFinder() {
   const target = targets.find((t) => t.id === targetId) ?? null;
   const searchName = target ? target.name : '';
 
-  function apply(value: string, hit: PictureHit) {
+  function apply(value: string, hit: PictureHit | null) {
     if (!target) {
       const parsed = dataUrlToBytes(value);
       if (!parsed) {
@@ -79,10 +87,13 @@ export default function PictureFinder() {
         .catch(() => notify('Не удалось сохранить картинку', 'err'));
       return;
     }
-    updateRow(TARGETS[kind].table, target.id, { [TARGETS[kind].field]: value });
+    const id = target.id;
+    updateRow(TARGETS[kind].table, id, { [TARGETS[kind].field]: value });
     touch();
-    notify(`Картинка поставлена: ${target.name} (${hit.source})`, 'ok');
+    notify(`Картинка поставлена: ${target.name} (${hit ? hit.source : 'своя из файла'})`, 'ok');
     setTargetId(null);
+    // Свою картинку ставим из карточки записи — там её сразу видно и можно поправить
+    if (!hit) navigate(cardPath(kind, id));
   }
 
   return (
@@ -169,7 +180,9 @@ export default function PictureFinder() {
           фирменные логотипы), Викисклад — настоящие логотипы и фотографии, а при известном адресе фирмы —
           значки её сайта. ИИ-помощник, если он настроен, готовит варианты названия: убирает и добавляет
           «ООО», «АО» и подобные формы, пишет название латиницей и подсказывает адрес сайта. Без ключа
-          поиск тоже работает — по названию как есть.
+          поиск тоже работает — по названию как есть. Если ничего не подошло, кнопка «Из файла» поставит
+          вашу картинку: на этом экране она сразу уйдёт в запись и откроется её карточка, а в карточке
+          справочника встанет в поле логотипа и сохранится вместе с записью.
         </div>
       </Card>
     </Page>

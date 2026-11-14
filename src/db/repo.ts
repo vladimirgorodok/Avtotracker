@@ -244,7 +244,7 @@ export const refs = {
 };
 
 export const waybillRepo = {
-  list: () => listAll<Waybill>('waybills', 'date_out DESC'),
+  list: () => listAll<Waybill>('waybills', 'date_out DESC, created_at DESC'),
   get: (id: Id) => findById<Waybill>('waybills', id),
   open: () => listWhere<Waybill>('waybills', "status = 'open'", [], 'date_out DESC'),
   lastClosed: (vehicleId?: Id | null) => {
@@ -261,7 +261,8 @@ export const waybillRepo = {
 };
 
 export const tripRepo = {
-  byWaybill: (waybillId: Id) => listWhere<Trip>('trips', 'waybill_id = ?', [waybillId], 'created_at'),
+  byWaybill: (waybillId: Id) =>
+    listWhere<Trip>('trips', 'waybill_id = ?', [waybillId], 'created_at DESC'),
   get: (id: Id) => findById<Trip>('trips', id),
   all: () => listAll<Trip>('trips', 'created_at DESC'),
   points: (tripId: Id) =>
@@ -279,18 +280,19 @@ export const tripRepo = {
 };
 
 export const refuelRepo = {
-  list: () => listAll<Refueling>('refuelings', 'date DESC'),
+  list: () => listAll<Refueling>('refuelings', 'date DESC, created_at DESC'),
   byWaybill: (waybillId: Id) =>
-    listWhere<Refueling>('refuelings', 'waybill_id = ?', [waybillId], 'date'),
+    listWhere<Refueling>('refuelings', 'waybill_id = ?', [waybillId], 'date DESC, created_at DESC'),
   get: (id: Id) => findById<Refueling>('refuelings', id),
 };
 
 export const financeRepo = {
-  list: () => listAll<FinanceOp>('finance_ops', 'date DESC'),
+  list: () => listAll<FinanceOp>('finance_ops', 'date DESC, created_at DESC'),
   byMonth: (month: string) =>
-    listWhere<FinanceOp>('finance_ops', 'pay_month = ?', [month], 'date'),
+    listWhere<FinanceOp>('finance_ops', 'pay_month = ?', [month], 'date DESC, created_at DESC'),
   get: (id: Id) => findById<FinanceOp>('finance_ops', id),
-  byTrip: (tripId: Id) => listWhere<FinanceOp>('finance_ops', 'trip_id = ?', [tripId], 'date'),
+  byTrip: (tripId: Id) =>
+    listWhere<FinanceOp>('finance_ops', 'trip_id = ?', [tripId], 'date DESC, created_at DESC'),
 };
 
 export const vehicleRepo = {

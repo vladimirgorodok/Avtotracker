@@ -44,7 +44,8 @@ export function PictureSearch({
   showKind?: boolean;
   /** Нынешняя картинка записи — показываем её, чтобы видеть, что меняем */
   current?: string;
-  onPick: (value: string, hit: PictureHit) => void;
+  /** Картинка выбрана: найденная в интернете или своя из файла (тогда hit — null) */
+  onPick: (value: string, hit: PictureHit | null) => void;
 }) {
   const notify = useApp((s) => s.notify);
   const [name, setName] = useState(initialName);
@@ -59,6 +60,7 @@ export function PictureSearch({
   const [broken, setBroken] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function run() {
     const text = name.trim();
@@ -102,6 +104,13 @@ export function PictureSearch({
     } finally {
       setSavingId(null);
     }
+  }
+
+  /** Своя картинка из файла: ставим её так же, как найденную */
+  function pickFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => onPick(String(reader.result), null);
+    reader.readAsDataURL(file);
   }
 
   const stage = progress ? stepIndex(progress.stage) : 0;
@@ -231,6 +240,24 @@ export function PictureSearch({
       {searched && !busy && hits.length === 0 ? (
         <Empty text="Ничего не нашлось. Попробуйте другое название или выберите «Груз» / «Место» — для них наборы значков больше." />
       ) : null}
+
+      <div className="row wrap">
+        <Button icon="upload" onClick={() => fileRef.current?.click()}>
+          Из файла
+        </Button>
+        <span className="small muted">своя картинка вместо найденной</span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) pickFile(f);
+            e.target.value = '';
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -250,7 +277,8 @@ export function PicturePicker({
   current?: string;
   title?: string;
   onClose: () => void;
-  onPick: (value: string, hit: PictureHit) => void;
+  /** Картинка выбрана: найденная или своя из файла (тогда hit — null) */
+  onPick: (value: string, hit: PictureHit | null) => void;
 }) {
   return (
     <Modal open title={title} onClose={onClose}>

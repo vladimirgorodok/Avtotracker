@@ -2035,6 +2035,176 @@ async function main() {
     );
   }
 
+  console.log('\n27. Порядок списков: свежие записи вверху');
+  {
+    // Финансы: раньше список за месяц шёл от старых к новым — это и было замечено
+    const janOld = repo.insertRow('finance_ops', {
+      date: '2026-01-05T10:00:00.000Z',
+      kind: 'charge',
+      amount: 100,
+      pay_month: '2026-01',
+      trip_id: null,
+      waybill_id: null,
+      note: 'Старая',
+      auto: 0,
+    });
+    const janNew = repo.insertRow('finance_ops', {
+      date: '2026-01-20T10:00:00.000Z',
+      kind: 'charge',
+      amount: 200,
+      pay_month: '2026-01',
+      trip_id: null,
+      waybill_id: null,
+      note: 'Новая',
+      auto: 0,
+    });
+    const jan = repo.financeRepo.byMonth('2026-01');
+    eq('финансы за месяц: свежая запись первая', jan[0]?.id, janNew);
+    eq('финансы за месяц: старая запись последняя', jan[jan.length - 1]?.id, janOld);
+    const allOps = repo.financeRepo.list();
+    check(
+      'финансы: свежая операция выше старой',
+      allOps.findIndex((o) => o.id === janNew) < allOps.findIndex((o) => o.id === janOld),
+    );
+
+    // Записи одного дня: сверху та, что заведена позже
+    const sameFirst = repo.insertRow('finance_ops', {
+      date: '2026-02-01T10:00:00.000Z',
+      kind: 'charge',
+      amount: 1,
+      pay_month: '2026-02',
+      trip_id: null,
+      waybill_id: null,
+      note: 'Первая за день',
+      auto: 0,
+    });
+    const sameSecond = repo.insertRow('finance_ops', {
+      date: '2026-02-01T10:00:00.000Z',
+      kind: 'charge',
+      amount: 2,
+      pay_month: '2026-02',
+      trip_id: null,
+      waybill_id: null,
+      note: 'Вторая за день',
+      auto: 0,
+    });
+    repo.updateRow('finance_ops', sameFirst, { created_at: '2026-02-01T10:00:00.000Z' });
+    repo.updateRow('finance_ops', sameSecond, { created_at: '2026-02-01T11:00:00.000Z' });
+    eq('в один день сверху запись, заведённая позже', repo.financeRepo.byMonth('2026-02')[0]?.id, sameSecond);
+
+    // Заправки
+    const refuelNew = repo.insertRow('refuelings', {
+      waybill_id: waybillId,
+      date: '2026-03-10T08:00:00.000Z',
+      volume: 111,
+      kind: 'barrel',
+      station_id: null,
+      note: 'Свежая',
+    });
+    const refuelOld = repo.insertRow('refuelings', {
+      waybill_id: waybillId,
+      date: '2026-03-01T08:00:00.000Z',
+      volume: 222,
+      kind: 'barrel',
+      station_id: null,
+      note: 'Старая',
+    });
+    const refuels = repo.refuelRepo.list();
+    check(
+      'заправки: свежая выше старой',
+      refuels.findIndex((r) => r.id === refuelNew) < refuels.findIndex((r) => r.id === refuelOld),
+    );
+
+    // Путевые листы
+    const wbOld = repo.insertRow('waybills', {
+      number: '',
+      name: 'Старый лист',
+      date_out: '2026-01-02',
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'closed',
+      note: '',
+    });
+    const wbNew = repo.insertRow('waybills', {
+      number: '',
+      name: 'Новый лист',
+      date_out: '2026-01-30',
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'closed',
+      note: '',
+    });
+    const waybills = repo.waybillRepo.list();
+    check(
+      'путевые листы: свежий выше старого',
+      waybills.findIndex((w) => w.id === wbNew) < waybills.findIndex((w) => w.id === wbOld),
+    );
+
+    // Поездки внутри листа
+    const tripOld = repo.insertRow('trips', {
+      waybill_id: waybillId,
+      cargo_type_id: null,
+      weight: null,
+      amount: 0,
+      note: 'Старая',
+      status: 'planned',
+    });
+    repo.updateRow('trips', tripOld, { created_at: '2026-01-01T10:00:00.000Z' });
+    const tripNew = repo.insertRow('trips', {
+      waybill_id: waybillId,
+      cargo_type_id: null,
+      weight: null,
+      amount: 0,
+      note: 'Свежая',
+      status: 'planned',
+    });
+    repo.updateRow('trips', tripNew, { created_at: '2026-01-02T10:00:00.000Z' });
+    const wbTrips = repo.tripRepo.byWaybill(waybillId);
+    check(
+      'поездки листа: свежая выше старой',
+      wbTrips.findIndex((t) => t.id === tripNew) < wbTrips.findIndex((t) => t.id === tripOld),
+    );
+
+    // Документы карточки
+    const docOld = repo.insertRow('attachments', {
+      owner_table: 'waybills',
+      owner_id: waybillId,
+      title: 'Старый файл',
+      mime: 'image/jpeg',
+      path: 'a.jpg',
+      thumb_path: 'a.thumb.jpg',
+      size: 10,
+    });
+    repo.updateRow('attachments', docOld, { created_at: '2026-01-01T10:00:00.000Z' });
+    const docNew = repo.insertRow('attachments', {
+      owner_table: 'waybills',
+      owner_id: waybillId,
+      title: 'Свежий файл',
+      mime: 'image/jpeg',
+      path: 'b.jpg',
+      thumb_path: 'b.thumb.jpg',
+      size: 20,
+    });
+    repo.updateRow('attachments', docNew, { created_at: '2026-01-02T10:00:00.000Z' });
+    const docsList = listDocs('waybills', waybillId);
+    check(
+      'документы: свежий файл выше старого',
+      docsList.findIndex((d) => d.id === docNew) < docsList.findIndex((d) => d.id === docOld),
+    );
+
+    // Своя картинка файлом — кнопка рядом с результатами поиска
+    const { PictureSearch } = await import('../ui/PictureSearch');
+    const psHtml = renderToString(
+      createElement(
+        PictureSearch as never,
+        { initialName: 'Ромашка', showKind: false, onPick: () => {} } as never,
+      ) as never,
+    );
+    check('в подборе картинки есть кнопка «Из файла»', psHtml.includes('Из файла'));
+    check('под кнопкой скрытое поле выбора файла', psHtml.includes('type="file"'));
+    check('подписано, что это своя картинка', psHtml.includes('своя картинка вместо найденной'));
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

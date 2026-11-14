@@ -527,8 +527,14 @@ export async function buildWaybillPdf(waybillId: string, settings: AppSettings):
     ],
   });
 
+  // В печатном листе перевозки идут по порядку, как их завели за смену,
+  // а в списках на экране свежие — сверху
+  const tripsAsc = [...s.trips].sort((a, b) =>
+    (a.trip.created_at ?? '').localeCompare(b.trip.created_at ?? ''),
+  );
+
   const tripRows: string[][] = [];
-  for (const t of s.trips) {
+  for (const t of tripsAsc) {
     tripRows.push([
       t.title,
       String(t.pointsCount),
@@ -548,7 +554,7 @@ export async function buildWaybillPdf(waybillId: string, settings: AppSettings):
   });
 
   const pointRows: string[][] = [];
-  for (const t of s.trips) {
+  for (const t of tripsAsc) {
     t.points.forEach((p, idx) => {
       const place = refs.place(p.place_id);
       const company = refs.company(place?.company_id ?? null);

@@ -25,7 +25,7 @@ export interface DocumentRow {
 export function listDocuments(ownerTable: string, ownerId: string): DocumentRow[] {
   return dbSync().all<DocumentRow>(
     `SELECT * FROM attachments WHERE deleted = 0 AND owner_table = ? AND owner_id = ?
-     ORDER BY created_at ASC`,
+     ORDER BY created_at DESC`,
     [ownerTable, ownerId],
   );
 }
