@@ -2242,6 +2242,333 @@ async function main() {
     check('подписано, что это своя картинка', psHtml.includes('своя картинка вместо найденной'));
   }
 
+  console.log('\n28. Яндекс Диск: данные отдельно, значки отдельно');
+  {
+    const webdav = await import('../lib/webdav');
+    const disk = await import('../lib/yadisk');
+    const { buildCloudData } = await import('../lib/backup');
+    const { putBlob, getBlob, deleteBlob } = await import('../lib/files');
+
+    // --- разбор ответов WebDAV
+    const xml = [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<d:multistatus xmlns:d="DAV:">',
+      '<d:response><d:href>/avtobaza/</d:href><d:propstat><d:prop>',
+      '<d:displayname>avtobaza</d:displayname>',
+      '<d:resourcetype><d:collection/></d:resourcetype>',
+      '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>',
+      '<d:response><d:href>/avtobaza/%D0%A4%D0%B8%D1%80%D0%BC%D0%B0%20%D0%A0%D0%BE%D0%BC%D0%B0%D1%88%D0%BA%D0%B0.json</d:href>',
+      '<d:propstat><d:prop>',
+      '<d:displayname>Фирма Ромашка.json</d:displayname>',
+      '<d:resourcetype/>',
+      '<d:getcontentlength>1234</d:getcontentlength>',
+      '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>',
+      '</d:multistatus>',
+    ].join('');
+    const entries = webdav.parseMultiStatus(xml);
+    eq('в ответе Диска два элемента', entries.length, 2);
+    eq('папка распознана', entries[0]?.isDirectory, true);
+    eq('файл распознан', entries[1]?.isDirectory, false);
+    eq('размер файла прочитан', entries[1]?.size, 1234);
+    eq('кириллица в имени раскодирована', entries[1]?.name, 'Фирма Ромашка.json');
+    eq('путь без имени хоста', entries[1]?.path, '/avtobaza/Фирма Ромашка.json');
+    eq('путь приводится к одному виду', webdav.normalizePath('//avtobaza///'), '/avtobaza');
+    eq(
+      'кириллица в адресе кодируется',
+      webdav.encodePath('/avtobaza/фирма.json'),
+      '/avtobaza/%D1%84%D0%B8%D1%80%D0%BC%D0%B0.json',
+    );
+    eq(
+      'свободное место прочитано',
+      webdav.parseQuota('<d:quota-available-bytes>10737418240</d:quota-available-bytes>'),
+      10737418240,
+    );
+    eq('размер понятен человеку', webdav.humanSize(5 * 1024 * 1024), '5 МБ');
+    eq(
+      'логин с кириллицей не ломает заголовок',
+      webdav.utf8ToBase64('иван:пароль'),
+      Buffer.from('иван:пароль', 'utf8').toString('base64'),
+    );
+    eq('base64 обратно в байты', Array.from(webdav.base64ToBytes('AAAA')).join(','), '0,0,0');
+
+    // --- настройки подключения
+    const store = useApp.getState();
+    store.saveSetting('yadisk_login', 'ivan@yandex.ru');
+    store.saveSetting('yadisk_password', 'parol-prilozheniya');
+    store.saveSetting('yadisk_folder', '/avtobaza');
+    store.saveSetting('yadisk_keep', 2);
+    store.saveSetting('yadisk_auto', 0);
+    check('подключение считается настроенным', disk.cloudConfigured());
+    eq('папка обмена', disk.folderPath(), '/avtobaza');
+    const nameAt = new Date(2026, 10, 17, 18, 30, 5);
+    eq('имя файла данных', disk.dataFileName(nameAt), 'avtobaza-2026-11-17_183005.json');
+    eq('имя архива значков', disk.iconsFileName(nameAt), 'avtobaza-icons-2026-11-17_183005.zip');
+
+    // --- файл данных: картинки в него не попадают
+    const picCompany = repo.insertRow('companies', {
+      name: 'Фирма с логотипом',
+      logo: 'data:image/png;base64,AAAA',
+      note: '',
+    });
+    repo.updateRow('companies', company, { logo: 'data:image/png;base64,BBBB' });
+    const cloudPayload = JSON.parse(buildCloudData()) as {
+      kind: string;
+      tables: Record<string, Record<string, unknown>[]>;
+    };
+    eq('вид файла — облачные данные', cloudPayload.kind, 'cloud-data');
+    const cloudCompanies = cloudPayload.tables.companies ?? [];
+    check('данные в файле есть', cloudCompanies.length >= 2);
+    eq(
+      'картинка в файл данных не попала',
+      String(cloudCompanies.find((c) => c.id === company)?.logo ?? ''),
+      '',
+    );
+    check(
+      'настройки в файл данных попали',
+      (cloudPayload as unknown as { settings: { key: string }[] }).settings.some(
+        (s) => s.key === 'yadisk_folder',
+      ),
+    );
+    repo.updateRow('companies', picCompany, { logo: 'https://example.com/logo.png' });
+    const withLink = JSON.parse(buildCloudData()) as {
+      tables: Record<string, Record<string, unknown>[]>;
+    };
+    eq(
+      'короткая ссылка на логотип остаётся в данных',
+      String((withLink.tables.companies ?? []).find((c) => c.id === picCompany)?.logo ?? ''),
+      'https://example.com/logo.png',
+    );
+
+    // --- архив значков: картинки и документы
+    await putBlob('doc-28.jpg', new Uint8Array([1, 2, 3, 4]));
+    const docId = repo.insertRow('attachments', {
+      owner_table: 'companies',
+      owner_id: company,
+      title: 'Накладная',
+      mime: 'image/jpeg',
+      path: 'doc-28.jpg',
+      thumb_path: '',
+      size: 4,
+    });
+    const built = await disk.buildIconsArchive();
+    check('архив значков собран', built !== null && built.bytes.length > 0);
+    const archive = built?.bytes ?? new Uint8Array();
+    const parsed = await disk.readIconsArchive(archive);
+    check(
+      'в описи архива есть картинка фирмы',
+      parsed.manifest.pictures.some((p) => p.table === 'companies' && p.name === 'Тестовая фирма'),
+    );
+    check('в описи архива есть документ', parsed.manifest.documents.some((d) => d.id === docId));
+    const rebuilt = await disk.buildIconsArchive();
+    eq('отпечаток содержимого архива устойчив', rebuilt?.fingerprint, built?.fingerprint);
+    const stats = disk.localPictureStats();
+    check('картинки посчитаны', stats.pictures >= 1, `(${stats.pictures})`);
+    check('видно, что у части записей значка нет', disk.hasMissingPictures());
+
+    // --- картинки раскладываются по записям по названию
+    dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
+    await deleteBlob('doc-28.jpg');
+    const restored = await disk.restoreIcons(archive);
+    check(
+      'картинка вернулась в свою запись',
+      String(dbSync().one<{ logo: string }>('SELECT logo FROM companies WHERE id = ?', [company])?.logo ?? '').startsWith(
+        'data:image/png',
+      ),
+    );
+    eq('документ восстановлен', restored.documents, 1);
+    eq('файл документа снова на месте', (await getBlob('doc-28.jpg'))?.length, 4);
+    eq('записей без пары нет', restored.missing, 0);
+    const again = await disk.restoreIcons(archive);
+    eq('подобранные картинки повторно не затираются', again.pictures, 0);
+
+    // --- полный обмен через подставной Яндекс Диск
+    const files = new Map<string, Uint8Array>();
+    const dirs = new Set<string>();
+    const entryXml = (p: string, isDir: boolean, size: number): string => {
+      const name = p.slice(p.lastIndexOf('/') + 1) || 'Диск';
+      return (
+        `<d:response><d:href>${encodeURI(p)}</d:href><d:propstat><d:prop>` +
+        `<d:displayname>${name}</d:displayname>` +
+        (isDir ? '<d:resourcetype><d:collection/></d:resourcetype>' : '<d:resourcetype/>') +
+        `<d:getcontentlength>${size}</d:getcontentlength>` +
+        '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
+      );
+    };
+    const originalFetch28 = globalThis.fetch;
+    const fakeDisk = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = String(init?.method ?? 'GET').toUpperCase();
+      const path = decodeURIComponent(url.replace(webdav.YADISK_HOST, '')) || '/';
+      if (method === 'PROPFIND') {
+        const children = [...dirs, ...files.keys()].filter(
+          (p) => p !== path && p.startsWith(path === '/' ? '/' : `${path}/`) &&
+            !p.slice(path === '/' ? 1 : path.length + 1).includes('/'),
+        );
+        const body =
+          '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">' +
+          '<d:response><d:href>/</d:href><d:propstat><d:prop>' +
+          '<d:quota-available-bytes>1073741824</d:quota-available-bytes>' +
+          '</d:prop></d:propstat></d:response>' +
+          (path !== '/' ? entryXml(path, true, 0) : '') +
+          children.map((p) => entryXml(p, dirs.has(p), files.get(p)?.length ?? 0)).join('') +
+          '</d:multistatus>';
+        return new Response(body, { status: 207, headers: { 'Content-Type': 'application/xml' } });
+      }
+      if (method === 'MKCOL') {
+        if (dirs.has(path)) return new Response(null, { status: 405 });
+        dirs.add(path);
+        return new Response(null, { status: 201 });
+      }
+      if (method === 'PUT') {
+        const raw = init?.body;
+        files.set(
+          path,
+          typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw as ArrayBuffer),
+        );
+        return new Response(null, { status: 201 });
+      }
+      if (method === 'DELETE') {
+        files.delete(path);
+        return new Response(null, { status: 204 });
+      }
+      const data = files.get(path);
+      if (!data) return new Response(null, { status: 404 });
+      return new Response(data.slice().buffer as ArrayBuffer, { status: 200 });
+    }) as unknown as typeof fetch;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fakeDisk;
+
+    try {
+      const report = await disk.checkDisk('ivan@yandex.ru', 'parol-prilozheniya', '/avtobaza/vnyat');
+      check('проверка подключения сообщает о свободном месте', report.includes('Свободно'));
+      check('папка обмена создана вместе с родительской', dirs.has('/avtobaza/vnyat'));
+
+      files.set('/avtobaza/avtobaza-2020-01-01_000000.json', new TextEncoder().encode('{}'));
+      files.set('/avtobaza/avtobaza-2020-01-02_000000.json', new TextEncoder().encode('{}'));
+      files.set('/avtobaza/avtobaza-2020-01-03_000000.json', new TextEncoder().encode('{}'));
+      const push = await disk.pushToDisk();
+      check('файл данных выгружен', files.has(`/avtobaza/${push.dataName}`), push.dataName);
+      check(
+        'архив значков выгружен',
+        push.iconsName !== null && files.has(`/avtobaza/${push.iconsName}`),
+      );
+      eq('после выгрузки изменений нет', disk.cloudState().dirty, false);
+      eq(
+        'старые копии удалены, свежие остались',
+        [...files.keys()].filter((p) => p.endsWith('.json')).sort().join(','),
+        `/avtobaza/avtobaza-2020-01-03_000000.json,/avtobaza/${push.dataName}`,
+      );
+      const uploaded = new TextDecoder().decode(files.get(`/avtobaza/${push.dataName}`)!);
+      check('в облаке лёгкий файл без картинок', !uploaded.includes('data:image'));
+
+      // Значки не менялись — второй раз архив не гоняем (он бывает тяжёлым)
+      const zipCount = () => [...files.keys()].filter((p) => p.endsWith('.zip')).length;
+      const before = zipCount();
+      const pushAgain = await disk.pushToDisk();
+      eq('неизменённый архив значков повторно не выгружается', pushAgain.iconsName, null);
+      eq('архивов значков в облаке столько же', zipCount(), before);
+      repo.updateRow('companies', company, { logo: 'data:image/png;base64,CCCC' });
+      const pushChanged = await disk.pushToDisk();
+      check('изменённые значки выгружаются заново', pushChanged.iconsName !== null);
+      check('изменённый архив лёг в облако', files.has(`/avtobaza/${pushChanged.iconsName}`));
+
+      // Другое устройство: данных нет, картинок нет — всё приходит из облака
+      dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
+      await deleteBlob('doc-28.jpg');
+      const pull = await disk.pullFromDisk(false);
+      eq('имя загруженного файла', pull.dataName, pushChanged.dataName);
+      check('записи из облака обновились', pull.inserted + pull.updated > 0);
+      check(
+        'картинка подтянулась из архива',
+        String(dbSync().one<{ logo: string }>('SELECT logo FROM companies WHERE id = ?', [company])?.logo ?? '').startsWith(
+          'data:image/png',
+        ),
+      );
+      eq('документ подтянулся вместе с данными', (await getBlob('doc-28.jpg'))?.length, 4);
+      eq('после загрузки изменений нет', disk.cloudState().dirty, false);
+
+      // Значки отдельно от данных
+      dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
+      const iconFiles = await disk.listIconsFiles();
+      check('архивы значков видны отдельно', iconFiles.length >= 1);
+      const iconsOnly = await disk.restoreIconsFromDisk();
+      eq('значки подтянулись отдельной кнопкой', iconsOnly.pictures, 1);
+      const upIcons = await disk.pushIconsOnly();
+      check('значки выгружаются отдельной кнопкой', upIcons !== null && files.has(`/avtobaza/${upIcons}`));
+
+      // Ошибка доступа объясняется понятными словами
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
+        new Response(null, { status: 401 })) as unknown as typeof fetch;
+      let denied = '';
+      try {
+        await disk.pushToDisk();
+      } catch (e) {
+        denied = e instanceof Error ? e.message : String(e);
+      }
+      check('про неверный пароль сказано понятно', denied.includes('не принял логин или пароль'), denied);
+    } finally {
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch28;
+    }
+
+    // --- экраны
+    const ydMod = await import('../pages/YandexDisk');
+    const ydHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/yadisk'] },
+        createElement(ydMod.default as never),
+      ) as never,
+    );
+    check('объяснено, что данные и значки лежат отдельно', ydHtml.includes('хранятся в облаке отдельно'));
+    check('подписано поле пароля приложения', ydHtml.includes('Пароль приложения'));
+    check(
+      'в инструкции есть ссылка на пароли приложений',
+      ydHtml.includes('id.yandex.ru/security/app-passwords'),
+    );
+    check('про тип пароля сказано', ydHtml.includes('WebDAV-клиент для Яндекс Диска'));
+    check('есть выгрузка данных', ydHtml.includes('Выгрузить данные'));
+    check('есть загрузка данных', ydHtml.includes('Загрузить данные из облака'));
+    check('есть выгрузка значков', ydHtml.includes('Выгрузить значки'));
+    check('есть подтягивание значков', ydHtml.includes('Подтянуть значки из облака'));
+
+    const settingsHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/settings'] },
+        createElement((await import('../pages/Settings')).default as never),
+      ) as never,
+    );
+    check('в настройках есть вход в Яндекс Диск', settingsHtml.includes('Настроить Яндекс Диск'));
+
+    // --- родная часть для Android: без неё методы WebDAV на телефоне не отправить
+    const { readFileSync } = await import('node:fs');
+    const pluginJava = readFileSync(
+      'android/app/src/main/java/ru/avtobaza/app/WebDavPlugin.java',
+      'utf8',
+    );
+    check(
+      'родной обработчик назван так, как его зовёт приложение',
+      pluginJava.includes('@CapacitorPlugin(name = "WebDav")'),
+    );
+    check(
+      'родной обработчик отправляет любые методы (OkHttp)',
+      pluginJava.includes('okhttp3') && pluginJava.includes('builder.method(method, body)'),
+    );
+    check('для PROPFIND подставляется тело запроса', pluginJava.includes('PROPFIND_BODY'));
+    check(
+      'ответ разбирается и текстом, и в base64',
+      pluginJava.includes('Base64.encodeToString') && pluginJava.includes('responseBody.string()'),
+    );
+    const activityJava = readFileSync(
+      'android/app/src/main/java/ru/avtobaza/app/MainActivity.java',
+      'utf8',
+    );
+    check('обработчик подключён к приложению', activityJava.includes('registerPlugin(WebDavPlugin.class)'));
+    const appGradle = readFileSync('android/app/build.gradle', 'utf8');
+    check('клиент OkHttp добавлен в сборку', appGradle.includes('com.squareup.okhttp3:okhttp'));
+    const nativeMod = await import('../lib/native-webdav');
+    check('в браузере родного обработчика нет', nativeMod.nativeWebDavReady() === false);
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

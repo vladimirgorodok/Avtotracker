@@ -260,6 +260,60 @@ export async function exportJson(): Promise<void> {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Облачный файл данных: без картинок                                  */
+/* ------------------------------------------------------------------ */
+
+/** Поля, в которых лежат логотипы и значки справочников */
+export const PICTURE_COLUMNS: { table: TableName; column: string; title: string }[] = [
+  { table: 'companies', column: 'logo', title: 'Фирма' },
+  { table: 'cargo_types', column: 'icon', title: 'Груз' },
+  { table: 'fuel_stations', column: 'logo', title: 'АЗС' },
+  { table: 'vehicles', column: 'logo', title: 'Автомобиль' },
+];
+
+/** Картинка хранится прямо в базе, а не ссылкой на чужой сайт */
+export function isEmbeddedPicture(value: unknown): boolean {
+  return String(value ?? '').startsWith('data:');
+}
+
+/**
+ * Файл данных для облака: то же, что полная копия, но картинки из него убраны —
+ * они уходят отдельным архивом. Так файл данных остаётся лёгким и уходит быстро,
+ * а ссылки на чужие сайты (они короткие) сохраняются.
+ */
+export function buildCloudData(): string {
+  const tables = dumpAll();
+  for (const { table, column } of PICTURE_COLUMNS) {
+    for (const row of tables[table] ?? []) {
+      if (isEmbeddedPicture(row[column])) row[column] = '';
+    }
+  }
+  const payload = {
+    app: 'avtobaza',
+    kind: 'cloud-data',
+    version: 1,
+    exported_at: nowIso(),
+    settings: allSettings().map((s) => ({ key: s.key, value: s.value })),
+    tables,
+  };
+  return JSON.stringify(payload);
+}
+
+/**
+ * Замена данных из облачной копии: на устройстве остаётся ровно то, что в файле.
+ * Файлы документов при этом не трогаем — они лежат отдельно и совпадают по путям.
+ */
+export function replaceFromJson(text: string): ImportResult {
+  const payload = JSON.parse(text) as { tables?: Record<string, unknown> };
+  if (!payload.tables) throw new Error('Файл не похож на резервную копию АвтоБазы');
+  const db = dbSync();
+  db.tx(() => {
+    for (const t of TABLES) db.run(`DELETE FROM ${t}`);
+  });
+  return importJson(text, true);
+}
+
 export interface ImportResult {
   inserted: number;
   updated: number;

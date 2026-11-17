@@ -13,4 +13,7 @@ ext {
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
+    // Клиент для запросов к Яндекс Диску по WebDAV: обычный сетевой мост Android
+    // не пускает методы PROPFIND и MKCOL
+    okhttpVersion = '4.12.0'
 }

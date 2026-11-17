@@ -204,6 +204,27 @@ export interface AppSettings {
   sync_last_at: string;
   /** Текст последней ошибки синхронизации */
   sync_last_error: string;
+  /** Яндекс Диск: логин и пароль приложения для обмена по WebDAV */
+  yadisk_login: string;
+  yadisk_password: string;
+  /** Папка синхронизации на Диске */
+  yadisk_folder: string;
+  /** Сколько копий держать в облаке */
+  yadisk_keep: number;
+  /** Автоматический обмен при изменениях (1 — включён) */
+  yadisk_auto: number;
+  /** Время последнего удачного обмена, ISO */
+  yadisk_last_at: string;
+  /** Имя последнего файла данных, с которым сверялись */
+  yadisk_last_data: string;
+  /** Имя последнего архива значков */
+  yadisk_last_icons: string;
+  /** Отпечаток содержимого архива значков: неизменный архив заново не выгружаем */
+  yadisk_icons_hash: string;
+  /** Есть изменения, которых нет в облаке (1 — есть) */
+  yadisk_dirty: number;
+  /** Текст последней ошибки обмена с Диском */
+  yadisk_last_error: string;
   last_vehicle_id: string;
   last_trailer_id: string;
 }
@@ -229,6 +250,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sync_pulled_at: '',
   sync_last_at: '',
   sync_last_error: '',
+  yadisk_login: '',
+  yadisk_password: '',
+  yadisk_folder: '/avtobaza',
+  yadisk_keep: 5,
+  yadisk_auto: 1,
+  yadisk_last_at: '',
+  yadisk_last_data: '',
+  yadisk_last_icons: '',
+  yadisk_icons_hash: '',
+  yadisk_dirty: 0,
+  yadisk_last_error: '',
   last_vehicle_id: '',
   last_trailer_id: '',
 };

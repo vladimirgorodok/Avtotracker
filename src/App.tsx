@@ -20,6 +20,7 @@ import DataPage from './pages/Data';
 import SmartImport from './pages/SmartImport';
 import MorePage from './pages/More';
 import SettingsPage from './pages/Settings';
+import YandexDisk from './pages/YandexDisk';
 import Assistant from './pages/Assistant';
 import OrderFromFiles from './pages/OrderFromFiles';
 import PictureFinder from './pages/PictureFinder';
@@ -28,6 +29,7 @@ import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
 import { autoFillForNewWaybill } from './lib/calc';
+import { startAutoSync } from './lib/yadisk-auto';
 
 function BottomNav({ onCreate }: { onCreate: () => void }) {
   const loc = useLocation();
@@ -229,6 +231,12 @@ export default function App() {
   }, [ready, splashDone, settings.theme, settings.palette]);
 
   useEffect(() => {
+    // Обмен с Яндекс Диском: следим за изменениями и сверяемся при запуске
+    if (!ready) return;
+    startAutoSync();
+  }, [ready]);
+
+  useEffect(() => {
     const onHide = () => {
       void getDb().then((db) => db.flush());
     };
@@ -284,7 +292,7 @@ export default function App() {
               <Route path="/more" element={<MorePage />} />
               <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/assistant" element={<Assistant />} />
+              <Route path="/yadisk" element={<YandexDisk />} />              <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />
               <Route path="/assistant/pictures" element={<PictureFinder />} />
             </Routes>

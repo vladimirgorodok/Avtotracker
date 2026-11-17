@@ -234,6 +234,17 @@ export default function SettingsPage() {
         <SyncPanel />
       </Card>
 
+      <Card title="Яндекс Диск" actions={<Icon name="upload" />}>
+        <div className="small muted">
+          Второй способ держать данные на всех устройствах: файлы лежат в вашем Яндекс Диске, ключи и
+          регистрация не нужны. <b>Данные</b> уходят отдельным лёгким файлом, <b>значки</b> и фотографии
+          документов — отдельным архивом. Работает с телефона, вход — по паролю приложения.
+        </div>
+        <Button icon="refresh" block onClick={() => navigate('/yadisk')}>
+          Настроить Яндекс Диск
+        </Button>
+      </Card>
+
       <Card title="Настройки в файле" actions={<Icon name="doc" />}>
         <div className="small muted">
           В файл попадает всё, что вы вводили руками: ставки, оформление, адрес и ключ ИИ-помощника,
