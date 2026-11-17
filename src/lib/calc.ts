@@ -72,8 +72,16 @@ export function summarizeTrip(trip: Trip): TripSummary {
   };
 }
 
-/** Порядок перевозок: сначала текущие (незаконченные), затем свежие по дате. */
-export function sortTrips(list: TripSummary[]): TripSummary[] {
+/**
+ * Примечание для начисления: сначала наименование поездки (погрузка → выгрузка),
+ * потом пояснение. Если мест нет — остаётся прежний текст.
+ */
+export function chargeNoteText(from: string, to: string): string {
+  const where = [from, to].filter((name) => name.trim() !== '').join(' → ');
+  return where ? `${where} — начислено за перевозку` : 'Начислено за перевозку';
+}
+
+/** Порядок перевозок: сначала текущие (незаконченные), затем свежие по дате. */export function sortTrips(list: TripSummary[]): TripSummary[] {
   return [...list].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     return b.sortKey.localeCompare(a.sortKey);

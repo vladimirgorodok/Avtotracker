@@ -295,6 +295,11 @@ async function main() {
   eq('создана одна операция начисления', charges.length, 1);
   eq('сумма начисления', charges[0].amount, 10500);
   eq('месяц оплаты', charges[0].pay_month, todayIso().slice(0, 7));
+  eq(
+    'в примечании сначала наименование поездки',
+    charges[0].note,
+    'Склад А → Склад Б — начислено за перевозку',
+  );
 
   const res2 = closeWaybill(waybillId, repo.getSettings());
   check('повторное закрытие отклонено', !res2.ok);
@@ -304,6 +309,23 @@ async function main() {
   chargeTrip(tripId, repo.getSettings(), 12000);
   eq('сумма обновлена, а не продублирована', repo.financeRepo.byTrip(tripId)[0].amount, 12000);
   eq('всего операций', repo.financeRepo.byTrip(tripId).length, 1);
+  eq(
+    'примечание при повторном начислении прежнее',
+    repo.financeRepo.byTrip(tripId)[0].note,
+    'Склад А → Склад Б — начислено за перевозку',
+  );
+
+  // Правленное руками примечание автоматическое начисление не затирает
+  repo.updateRow('finance_ops', charges[0].id, { note: 'Моё примечание', auto: 0 });
+  chargeTrip(tripId, repo.getSettings(), 13000);
+  eq('примечание, правленное руками, не затирается', repo.financeRepo.byTrip(tripId)[0].note, 'Моё примечание');
+  repo.updateRow('finance_ops', charges[0].id, { auto: 1 });
+  chargeTrip(tripId, repo.getSettings(), 12000);
+  eq(
+    'автоматическое примечание возвращается',
+    repo.financeRepo.byTrip(tripId)[0].note,
+    'Склад А → Склад Б — начислено за перевозку',
+  );
 
   console.log('\n8. Финансы за месяц');
   const month = todayIso().slice(0, 7);

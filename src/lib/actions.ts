@@ -1,7 +1,7 @@
 /** Действия над данными: закрытие листа, начисления, статусы перевозок. */
 
 import { financeRepo, insertRow, nowIso, refs, softDelete, softDeleteWhere, tripRepo, updateRow, waybillRepo } from '../db/repo';
-import { autoTripAmount } from './calc';
+import { autoTripAmount, chargeNoteText } from './calc';
 import { todayIso } from './format';
 import type { AppSettings, Id, Trip } from '../types';
 
@@ -35,8 +35,21 @@ export function chargeTrip(tripId: Id, settings: AppSettings, amountOverride?: n
   const lastUnload = points.filter((p) => p.kind === 'unload').slice(-1)[0] ?? null;
   const date = lastUnload?.fact_date ?? todayIso();
 
+  // В примечании сначала наименование поездки: погрузка → выгрузка
+  const firstLoad = points.filter((p) => p.kind === 'load')[0] ?? null;
+  const note = chargeNoteText(
+    refs.place(firstLoad?.place_id ?? null)?.name ?? '',
+    refs.place(lastUnload?.place_id ?? null)?.name ?? '',
+  );
+
   if (existing.length > 0) {
-    updateRow('finance_ops', existing[0].id, { amount, date, pay_month: date.slice(0, 7) });
+    updateRow('finance_ops', existing[0].id, {
+      amount,
+      date,
+      pay_month: date.slice(0, 7),
+      // Примечание обновляем, только если его не правили руками
+      ...(existing[0].auto ? { note } : {}),
+    });
   } else {
     insertRow('finance_ops', {
       date,
@@ -45,7 +58,7 @@ export function chargeTrip(tripId: Id, settings: AppSettings, amountOverride?: n
       pay_month: date.slice(0, 7),
       trip_id: tripId,
       waybill_id: trip.waybill_id,
-      note: 'Начислено за перевозку',
+      note,
       auto: 1,
     });
   }

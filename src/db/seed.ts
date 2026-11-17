@@ -2,6 +2,7 @@
 
 import { dbSync } from './index';
 import { countRows, insertRow, setSetting, uid } from './repo';
+import { chargeNoteText } from '../lib/calc';
 import { DEFAULT_SETTINGS, type AppSettings } from '../types';
 
 const SEED_CARGO = [
@@ -285,7 +286,7 @@ export function loadDemoData(): void {
       pay_month: daysAgo(6).slice(0, 7),
       trip_id: trip1,
       waybill_id: wb1,
-      note: 'Начислено за перевозку',
+      note: chargeNoteText('Заплюсье', 'Малое Василево'),
       auto: 1,
     });
     insertRow('finance_ops', {
@@ -296,7 +297,7 @@ export function loadDemoData(): void {
       pay_month: daysAgo(3).slice(0, 7),
       trip_id: trip2,
       waybill_id: wb1,
-      note: 'Начислено за перевозку',
+      note: chargeNoteText('Глазово', 'Малое Василево'),
       auto: 1,
     });
   });
