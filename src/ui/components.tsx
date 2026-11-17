@@ -111,6 +111,12 @@ export function TextInput(props: InputProps) {
   return <input {...props} className={`input ${props.className ?? ''}`} />;
 }
 
+type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+
+export function TextArea(props: TextAreaProps) {
+  return <textarea {...props} className={`input textarea ${props.className ?? ''}`} />;
+}
+
 export function NumberInput({
   value,
   onValue,

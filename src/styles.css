@@ -413,6 +413,12 @@ body {
   appearance: none;
 }
 
+.textarea {
+  min-height: 96px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 [data-theme='dark'] .input {
   background: #131c22;
 }

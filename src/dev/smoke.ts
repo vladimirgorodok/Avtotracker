@@ -1456,6 +1456,42 @@ async function main() {
 
     check('за раз принимается несколько файлов', ord.MAX_FILES >= 3);
 
+    // Заявку можно не прикладывать файлом, а вписать текстом прямо на экране
+    const manual = ord.textToAttachment('  15.11 погрузка Москва, склад Ромашка, кирпич 20 т  ');
+    eq('вписанный текст уходит как текстовый источник', manual.kind, 'text');
+    eq('лишние пробелы вокруг убраны', manual.data, '15.11 погрузка Москва, склад Ромашка, кирпич 20 т');
+    eq('у текста своё имя', manual.name, 'Текст заявки');
+    check('видно, что текст вписан, а не прочитан из файла', manual.manual === true);
+    eq('очень длинный текст обрезается', ord.textToAttachment('я'.repeat(ord.MAX_TEXT + 500)).data.length, ord.MAX_TEXT);
+
+    const manualParts = ord.buildOrderMessages([manual])[1]?.content as { type: string; text?: string }[];
+    check(
+      'текст заявки уходит помощнику целиком',
+      manualParts.some((p) => p.type === 'text' && (p.text ?? '').includes('кирпич 20 т')),
+    );
+    check(
+      'помощнику сказано, что это вписанный текст',
+      manualParts.some((p) => (p.text ?? '').includes('вписанная текстом')),
+    );
+    check(
+      'текст и файлы уходят вместе',
+      ord
+        .buildOrderMessages([manual, { name: 'заявка.txt', kind: 'text', data: 'ещё заявка', size: 10 }])
+        .some((m) =>
+          Array.isArray(m.content)
+            ? (m.content as { text?: string }[]).some((p) => (p.text ?? '').includes('ещё заявка'))
+            : false,
+        ),
+    );
+
+    let emptyMessage = '';
+    try {
+      await ord.extractOrder([]);
+    } catch (e) {
+      emptyMessage = e instanceof Error ? e.message : '';
+    }
+    check('без файлов и без текста разбор не начинается', emptyMessage.includes('вставьте текст заявки'));
+
     {
       const mod = await import('../pages/OrderFromFiles');
       const html = renderToString(
@@ -1477,6 +1513,7 @@ async function main() {
         html.length > 200 && html.includes('Разобрать заявку'),
       );
       check('на экране есть приглашение приложить файлы', html.includes('Сфотографировать'));
+      check('на экране есть окно для текста заявки', html.includes('Текст заявки') && html.includes('<textarea'));
     }
   }
 

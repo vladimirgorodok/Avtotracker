@@ -11,6 +11,7 @@ import {
   NumberInput,
   Page,
   Select,
+  TextArea,
   TextInput,
 } from '../ui/components';
 import { PlacePicker } from '../ui/PlacePicker';
@@ -20,6 +21,7 @@ import { addPhoto } from '../lib/documents';
 import { fmtNumber } from '../lib/format';
 import {
   MAX_FILES,
+  MAX_TEXT,
   applyDraft,
   canReadFiles,
   describeOrderResult,
@@ -28,6 +30,7 @@ import {
   linkPlaceTo,
   recheckPlace,
   syncCompanies,
+  textToAttachment,
   type AttachedFile,
   type OrderDraft,
   type OrderDraftPoint,
@@ -136,6 +139,7 @@ export default function OrderFromFiles() {
   const revision = useApp((s) => s.revision);
 
   const [picked, setPicked] = useState<Picked[]>([]);
+  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -153,6 +157,15 @@ export default function OrderFromFiles() {
   const progressRef = useRef<HTMLDivElement | null>(null);
 
   const ready = canReadFiles();
+
+  /** Текст заявки, набранный вручную: уходит помощнику вместе с файлами */
+  const manual = text.trim().length > 0;
+  const textChars = text.trim().length;
+
+  /** Всё, что уйдёт помощнику: приложенные файлы и текст с экрана */
+  function attachments(): AttachedFile[] {
+    return [...picked.map((p) => p.att), ...(manual ? [textToAttachment(text)] : [])];
+  }
 
   /** Секунды на часах, пока помощник работает */
   useEffect(() => {
@@ -235,14 +248,18 @@ export default function OrderFromFiles() {
   }
 
   async function parse() {
-    if (busy || picked.length === 0) return;
+    const files = attachments();
+    if (busy || files.length === 0) return;
     setBusy(true);
     setError('');
     setComment('');
     setSeconds(0);
-    setProgress({ stage: 'sending', text: 'Готовлю файлы к отправке' });
+    setProgress({
+      stage: 'sending',
+      text: picked.length > 0 ? 'Готовлю файлы к отправке' : 'Готовлю текст заявки',
+    });
     try {
-      const { draft: built, raw } = await extractOrder(picked.map((p) => p.att), (p) => setProgress(p));
+      const { draft: built, raw } = await extractOrder(files, (p) => setProgress(p));
       setDraft(built);
       setStale(false);
       setComment(raw.trim());
@@ -340,7 +357,16 @@ export default function OrderFromFiles() {
     <Page title="Заявка из файла" onBack={() => navigate('/assistant')}>
       <Card
         title="Файлы заявки"
-        actions={<Badge tone={ready ? 'ok' : 'warn'}>{picked.length > 0 ? `файлов: ${picked.length}` : 'пусто'}</Badge>}
+        actions={
+          <Badge tone={ready ? 'ok' : 'warn'}>
+            {[
+              picked.length > 0 ? `файлов: ${picked.length}` : '',
+              manual ? `текст: ${fmtNumber(textChars)} знаков` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'пусто'}
+          </Badge>
+        }
       >
         {progress ? (
           <div className="progress-box" ref={progressRef}>
@@ -381,7 +407,8 @@ export default function OrderFromFiles() {
         ) : null}
 
         <div className="small muted">
-          Приложите фото заявки или файл с текстом (несколько сразу). Помощник прочитает даты, груз и точки
+          Приложите фото заявки или файл с текстом (несколько сразу) — или вставьте заявку текстом прямо
+          здесь, если она пришла сообщением, письмом или по телефону. Помощник прочитает даты, груз и точки
           маршрута, сверит фирмы и места со справочником и предложит, что добавить, а что дополнить.
         </div>
 
@@ -442,7 +469,7 @@ export default function OrderFromFiles() {
         </div>
 
         {picked.length === 0 ? (
-          <Empty text="Пока ничего не приложено. Фото, скан, текст, CSV или Excel — всё подойдёт." />
+          <Empty text="Пока ничего не приложено. Фото, скан, текст, CSV или Excel — или впишите заявку текстом ниже." />
         ) : (
           <div className="list">
             {picked.map((p, i) => (
@@ -462,11 +489,34 @@ export default function OrderFromFiles() {
           </div>
         )}
 
+        <Field
+          label="Текст заявки"
+          hint="если заявка пришла сообщением, письмом или по телефону — впишите или вставьте её сюда; можно вместе с файлами"
+        >
+          <TextArea
+            value={text}
+            rows={6}
+            disabled={busy}
+            placeholder={'Например: 15.11 погрузка Москва, ул. Складская 1, ООО «Ромашка», кирпич 20 т\n16.11 выгрузка Казань, терминал «Восток», тел. +7 ...'}
+            onChange={(e) => {
+              setText(e.target.value);
+              if (draft) setStale(true);
+            }}
+          />
+        </Field>
+        {manual ? (
+          <div className="small muted">
+            Помощник возьмёт текст заявки: {fmtNumber(textChars)} знаков
+            {textChars > MAX_TEXT ? ` (первые ${fmtNumber(MAX_TEXT)})` : ''}
+            {picked.length > 0 ? ' — вместе с приложенными файлами' : ''}.
+          </div>
+        ) : null}
+
         <Button
           variant="primary"
           icon="ai"
           block
-          disabled={busy || !ready || picked.length === 0}
+          disabled={busy || !ready || (picked.length === 0 && !manual)}
           onClick={() => void parse()}
         >
           {busy ? `Работаю… ${seconds} с` : 'Разобрать заявку'}

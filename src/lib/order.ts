@@ -53,6 +53,8 @@ export interface AttachedFile {
   /** Для фото — data-ссылка, для текста — сам текст */
   data: string;
   size: number;
+  /** Текст набран или вставлен на экране, а не прочитан из файла */
+  manual?: boolean;
 }
 
 const MAX_TEXT = 20000;
@@ -99,6 +101,18 @@ export async function fileToAttachment(file: File): Promise<AttachedFile> {
   if (!text.trim()) throw new Error(`Файл «${name}» пустой или не читается как текст`);
   return { name, kind: 'text', data: text, size: bytes.length };
 }
+
+/**
+ * Текст, набранный или вставленный вручную: СМС, письмо, сообщение из мессенджера.
+ * Уходит помощнику так же, как текстовый файл.
+ */
+export function textToAttachment(text: string, name = 'Текст заявки'): AttachedFile {
+  const clean = text.trim().slice(0, MAX_TEXT);
+  return { name, kind: 'text', data: clean, size: clean.length, manual: true };
+}
+
+/** Сколько знаков текста помощник возьмёт из одного источника */
+export { MAX_TEXT };
 
 /* ------------------------------------------------------------------ */
 /* Запрос к модели                                                     */
@@ -152,7 +166,8 @@ export function buildOrderMessages(files: AttachedFile[]): AiMessage[] {
       parts.push({ type: 'text', text: `Фото заявки «${f.name}»:` });
       parts.push({ type: 'image_url', image_url: { url: f.data } });
     } else {
-      parts.push({ type: 'text', text: `Файл «${f.name}»:\n${f.data.slice(0, MAX_TEXT)}` });
+      const label = f.manual ? 'Заявка, вписанная текстом' : `Файл «${f.name}»`;
+      parts.push({ type: 'text', text: `${label}:\n${f.data.slice(0, MAX_TEXT)}` });
     }
   }
   return [
@@ -180,7 +195,7 @@ export async function extractOrder(
   if (!cfg || !cfg.model) {
     throw new Error('Сначала укажите адрес, ключ и модель ИИ в настройках');
   }
-  if (files.length === 0) throw new Error('Прикрепите хотя бы один файл');
+  if (files.length === 0) throw new Error('Прикрепите файл или вставьте текст заявки');
 
   const images = files.filter((f) => f.kind === 'image').length;
   const texts = files.length - images;
