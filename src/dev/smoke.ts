@@ -2569,6 +2569,187 @@ async function main() {
     check('в браузере родного обработчика нет', nativeMod.nativeWebDavReady() === false);
   }
 
+  console.log('\n29. Защита данных: копия базы и пустая выгрузка');
+  {
+    const storage = await import('../db/storage');
+    const { TABLES } = await import('../types');
+    const disk = await import('../lib/yadisk');
+    const webdav = await import('../lib/webdav');
+    const { readFileSync } = await import('node:fs');
+    const files28 = fakeStores.get('files')!;
+    const keepMain = files28.get('avtobaza.db');
+    const keepBackup = files28.get('avtobaza.db.bak');
+
+    try {
+      // --- копия базы: запись, возврат и защита от пустой копии
+      files28.clear();
+      const first = storage.createPersister();
+      await first.save(new Uint8Array([1, 2, 3, 4, 5]));
+      eq('копии ещё нет', await first.backupInfo(), null);
+
+      const second = storage.createPersister();
+      const loaded = await second.load();
+      eq('база прочитана', Array.from(loaded ?? []).join(','), '1,2,3,4,5');
+      eq('ошибок чтения нет', second.problem(), null);
+      await second.writeBackup(new Uint8Array([1, 2, 3, 4, 5]));
+      await second.save(new Uint8Array([9, 9, 9]));
+      eq('копия сделана', (await second.backupInfo())?.size, 5);
+      eq('в базе новые данные', Array.from(files28.get('avtobaza.db') as Uint8Array).join(','), '9,9,9');
+      eq('в копии прежние данные', Array.from(files28.get('avtobaza.db.bak') as Uint8Array).join(','), '1,2,3,4,5');
+      await second.writeBackup(new Uint8Array(0));
+      eq('пустая копия не записывается', (await second.backupInfo())?.size, 5);
+
+      const third = storage.createPersister();
+      eq('копия возвращается на место', await third.restoreBackup(), true);
+      eq('в базе снова данные из копии', Array.from(files28.get('avtobaza.db') as Uint8Array).join(','), '1,2,3,4,5');
+
+      // --- файл есть, но прочитать его не вышло: база не считается рабочей
+      files28.set('avtobaza.db', new Uint8Array(0));
+      const broken = storage.createPersister();
+      eq('пустой файл не отдаётся как база', await broken.load(), null);
+      check('сказано, что файл не прочитан', (broken.problem() ?? '').includes('прочитать'));
+
+      // --- прежнее имя базы подхватывается
+      files28.delete('avtobaza.db');
+      files28.set('avtotracker.db', new Uint8Array([7, 7]));
+      const legacy = storage.createPersister();
+      eq('база со старым именем прочитана', Array.from((await legacy.load()) ?? []).join(','), '7,7');
+
+      // --- непрочитанный файл откладывается в сторону, а не затирается
+      files28.set('avtobaza.db', new Uint8Array(0));
+      eq('непрочитанный файл отложен', await storage.createPersister().parkBroken(), 'avtobaza.db.broken');
+      check('отложенный файл остался', files28.has('avtobaza.db.broken'));
+      eq('под именем базы пусто', files28.has('avtobaza.db'), false);
+    } finally {
+      files28.delete('avtobaza.db.broken');
+      files28.delete('avtotracker.db');
+      if (keepMain === undefined) files28.delete('avtobaza.db');
+      else files28.set('avtobaza.db', keepMain);
+      if (keepBackup === undefined) files28.delete('avtobaza.db.bak');
+      else files28.set('avtobaza.db.bak', keepBackup);
+    }
+
+    // --- копия базы обновляется только у непустой базы
+    check('в базе есть записи', db.rowCount() > 0, `(${db.rowCount()})`);
+    eq('копия базы обновлена', await db.refreshBackup(), true);
+    const copySize = (await db.backupInfo())?.size ?? 0;
+    check('копия не пустая', copySize > 0, `(${copySize} байт)`);
+
+    // --- на экране данных есть защита данных
+    const dataHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/data'] },
+        createElement((await import('../pages/Data')).default as never),
+      ) as never,
+    );
+    check('на экране данных есть раздел «Защита данных»', dataHtml.includes('Защита данных'));
+    check('сказано про копию на устройстве', dataHtml.includes('Копия на устройстве'));
+    check('есть возврат из копии', dataHtml.includes('Вернуть из копии'));
+    check('есть ручная копия', dataHtml.includes('Сделать копию сейчас'));
+
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    check(
+      'об ошибке записи базы приложение сообщает',
+      appSource.includes('setSaveErrorHandler') && appSource.includes('Не удалось сохранить базу'),
+    );
+    check('предупреждение о непрочитанной базе держится на экране', appSource.includes('dataWarning'));
+
+    // --- пустая база не затирает копию с данными в облаке
+    const store29 = useApp.getState();
+    store29.saveSetting('yadisk_login', 'ivan@yandex.ru');
+    store29.saveSetting('yadisk_password', 'parol-prilozheniya');
+    store29.saveSetting('yadisk_folder', '/avtobaza');
+
+    const cloudFile = {
+      app: 'avtobaza',
+      kind: 'cloud-data',
+      tables: { companies: [{ id: 'c-29', name: 'Фирма из облака' }] },
+    };
+    const cloudText = JSON.stringify(cloudFile);
+    eq('записи в файле из облака посчитаны', disk.rowsInData(cloudText), 1);
+    check('на устройстве записи есть', disk.localRowCount() > 0);
+
+    const cloudFiles = new Map<string, Uint8Array>();
+    const cloudDirs = new Set<string>(['/avtobaza']);
+    cloudFiles.set('/avtobaza/avtobaza-2026-01-01_000000.json', new TextEncoder().encode(cloudText));
+    const originalFetch29 = globalThis.fetch;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = String(input);
+      const method = String(init?.method ?? 'GET').toUpperCase();
+      const path = decodeURIComponent(url.replace(webdav.YADISK_HOST, '')) || '/';
+      if (method === 'PROPFIND') {
+        const children = [...cloudDirs, ...cloudFiles.keys()].filter(
+          (p) =>
+            p !== path &&
+            p.startsWith(path === '/' ? '/' : `${path}/`) &&
+            !p.slice(path === '/' ? 1 : path.length + 1).includes('/'),
+        );
+        const body =
+          '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">' +
+          children
+            .map(
+              (p) =>
+                `<d:response><d:href>${encodeURI(p)}</d:href><d:propstat><d:prop>` +
+                `<d:displayname>${p.slice(p.lastIndexOf('/') + 1)}</d:displayname>` +
+                (cloudDirs.has(p)
+                  ? '<d:resourcetype><d:collection/></d:resourcetype>'
+                  : '<d:resourcetype/>') +
+                `<d:getcontentlength>${cloudFiles.get(p)?.length ?? 0}</d:getcontentlength>` +
+                '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>',
+            )
+            .join('') +
+          '</d:multistatus>';
+        return new Response(body, { status: 207, headers: { 'Content-Type': 'application/xml' } });
+      }
+      if (method === 'MKCOL') return new Response(null, { status: 201 });
+      if (method === 'PUT') {
+        const raw = init?.body;
+        cloudFiles.set(
+          path,
+          typeof raw === 'string'
+            ? new TextEncoder().encode(raw)
+            : new Uint8Array(raw as ArrayBuffer),
+        );
+        return new Response(null, { status: 201 });
+      }
+      if (method === 'DELETE') {
+        cloudFiles.delete(path);
+        return new Response(null, { status: 204 });
+      }
+      const data = cloudFiles.get(path);
+      if (!data) return new Response(null, { status: 404 });
+      return new Response(data.slice().buffer as ArrayBuffer, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      // Пустая база на устройстве: выгрузка должна остановиться
+      for (const t of TABLES) dbSync().run(`DELETE FROM ${t}`);
+      eq('база на устройстве пуста', disk.localRowCount(), 0);
+      eq('пустая база копию не обновляет', await db.refreshBackup(), false);
+      eq('копия осталась прежней', (await db.backupInfo())?.size, copySize);
+      let guard = '';
+      try {
+        await disk.pushToDisk();
+      } catch (e) {
+        guard = e instanceof Error ? e.message : String(e);
+      }
+      check('пустая выгрузка отменена', guard.includes('Выгрузка отменена'), guard);
+      check('объяснено, сколько записей в облаке', guard.includes('в облаке их 1'), guard);
+      eq('файл в облаке не тронут', cloudFiles.size, 1);
+
+      // Данные на устройстве есть — выгрузка идёт как обычно
+      repo.insertRow('companies', { name: 'Фирма на устройстве', note: '' });
+      const pushed = await disk.pushToDisk();
+      check('непустая база выгружается', cloudFiles.has(`/avtobaza/${pushed.dataName}`));
+    } finally {
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch29;
+    }
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

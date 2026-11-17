@@ -12,8 +12,8 @@
  * Скачанные картинки не затирают уже подобранные: заполняются только пустые поля.
  */
 
-import { dbSync } from '../db';
-import { nowIso, updateRow } from '../db/repo';
+import { dbSync, getDb } from '../db';
+import { countRows, nowIso, updateRow } from '../db/repo';
 import { useApp } from '../store';
 import {
   buildCloudData,
@@ -27,6 +27,7 @@ import { allDocumentRows } from './documents';
 import { bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
 import { normalizeName } from './order';
 import { resetSyncMarkers } from './sync';
+import { TABLES } from '../types';
 import { CloudError, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
 
 /** Таблицы, у которых есть поле с картинкой */
@@ -450,6 +451,25 @@ export async function pushToDisk(): Promise<CloudPushResult> {
   const target = folderPath();
   await disk.createChain(target);
 
+  // Пустая база не должна затирать копию с данными: иначе после сбоя
+  // на устройстве в облаке останется пустой файл, и вернуть данные будет нечем
+  const local = localRowCount();
+  if (local === 0) {
+    const files = await listDataFiles(target);
+    if (files[0]) {
+      const cloud = await disk
+        .getText(files[0].path)
+        .then((text) => rowsInData(text))
+        .catch(() => 0);
+      if (cloud > 0) {
+        throw new CloudError(
+          `На устройстве нет ни одной записи, а в облаке их ${cloud}. Выгрузка отменена, ` +
+            'чтобы не затереть копию: сначала загрузите данные из облака или верните базу из копии.',
+        );
+      }
+    }
+  }
+
   const at = new Date();
   const dataName = dataFileName(at);
   const data = buildCloudData();
@@ -481,6 +501,23 @@ export async function pushToDisk(): Promise<CloudPushResult> {
 
 function utf8Length(text: string): number {
   return new TextEncoder().encode(text).length;
+}
+
+/** Сколько записей сейчас в базе на устройстве (настройки не считаем) */
+export function localRowCount(): number {
+  let total = 0;
+  for (const table of TABLES) total += countRows(table);
+  return total;
+}
+
+/** Сколько записей в файле данных из облака */
+export function rowsInData(text: string): number {
+  const payload = JSON.parse(text) as { tables?: Record<string, unknown[]> };
+  let total = 0;
+  for (const rows of Object.values(payload.tables ?? {})) {
+    if (Array.isArray(rows)) total += rows.length;
+  }
+  return total;
 }
 
 async function uploadIcons(
@@ -543,6 +580,10 @@ export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
   const text = await disk.getText(newest.path);
   let result: ImportResult;
   try {
+    if (replace) {
+      // Замена необратима: сначала оставляем копию того, что есть на устройстве
+      await getDb().then((db) => db.snapshot()).catch(() => undefined);
+    }
     result = replace ? replaceFromJson(text) : importJson(text, true);
   } catch (error) {
     throw new CloudError(

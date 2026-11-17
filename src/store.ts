@@ -18,12 +18,15 @@ interface AppState {
   /** Меняется при любом изменении данных, чтобы списки перечитались */
   revision: number;
   toasts: Toast[];
+  /** База на устройстве не читается — предупреждение держится на экране */
+  dataWarning: string | null;
   init: () => void;
   patch: (p: Partial<AppSettings>) => void;
   saveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   touch: () => void;
   notify: (text: string, kind?: Toast['kind']) => void;
   dismiss: (id: number) => void;
+  setDataWarning: (text: string | null) => void;
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -31,8 +34,11 @@ export const useApp = create<AppState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   revision: 0,
   toasts: [],
+  dataWarning: null,
 
   init: () => set({ settings: getSettings(), ready: true }),
+
+  setDataWarning: (text) => set({ dataWarning: text }),
 
   patch: (p) => set({ settings: { ...get().settings, ...p } }),
 

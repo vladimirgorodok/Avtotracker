@@ -12,6 +12,12 @@ export type SqlValue = string | number | null | Uint8Array;
 
 let SQL: SqlJsStatic | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let saveErrorHandler: ((error: unknown) => void) | null = null;
+
+/** Куда сообщать, если базу не удалось записать на устройство */
+export function setSaveErrorHandler(fn: ((error: unknown) => void) | null): void {
+  saveErrorHandler = fn;
+}
 
 export class Db {
   private db: Database;
@@ -19,10 +25,14 @@ export class Db {
   private saving = false;
   private dirty = false;
   private inTx = false;
+  /** База на устройстве не читается: до решения пользователя файл не трогаем */
+  private blocked: string | null;
+  private lastSaveError = '';
 
-  private constructor(db: Database, persister: Persister) {
+  private constructor(db: Database, persister: Persister, blocked: string | null = null) {
     this.db = db;
     this.persister = persister;
+    this.blocked = blocked;
   }
 
   static async open(): Promise<Db> {
@@ -31,11 +41,71 @@ export class Db {
     }
     const persister = createPersister();
     const saved = await persister.load();
+    const problem = persister.problem();
     const db = saved && saved.length > 0 ? new SQL.Database(saved) : new SQL.Database();
-    const inst = new Db(db, persister);
+    const inst = new Db(db, persister, problem);
     inst.migrate();
-    if (!saved) await inst.flush();
+    // Копию обновляем только у непустой базы: иначе после случайной очистки
+    // пустая база затрёт последнюю целую копию.
+    if (saved) await inst.refreshBackup();
+    // Пустую базу сохраняем только если файла не было вовсе. Если файл есть,
+    // но прочитать его не удалось, писать поверх нельзя — иначе данные пропадут.
+    if (!saved && !problem) await inst.flush();
     return inst;
+  }
+
+  /** Что случилось с базой на устройстве (null — всё в порядке) */
+  loadProblem(): string | null {
+    return this.blocked;
+  }
+
+  /** Смириться с пустой базой: непрочитанный файл откладываем в сторону */
+  async acceptEmptyBase(): Promise<string | null> {
+    const parked = await this.persister.parkBroken();
+    this.blocked = null;
+    await this.flush();
+    return parked;
+  }
+
+  /** Копия базы на устройстве */
+  backupInfo() {
+    return this.persister.backupInfo();
+  }
+
+  /** Сколько записей в базе (настройки не считаем) */
+  rowCount(): number {
+    const tables = ['companies', 'cargo_types', 'fuel_stations', 'places', 'vehicles', 'waybills', 'trips', 'trip_points', 'refuelings', 'finance_ops'];
+    try {
+      const sql = tables.map((t) => `(SELECT count(*) FROM ${t})`).join(' + ');
+      const res = this.db.exec(`SELECT ${sql}`);
+      return res.length > 0 ? Number(res[0].values[0][0]) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Обновить копию базы, если в ней что-то есть. true — копия обновлена */
+  async refreshBackup(): Promise<boolean> {
+    if (this.blocked) return false;
+    if (this.rowCount() === 0) return false;
+    try {
+      await this.persister.writeBackup(this.db.export());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Сделать копию текущего состояния базы */
+  async snapshot(): Promise<void> {
+    if (this.blocked) return;
+    await this.flush();
+    await this.persister.snapshot();
+  }
+
+  /** Вернуть базу из копии (применяется после перезапуска приложения) */
+  restoreBackup(): Promise<boolean> {
+    return this.persister.restoreBackup();
   }
 
   private migrate() {
@@ -131,13 +201,29 @@ export class Db {
   /** Немедленно записать базу на диск */
   async flush(): Promise<void> {
     if (this.saving) return;
+    // Файл на устройстве не читается — писать поверх него нельзя
+    if (this.blocked) return;
     this.saving = true;
     this.dirty = false;
+    let failed = false;
     try {
       await this.persister.save(this.db.export());
+      this.lastSaveError = '';
+    } catch (e) {
+      failed = true;
+      this.dirty = true;
+      const text = e instanceof Error ? e.message : String(e);
+      console.error('Не удалось сохранить базу', e);
+      // Об ошибке сообщаем один раз, повтор — при следующем изменении
+      if (text !== this.lastSaveError) {
+        this.lastSaveError = text;
+        saveErrorHandler?.(e);
+      }
     } finally {
       this.saving = false;
-      if (this.dirty) this.touch();
+      // Изменения, случившиеся во время записи, дописываем сразу,
+      // но после ошибки ждём следующего изменения — иначе будет бесконечный круг
+      if (this.dirty && !failed) this.touch();
     }
   }
 
@@ -147,6 +233,11 @@ export class Db {
     if (!SQL) throw new Error('База не инициализирована');
     this.db = new SQL.Database(bytes);
     this.migrate();
+    // Пользователь сам заменил базу: непрочитанный файл откладываем в сторону
+    if (this.blocked) {
+      await this.persister.parkBroken();
+      this.blocked = null;
+    }
     await this.flush();
   }
 

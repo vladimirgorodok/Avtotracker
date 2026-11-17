@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Confirm, Icon, IconButton, KV, MonthPicker, Page } from '../ui/components';
 import { useApp } from '../store';
 import { clearTable, countRows, dbStats } from '../db/repo';
-import { fileToBytes, fileToText, pickFile } from '../db/storage';
+import { fileToBytes, fileToText, pickFile, type BackupInfo } from '../db/storage';
 import {
   exportCsvZip,
   exportJson,
@@ -13,7 +13,7 @@ import {
   importJson,
   TABLE_TITLES,
 } from '../lib/backup';
-import { monthKey } from '../lib/format';
+import { fmtDateTime, monthKey } from '../lib/format';
 import { documentSummary } from '../lib/documents';
 import { getDb } from '../db';
 import type { TableName } from '../types';
@@ -43,6 +43,24 @@ export default function DataPage() {
   const [overwrite, setOverwrite] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [clearWhat, setClearWhat] = useState<TableName | null>(null);
+  const dataWarning = useApp((s) => s.dataWarning);
+  const setDataWarning = useApp((s) => s.setDataWarning);
+  const [backup, setBackup] = useState<BackupInfo | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
+
+  async function refreshBackup() {
+    try {
+      const db = await getDb();
+      setBackup(await db.backupInfo());
+    } catch {
+      setBackup(null);
+    }
+  }
+
+  useEffect(() => {
+    void refreshBackup();
+  }, [revision]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stats = useMemo(() => dbStats(), [revision]);
@@ -88,6 +106,40 @@ export default function DataPage() {
       await getDb().then((db) => db.flush());
       touch();
       notify(res.message, 'ok');
+    });
+  }
+
+  async function doSnapshot() {
+    await run('snapshot', async () => {
+      const db = await getDb();
+      await db.snapshot();
+      await refreshBackup();
+      notify('Копия базы сохранена на устройстве', 'ok');
+    });
+  }
+
+  async function doRestore() {
+    setConfirmRestore(false);
+    await run('restore', async () => {
+      const db = await getDb();
+      const ok = await db.restoreBackup();
+      if (!ok) throw new Error('Копии базы на устройстве нет');
+      notify('Копия возвращена — приложение перезапустится', 'ok');
+      setTimeout(() => window.location.reload(), 700);
+    });
+  }
+
+  async function doAcceptEmpty() {
+    setConfirmEmpty(false);
+    await run('empty', async () => {
+      const db = await getDb();
+      const parked = await db.acceptEmptyBase();
+      setDataWarning(null);
+      notify(
+        parked ? `Продолжаем с пустой базой, старый файл отложен как ${parked}` : 'Продолжаем с пустой базой',
+        'info',
+      );
+      touch();
     });
   }
 
@@ -189,9 +241,53 @@ export default function DataPage() {
         ))}
       </Card>
 
+      <Card title="Защита данных" actions={<Icon name="undo" />}>
+        {dataWarning ? (
+          <div className="alert alert-err">
+            <Icon name="warning" />
+            <div>
+              <b>База на устройстве не читается</b>
+              <div className="small">{dataWarning}</div>
+            </div>
+          </div>
+        ) : null}
+        <div className="small muted">
+          При запуске приложение оставляет копию базы на устройстве, а перед очисткой и загрузкой из
+          облака обновляет её. Из копии можно вернуть данные, если что-то пошло не так. Надёжнее
+          держать ещё и резервную копию файлом.
+        </div>
+        <KV
+          label="Копия на устройстве"
+          value={
+            backup
+              ? `${Math.max(1, Math.round(backup.size / 1024))} КБ${backup.at ? `, ${fmtDateTime(backup.at)}` : ''}`
+              : 'пока нет'
+          }
+        />
+        <div className="row">
+          <Button block icon="copy" disabled={busy !== ''} onClick={doSnapshot}>
+            Сделать копию сейчас
+          </Button>
+          <Button
+            block
+            icon="undo"
+            disabled={busy !== '' || !backup}
+            onClick={() => setConfirmRestore(true)}
+          >
+            Вернуть из копии
+          </Button>
+        </div>
+        {dataWarning ? (
+          <Button variant="danger" block icon="trash" disabled={busy !== ''} onClick={() => setConfirmEmpty(true)}>
+            Продолжить с пустой базой
+          </Button>
+        ) : null}
+      </Card>
+
       <Card title="Опасная зона" actions={<Icon name="warning" />}>
         <div className="small muted">
-          Полная очистка удалит все данные на этом устройстве. Перед очисткой сделайте резервную копию.
+          Полная очистка удалит все данные на этом устройстве. Копия базы на устройстве сохранится —
+          её можно вернуть в разделе «Защита данных».
         </div>
         <Button variant="danger" block icon="trash" onClick={() => setConfirmWipe(true)}>
           Очистить все данные
@@ -211,12 +307,33 @@ export default function DataPage() {
         onConfirm={() => {
           const table = clearWhat;
           if (!table) return;
-          clearTable(table);
-          void getDb().then((d) => d.flush());
-          setClearWhat(null);
-          touch();
-          notify(`Таблица «${TABLE_TITLES[table]}» очищена`, 'info');
+          void getDb().then(async (d) => {
+            await d.snapshot().catch(() => undefined);
+            clearTable(table);
+            await d.flush();
+            setClearWhat(null);
+            touch();
+            notify(`Таблица «${TABLE_TITLES[table]}» очищена`, 'info');
+          });
         }}
+      />
+
+      <Confirm
+        open={confirmRestore}
+        title="Вернуть базу из копии"
+        text="Текущие данные заменятся копией, сделанной при запуске приложения. Приложение перезапустится."
+        confirmLabel="Вернуть"
+        onCancel={() => setConfirmRestore(false)}
+        onConfirm={doRestore}
+      />
+
+      <Confirm
+        open={confirmEmpty}
+        title="Продолжить с пустой базой"
+        text="Непрочитанный файл базы останется на устройстве под другим именем. Работа продолжится с пустой базой."
+        confirmLabel="Продолжить"
+        onCancel={() => setConfirmEmpty(false)}
+        onConfirm={doAcceptEmpty}
       />
 
       <Confirm
@@ -227,7 +344,9 @@ export default function DataPage() {
         onCancel={() => setConfirmWipe(false)}
         onConfirm={() => {
           const db = getDb();
-          void db.then((d) => {
+          void db.then(async (d) => {
+            // Перед полной очисткой оставляем копию: вернуть её можно в «Защите данных»
+            await d.snapshot().catch(() => undefined);
             d.tx(() => {
               for (const t of [
                 'vehicles',

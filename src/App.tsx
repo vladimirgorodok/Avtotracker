@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { getDb } from './db';
+import { getDb, setSaveErrorHandler } from './db';
 import { applyStatusBarTheme, applyTheme, useApp } from './store';
 import { Icon, type IconName, Modal, Toasts } from './ui/components';
 import { Splash } from './ui/Splash';
@@ -206,6 +206,7 @@ export default function App() {
   const [splashDone, setSplashDone] = useState(false);
   const init = useApp((s) => s.init);
   const settings = useApp((s) => s.settings);
+  const dataWarning = useApp((s) => s.dataWarning);
   const finishSplash = useCallback(() => setSplashDone(true), []);
 
   useEffect(() => {
@@ -214,7 +215,14 @@ export default function App() {
         const db = await getDb();
         seedIfEmpty();
         init();
-        await db.flush();
+        const problem = db.loadProblem();
+        if (problem) {
+          // Базу не прочитали: пустую базу поверх файла не пишем
+          useApp.getState().setDataWarning(problem);
+          useApp.getState().notify('База на устройстве не читается — данные не перезаписываем', 'err');
+        } else {
+          await db.flush();
+        }
         setReady(true);
       } catch (e) {
         console.error(e);
@@ -222,6 +230,17 @@ export default function App() {
       }
     })();
   }, [init]);
+
+  useEffect(() => {
+    // Если базу не удалось записать, об этом надо сказать, а не молчать
+    setSaveErrorHandler((e) => {
+      useApp.getState().notify(
+        `Не удалось сохранить базу: ${e instanceof Error ? e.message : String(e)}`,
+        'err',
+      );
+    });
+    return () => setSaveErrorHandler(null);
+  }, []);
 
   useEffect(() => {
     if (!ready) return;
@@ -274,6 +293,20 @@ export default function App() {
       {ready ? (
         <HashRouter>
           <div className="app-shell">
+            {dataWarning ? (
+              <div className="alert alert-err" style={{ margin: '12px 12px 0' }}>
+                <Icon name="warning" />
+                <div>
+                  <b>База на устройстве не читается</b>
+                  <div className="small">{dataWarning}</div>
+                  <div className="small">
+                    Файл мы не перезаписываем, поэтому данные на месте. Откройте «Ещё → Обмен
+                    данными»: там можно вернуть копию, импортировать свою резервную копию или
+                    продолжить с пустой базой.
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <Routes>
               <Route path="/" element={<Home onCreate={() => setCreateOpen(true)} />} />
               <Route path="/waybills" element={<Waybills />} />
