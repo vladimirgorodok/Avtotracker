@@ -177,6 +177,12 @@ export interface SettingRow {
 
 export type AppPalette = 'navy' | 'teal';
 
+/**
+ * Вид приложения: 'auto' — сам подбирает по экрану (широкий альбомный — планшет),
+ * 'phone' — всегда узкая колонка, 'tablet' — всегда широкий вид с меню слева.
+ */
+export type ViewMode = 'auto' | 'phone' | 'tablet';
+
 export interface AppSettings {
   base_amount: number;
   extra_point_amount: number;
@@ -185,6 +191,8 @@ export interface AppSettings {
   theme: 'light' | 'dark';
   /** Цветовая гамма приложения */
   palette: AppPalette;
+  /** Вид: как удобнее приложению, только телефон или только планшет */
+  view_mode: ViewMode;
   ai_base_url: string;
   ai_api_key: string;
   ai_model: string;
@@ -220,6 +228,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: '',
   theme: 'light',
   palette: 'navy',
+  view_mode: 'auto',
   ai_base_url: 'https://api.aitunnel.ru/v1',
   ai_api_key: '',
   ai_model: '',

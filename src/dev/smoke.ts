@@ -2348,6 +2348,73 @@ async function main() {
     }
   }
 
+  console.log('\n27. Планшетный вид: альбомная ориентация');
+  {
+    const { readFileSync } = await import('node:fs');
+    const { applyViewMode, tabletScreen } = await import('../store');
+    const { DEFAULT_SETTINGS } = await import('../types');
+    const root = (g.document as { documentElement: { dataset: Record<string, string> } }).documentElement;
+
+    eq('по умолчанию вид подбирается сам', DEFAULT_SETTINGS.view_mode, 'auto');
+    check('планшет в альбомной ориентации — широкий экран', tabletScreen(1280, 800));
+    check('телефон в альбомной — не планшет', !tabletScreen(900, 420));
+    check('планшет в портрете — не альбомный вид', !tabletScreen(800, 1280));
+
+    eq('«авто» на планшете даёт планшетный вид', applyViewMode('auto', 1280, 800), 'tablet');
+    eq('«авто» на телефоне даёт обычный вид', applyViewMode('auto', 420, 900), 'phone');
+    eq('«авто» на телефоне в альбомной — обычный вид', applyViewMode('auto', 900, 420), 'phone');
+    eq('выбор «планшет» сильнее размера экрана', applyViewMode('tablet', 420, 900), 'tablet');
+    eq('выбор «телефон» сильнее размера экрана', applyViewMode('phone', 1280, 800), 'phone');
+    eq('вид попал в документ', root.dataset.view, 'phone');
+    applyViewMode('auto', 1280, 800);
+    eq('планшетный вид попал в документ', root.dataset.view, 'tablet');
+
+    // Вёрстка: меню-рельса слева, содержимое в две колонки
+    const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
+    check('есть переменная ширины каркаса', css.includes('--shell-max: 720px'));
+    check('есть ширина меню-рельсы', css.includes('--rail-w: 96px'));
+    check('каркас берёт ширину из переменной', css.includes('max-width: var(--shell-max)'));
+    const rail = css.slice(css.indexOf("[data-view='tablet'] .bottom-nav"), css.indexOf("[data-view='tablet'] .bottom-nav") + 600);
+    check('меню на планшете — вертикальная рельса', rail.includes('flex-direction: column'));
+    check('рельса не уезжает при прокрутке', rail.includes('position: sticky'));
+    const body = css.slice(css.indexOf("[data-view='tablet'] .page-body"), css.indexOf("[data-view='tablet'] .page-body") + 400);
+    check('содержимое идёт в две колонки', body.includes('grid-template-columns: repeat(auto-fit'));
+    check('содержимое не шире --content-max', body.includes('max-width: var(--content-max)'));
+    check('кнопка «плюс» стоит в рельсе', css.includes("[data-view='tablet'] .fab"));
+    check('список записей становится плитками', css.includes("[data-view='tablet'] .page-body > .list .list-item"));
+
+    // Настройки: переключатель вида и перенос в файле
+    const mod = await import('../pages/Settings');
+    const html = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/settings'] },
+        createElement(mod.default as never),
+      ) as never,
+    );
+    check('в настройках есть поле «Вид»', html.includes('Планшетный вид включается сам'));
+    check('в настройках видно выбранный вид', html.includes('Автоматически, по экрану'));
+    const settingsSource = readFileSync('src/pages/Settings.tsx', 'utf8');
+    check('переключатель вида применяется сразу', settingsSource.includes('applyViewMode'));
+
+    const { buildSettingsFile } = await import('../lib/backup');
+    const file = JSON.parse(buildSettingsFile()) as { settings: { key: string; value: string }[] };
+    check('вид переносится файлом настроек', file.settings.some((s) => s.key === 'view_mode'));
+
+    // Приложение применяет вид и следит за поворотом
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    check('приложение применяет вид', appSource.includes('applyViewMode'));
+    check('при повороте вид пересчитывается', appSource.includes('orientationchange'));
+
+    // Поворот разрешён системой и окно при этом не пересоздаётся
+    const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
+    check('поворот экрана разрешён', !manifest.includes('screenOrientation'));
+    check(
+      'при повороте окно не пересоздаётся',
+      manifest.includes('orientation') && manifest.includes('screenSize'),
+    );
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

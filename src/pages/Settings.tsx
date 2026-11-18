@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
-import { applyTheme, useApp } from '../store';
+import { applyTheme, applyViewMode, useApp } from '../store';
 import { dbStats } from '../db/repo';
 import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
 import { applySettingsFile, exportSettingsFile } from '../lib/backup';
 import { fileToText, pickFile } from '../db/storage';
-import type { AppPalette } from '../types';
+import type { AppPalette, ViewMode } from '../types';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -106,6 +106,25 @@ export default function SettingsPage() {
               { value: 'teal', label: 'Бирюзовая' },
             ]}
             placeholder="Тёмно-синяя"
+          />
+        </Field>
+        <Field
+          label="Вид"
+          hint="Планшетный вид включается сам на широком экране в альбомной ориентации: меню уходит влево, записи идут в две колонки"
+        >
+          <Select
+            value={settings.view_mode}
+            onChange={(v) => {
+              const mode = (v ?? 'auto') as ViewMode;
+              saveSetting('view_mode', mode);
+              applyViewMode(mode);
+            }}
+            options={[
+              { value: 'auto', label: 'Автоматически, по экрану' },
+              { value: 'phone', label: 'Телефон — узкая колонка' },
+              { value: 'tablet', label: 'Планшет — широкий вид' },
+            ]}
+            placeholder="Как удобнее приложению"
           />
         </Field>
         <Field label="Обозначение валюты" hint="Оставьте пустым, чтобы показывать только числа">

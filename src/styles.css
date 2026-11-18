@@ -32,6 +32,10 @@
   --shadow: 0 1px 2px rgba(8, 22, 38, 0.08), 0 8px 22px rgba(8, 22, 38, 0.07);
   --shadow-lg: 0 12px 34px rgba(9, 32, 56, 0.24);
   --nav-h: 62px;
+  /* Каркас: ширина колонки на телефоне и ширина меню-рельсы в планшетном виде */
+  --shell-max: 720px;
+  --rail-w: 96px;
+  --content-max: 1180px;
   /* Отступы системных панелей. Capacitor 8 подставляет --safe-area-inset-*,
      когда приложение рисуется во весь экран (Android 15+). */
   --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
@@ -164,7 +168,7 @@ body {
   flex-direction: column;
   width: 100%;
   min-height: 100%;
-  max-width: 720px;
+  max-width: var(--shell-max);
   margin: 0 auto;
   position: relative;
 }
@@ -908,7 +912,7 @@ a.badge {
   bottom: 0;
   left: 0;
   right: 0;
-  max-width: 720px;
+  max-width: var(--shell-max);
   margin: 0 auto;
   height: var(--nav-h);
   background: var(--card);
@@ -1016,7 +1020,7 @@ a.badge {
 .modal {
   background: var(--card);
   border-radius: 18px 18px 0 0;
-  width: min(100%, 720px);
+  width: min(100%, var(--shell-max));
   max-height: 88vh;
   display: flex;
   flex-direction: column;
@@ -1139,6 +1143,11 @@ a.badge {
 .alert-info {
   background: var(--info-soft);
   color: var(--info);
+}
+
+/* Предупреждение о непрочитанной базе стоит прямо в каркасе приложения */
+.shell-alert {
+  margin: 12px 12px 0;
 }
 
 .link {
@@ -1943,4 +1952,178 @@ body {
 .splash-stage {
   padding-left: calc(24px + var(--safe-left));
   padding-right: calc(24px + var(--safe-right));
+}
+
+/* ============================================================
+   Планшетный вид: широкий экран в альбомной ориентации
+   Включается по data-view="tablet" на <html> (см. applyViewMode в store.ts).
+   Меню уходит вертикальной рельсой влево, записи идут в две колонки,
+   содержимое не растягивается на весь монитор.
+   ============================================================ */
+
+[data-view='tablet'] .app-shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  max-width: none;
+}
+
+/* Предупреждение о базе — над содержимым, справа от меню */
+[data-view='tablet'] .shell-alert {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 12px 24px 0;
+}
+
+[data-view='tablet'] .page {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+}
+
+/* Меню: вертикальная рельса слева */
+[data-view='tablet'] .bottom-nav {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: var(--rail-w);
+  max-width: none;
+  height: 100vh;
+  margin: 0;
+  border-top: none;
+  border-right: 1px solid var(--line);
+  padding: calc(var(--safe-top) + 8px) 0 calc(var(--safe-bottom) + 8px) var(--safe-left);
+}
+
+[data-view='tablet'] .nav-item {
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 12px 2px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+[data-view='tablet'] .nav-item.active {
+  background: var(--brand-soft);
+}
+
+/* Полоска активного пункта — сбоку, а не сверху */
+[data-view='tablet'] .nav-item.active::before {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 26px;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Кнопка «плюс» — внизу рельсы */
+[data-view='tablet'] .fab {
+  left: calc((var(--rail-w) + var(--safe-left) - 58px) / 2);
+  right: auto;
+  transform: none;
+  bottom: calc(24px + var(--safe-bottom));
+}
+
+[data-view='tablet'] .fab:active {
+  transform: scale(0.93);
+}
+
+/* Шапка на всю ширину, но текст — по краям содержимого */
+[data-view='tablet'] .topbar {
+  padding-left: max(24px, calc((100% - var(--content-max)) / 2 + 24px));
+  padding-right: max(24px, calc((100% - var(--content-max)) / 2 + 24px));
+}
+
+/* Содержимое: две колонки карточек, по центру, не шире --content-max */
+[data-view='tablet'] .page-body {
+  display: grid;
+  /* min(420px, 100%) — чтобы при узком окне колонка не вылезала за экран */
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  align-items: start;
+  gap: 14px;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 16px 24px 32px;
+}
+
+/* Список записей — плитками в две колонки на всю ширину */
+[data-view='tablet'] .page-body > .list {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 10px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+[data-view='tablet'] .page-body > .list .list-item {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* Ряд показателей — во всю ширину */
+[data-view='tablet'] .page-body > .grid-2,
+[data-view='tablet'] .page-body > .grid-3 {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+
+/* Заголовок раздела — над своим списком, во всю ширину */
+[data-view='tablet'] .page-body > .section-title {
+  grid-column: 1 / -1;
+}
+
+/* Список карточек (путевые листы, поездки, техника) — в две колонки */
+[data-view='tablet'] .page-body > .stack {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 12px;
+}
+
+/* Небольшая группа на всю ширину; показатели — в строку */
+[data-view='tablet'] .page-body > .stack-sm {
+  grid-column: 1 / -1;
+}
+
+[data-view='tablet'] .page-body > .stack-sm:has(.stat) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 10px;
+}
+
+/* Нижнего меню нет: плашки — по центру содержимого, у самого низа */
+[data-view='tablet'] .toasts {
+  left: calc(50% + var(--rail-w) / 2);
+  bottom: calc(24px + var(--safe-bottom));
+}
+
+/* Шторки на планшете — окном по центру, а не снизу */
+[data-view='tablet'] .modal-backdrop {
+  align-items: center;
+  padding: 24px;
+}
+
+[data-view='tablet'] .modal {
+  border-radius: 18px;
+  max-height: 86vh;
+  padding-bottom: 0;
+}
+
+/* Планшетный вид включили на узком экране — рельса делается уже */
+@media (max-width: 620px) {
+  [data-view='tablet'] {
+    --rail-w: 72px;
+  }
 }

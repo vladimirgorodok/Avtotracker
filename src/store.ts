@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { create } from 'zustand';
 import { getSettings, setSetting } from './db/repo';
-import { DEFAULT_SETTINGS, type AppPalette, type AppSettings } from './types';
+import { DEFAULT_SETTINGS, type AppPalette, type AppSettings, type ViewMode } from './types';
 
 export interface Toast {
   id: number;
@@ -62,6 +62,36 @@ export const useApp = create<AppState>((set, get) => ({
 export function applyTheme(theme: 'light' | 'dark', palette: AppPalette = 'navy') {
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.palette = palette;
+}
+
+/**
+ * Экран под планшетный вид: широкий и в альбомной ориентации.
+ * У телефона в альбомной ориентации высота маленькая — там остаётся обычный вид,
+ * иначе меню-рельса не помещается.
+ */
+export function tabletScreen(width: number, height: number): boolean {
+  return width >= 900 && height >= 500 && width > height;
+}
+
+/**
+ * Вид приложения: в 'auto' решает размер экрана, иначе — выбор пользователя.
+ * Результат кладётся в data-view на <html> — по нему работает вёрстка в styles.css.
+ */
+export function applyViewMode(
+  mode: ViewMode = 'auto',
+  width?: number,
+  height?: number,
+): 'phone' | 'tablet' {
+  const size =
+    typeof window === 'undefined'
+      ? { w: 0, h: 0 }
+      : { w: window.innerWidth, h: window.innerHeight };
+  const w = width ?? size.w;
+  const h = height ?? size.h;
+  const view: 'phone' | 'tablet' =
+    mode === 'tablet' ? 'tablet' : mode === 'phone' ? 'phone' : tabletScreen(w, h) ? 'tablet' : 'phone';
+  document.documentElement.dataset.view = view;
+  return view;
 }
 
 /** Оформление значков в строке состояния под тему приложения */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { getDb, setSaveErrorHandler } from './db';
-import { applyStatusBarTheme, applyTheme, useApp } from './store';
+import { applyStatusBarTheme, applyTheme, applyViewMode, useApp } from './store';
 import { Icon, type IconName, Modal, Toasts } from './ui/components';
 import { Splash } from './ui/Splash';
 import Home from './pages/Home';
@@ -249,6 +249,20 @@ export default function App() {
   }, [ready, splashDone, settings.theme, settings.palette]);
 
   useEffect(() => {
+    // Вид для планшета: в «авто» подбирается по размеру экрана — следим за поворотом
+    if (!ready) return;
+    applyViewMode(settings.view_mode);
+    if (settings.view_mode !== 'auto') return;
+    const onResize = () => applyViewMode('auto');
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, [ready, settings.view_mode]);
+
+  useEffect(() => {
     // Обмен с Яндекс Диском: следим за изменениями и сверяемся при запуске
     if (!ready) return;
     startAutoSync();
@@ -293,7 +307,7 @@ export default function App() {
         <HashRouter>
           <div className="app-shell">
             {dataWarning ? (
-              <div className="alert alert-err" style={{ margin: '12px 12px 0' }}>
+              <div className="alert alert-err shell-alert">
                 <Icon name="warning" />
                 <div>
                   <b>База на устройстве не читается</b>
@@ -323,7 +337,8 @@ export default function App() {
               <Route path="/more" element={<MorePage />} />
               <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/yadisk" element={<YandexDisk />} />              <Route path="/assistant" element={<Assistant />} />
+              <Route path="/yadisk" element={<YandexDisk />} />
+              <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />
               <Route path="/assistant/pictures" element={<PictureFinder />} />
             </Routes>
