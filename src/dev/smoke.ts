@@ -2432,7 +2432,7 @@ async function main() {
     check('в листе действий есть закрытие', appSource.includes('Закрыть приложение'));
     check('у закрытия своя иконка', componentsSource.includes('power:'));
     check('пункт открывает экран закрытия', appSource.includes('onExit={openExit}'));
-    check('лист называется «Что сделать»', appSource.includes('title="Что сделать"'));
+    check('лист называется «Действие»', appSource.includes('title="Действие"'));
 
     // Системная «Назад»: на главной спрашивает, внутри — обычный возврат
     check('системная «Назад» перехвачена', appSource.includes("addListener('backButton'"));

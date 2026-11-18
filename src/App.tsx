@@ -181,7 +181,7 @@ function CreateSheet({
   }
 
   return (
-    <Modal open={open} title="Что сделать" onClose={onClose}>
+    <Modal open={open} title="Действие" onClose={onClose}>
       <div className="list">
         <button className="list-item" onClick={newWaybill}>
           <span className="avatar">
