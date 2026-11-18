@@ -3,16 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card, Confirm, Icon, IconButton, KV, MonthPicker, Page } from '../ui/components';
 import { useApp } from '../store';
 import { clearTable, countRows, dbStats } from '../db/repo';
-import { fileToBytes, fileToText, pickFile, type BackupInfo } from '../db/storage';
-import {
-  exportCsvZip,
-  exportJson,
-  exportPdfReport,
-  exportXlsx,
-  importCsvZip,
-  importJson,
-  TABLE_TITLES,
-} from '../lib/backup';
+import { fileToText, pickFile, type BackupInfo } from '../db/storage';
+import { exportJson, exportPdfReport, exportXlsx, importJson, TABLE_TITLES } from '../lib/backup';
 import { fmtDateTime, monthKey } from '../lib/format';
 import { documentSummary } from '../lib/documents';
 import { getDb } from '../db';
@@ -85,18 +77,6 @@ export default function DataPage() {
     }
   }
 
-  async function doImportZip() {
-    const file = await pickFile('.zip,application/zip');
-    if (!file) return;
-    await run('import', async () => {
-      const bytes = await fileToBytes(file);
-      const res = await importCsvZip(bytes);
-      await getDb().then((db) => db.flush());
-      touch();
-      notify(res.message, 'ok');
-    });
-  }
-
   async function doImportJson() {
     const file = await pickFile('.json,application/json');
     if (!file) return;
@@ -161,21 +141,12 @@ export default function DataPage() {
         </div>
         <div className="small muted">
           Хранилище: {stats.storage}. Фотографии документов ({docs.count} шт., {Math.max(0, Math.round(docs.bytes / 1024))} КБ)
-          хранятся отдельно от базы и уходят в облако при синхронизации.
+          хранятся отдельно от базы и уезжают на Яндекс Диск отдельным архивом значков.
         </div>
       </Card>
 
       <Card title="Экспорт" actions={<Icon name="download" />}>
-        <div className="small muted">11 таблиц · CSV UTF-8</div>
-        <Button
-          variant="primary"
-          block
-          icon="download"
-          disabled={busy !== ''}
-          onClick={() => run('zip', exportCsvZip)}
-        >
-          Скачать ZIP-архив (CSV)
-        </Button>
+        <div className="small muted">Таблицы и отчёт — в файл на телефон</div>
         <Button block icon="download" disabled={busy !== ''} onClick={() => run('xlsx', exportXlsx)}>
           Скачать Excel (XLSX)
         </Button>
@@ -196,18 +167,7 @@ export default function DataPage() {
 
       <Card title="Импорт" actions={<Icon name="upload" />}>
         <div className="small muted">Совпадающие записи останутся без изменений</div>
-        <Button variant="primary" block icon="ai" disabled={busy !== ''} onClick={() => navigate('/data/smart')}>
-          Умный импорт: чужой архив
-        </Button>
-        <div className="small muted">
-          Разберёт файлы с любыми названиями и колонками, перенесёт подходящее и подскажет, каких полей
-          не хватает в базе.
-        </div>
-        <div className="divider" />
-        <Button block icon="upload" disabled={busy !== ''} onClick={doImportZip}>
-          Выбрать ZIP-архив (CSV)
-        </Button>
-        <Button block icon="upload" disabled={busy !== ''} onClick={doImportJson}>
+        <Button variant="primary" block icon="upload" disabled={busy !== ''} onClick={doImportJson}>
           Выбрать резервную копию (JSON)
         </Button>
         <label className="row">
@@ -222,8 +182,7 @@ export default function DataPage() {
 
       <Card title="Записи по таблицам" actions={<Icon name="doc" />}>
         <div className="small muted">
-          Если перенос ушёл не в те таблицы, лишнее можно убрать по отдельности — остальные данные
-          останутся на месте.
+          Лишнюю таблицу можно очистить по отдельности — остальные данные останутся на месте.
         </div>
         {CLEARABLE.map((t) => (
           <div key={t} className="list-item">

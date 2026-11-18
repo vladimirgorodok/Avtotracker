@@ -16,7 +16,6 @@ import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../li
 import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
 import { refreshTripStatus } from '../lib/actions';
-import { runSync, syncState } from '../lib/sync';
 import type { TripPoint } from '../types';
 
 export default function Home({ onCreate }: { onCreate: () => void }) {
@@ -24,8 +23,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const revision = useApp((s) => s.revision);
   const settings = useApp((s) => s.settings);
   const [month, setMonth] = useState<string>(() => monthKey(new Date().toISOString()));
-  const [syncing, setSyncing] = useState(false);
-  const sync = useMemo(() => syncState(), [revision]);
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
 
@@ -85,42 +82,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           <MonthPicker value={month} onChange={setMonth} />
         </div>
         <SearchEntry text="Поиск по всему: листы, поездки, справочники" onClick={() => navigate('/search')} />
-
-        {sync.configured && sync.signedIn ? (
-          <div className={`sync-bar ${sync.pending > 0 ? '' : 'ok'}`}>
-            <Icon name="refresh" />
-            <span>
-              {sync.pending > 0
-                ? `Ожидают отправки: ${sync.pending}`
-                : sync.lastSyncAt
-                  ? `Облако в порядке · ${fmtDate(sync.lastSyncAt.slice(0, 10))}`
-                  : 'Готово к синхронизации'}
-            </span>
-            <span style={{ flex: 1 }} />
-            <Button
-              variant="ghost"
-              icon="upload"
-              disabled={syncing}
-              onClick={() => {
-                setSyncing(true);
-                void runSync()
-                  .then((r) => {
-                    touch();
-                    notify(
-                      r.errors.length > 0
-                        ? `Замечание: ${r.errors[0]}`
-                        : `Отправлено ${r.pushed}, принято ${r.pulled}`,
-                      r.errors.length > 0 ? 'err' : 'ok',
-                    );
-                  })
-                  .catch((e) => notify(e instanceof Error ? e.message : 'Ошибка синхронизации', 'err'))
-                  .finally(() => setSyncing(false));
-              }}
-            >
-              {syncing ? 'Отправка…' : 'Отправить'}
-            </Button>
-          </div>
-        ) : null}
 
         {data.current?.nextPoint ? (
           <NextPointCard

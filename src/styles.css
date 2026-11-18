@@ -1372,18 +1372,6 @@ a.badge {
   white-space: nowrap;
 }
 
-.thumb-dot {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--warn);
-  border: 2px solid var(--card);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
 .viewer {
   background: var(--bg-soft);
   border: 1px solid var(--line);
@@ -1403,29 +1391,6 @@ a.badge {
 .btn-disabled {
   opacity: 0.6;
   pointer-events: none;
-}
-
-/* Полоса синхронизации */
-.sync-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.sync-bar.ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.sync-bar.err {
-  background: var(--err-soft);
-  color: var(--err);
 }
 
 .spin {

@@ -17,7 +17,6 @@ import Vehicles from './pages/Vehicles';
 import VehicleDetail from './pages/VehicleDetail';
 import Refs from './pages/Refs';
 import DataPage from './pages/Data';
-import SmartImport from './pages/SmartImport';
 import MorePage from './pages/More';
 import SettingsPage from './pages/Settings';
 import YandexDisk from './pages/YandexDisk';
@@ -321,7 +320,6 @@ export default function App() {
               <Route path="/vehicles/:id" element={<VehicleDetail />} />
               <Route path="/refs" element={<Refs />} />
               <Route path="/data" element={<DataPage />} />
-              <Route path="/data/smart" element={<SmartImport />} />
               <Route path="/more" element={<MorePage />} />
               <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />

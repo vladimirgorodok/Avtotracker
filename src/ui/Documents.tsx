@@ -5,7 +5,6 @@ import { Badge, Button, Confirm, Empty, Field, Icon, Modal, TextInput } from './
 import { useApp } from '../store';
 import type { DocumentRow } from '../lib/documents';
 import { addPhoto, deleteDocument, documentDataUrl, listDocuments, renameDocument } from '../lib/documents';
-import { isPending } from '../lib/sync';
 import { fmtDateTime, fmtNumber } from '../lib/format';
 
 export function DocumentsCard({
@@ -145,13 +144,10 @@ function Thumb({ doc, onOpen }: { doc: DocumentRow; onOpen: () => void }) {
     };
   }, [doc.id, doc.path, revision]);
 
-  const pending = isPending('attachments', doc.id);
-
   return (
     <button type="button" className="thumb" onClick={onOpen}>
       {url ? <img src={url} alt={doc.title} /> : <Icon name="doc" size={28} />}
       <span className="thumb-title">{doc.title}</span>
-      {pending ? <span className="thumb-dot" title="Ожидает отправки" /> : null}
     </button>
   );
 }
@@ -173,9 +169,6 @@ function ViewerContent({ doc }: { doc: DocumentRow }) {
         {url ? <img src={url} alt={doc.title} /> : <Empty text="Файл не найден на устройстве" />}
       </div>
       <div className="row wrap">
-        <Badge tone={isPending('attachments', doc.id) ? 'warn' : 'ok'}>
-          {isPending('attachments', doc.id) ? 'Ожидает отправки' : 'В облаке'}
-        </Badge>
         <Badge>{fmtNumber(Math.round((doc.size ?? 0) / 1024))} КБ</Badge>
         <Badge>{fmtDateTime(doc.created_at)}</Badge>
       </div>

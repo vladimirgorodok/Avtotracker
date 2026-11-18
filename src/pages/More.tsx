@@ -3,16 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Icon, Tabs, type IconName, Page } from '../ui/components';
 import { useApp } from '../store';
 import { countRows } from '../db/repo';
-import { syncState } from '../lib/sync';
 import { cloudState } from '../lib/yadisk';
 import { fmtDateTime } from '../lib/format';
-
-function syncSub(): string {
-  const s = syncState();
-  if (!s.configured) return 'Не настроена · данные только на телефоне';
-  if (!s.signedIn) return 'Нужно войти в облако';
-  return s.pending > 0 ? `Ожидают отправки: ${s.pending}` : 'Всё отправлено в облако';
-}
 
 function diskSub(): string {
   const s = cloudState();
@@ -30,7 +22,7 @@ const TABS: { id: MoreTab; label: string; hint: string }[] = [
     label: 'Данные',
     hint: 'Поиск по всему, путевые листы, поездки, заправки, финансы, техника и справочники',
   },
-  { id: 'services', label: 'Сервисы', hint: 'Облако, обмен данными, помощник, значки и настройки' },
+  { id: 'services', label: 'Сервисы', hint: 'Яндекс Диск, обмен данными, помощник, значки и настройки' },
 ];
 
 export default function MorePage() {
@@ -49,12 +41,11 @@ export default function MorePage() {
   ];
 
   const serviceItems: { to: string; title: string; sub: string; icon: IconName }[] = [
-    { to: '/settings', title: 'Облачная синхронизация', sub: syncSub(), icon: 'refresh' },
     { to: '/yadisk', title: 'Яндекс Диск', sub: diskSub(), icon: 'upload' },
     { to: '/data', title: 'Обмен данными', sub: 'Экспорт, импорт, резервные копии', icon: 'share' },
     { to: '/assistant', title: 'ИИ-помощник', sub: 'Разбор заявок и расчёты', icon: 'ai' },
     { to: '/assistant/pictures', title: 'Значки и логотипы', sub: 'Подбор картинок по названию', icon: 'search' },
-    { to: '/settings', title: 'Настройки', sub: 'Ставки, тема, синхронизация', icon: 'settings' },
+    { to: '/settings', title: 'Настройки', sub: 'Ставки, тема, оформление', icon: 'settings' },
   ];
 
   const items = tab === 'data' ? dataItems : serviceItems;

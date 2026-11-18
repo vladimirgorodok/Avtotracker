@@ -4,8 +4,6 @@ import { App as CapApp } from '@capacitor/app';
 import { Button, Card, Field, Icon, NumberInput, Page, Select, TextInput } from '../ui/components';
 import { applyTheme, useApp } from '../store';
 import { dbStats } from '../db/repo';
-import { urlProblem } from '../lib/supabase';
-import { SyncPanel } from '../ui/SyncPanel';
 import { AiSettings } from '../ui/AiSettings';
 import { loadDemoData } from '../db/seed';
 import { getDb } from '../db';
@@ -130,109 +128,6 @@ export default function SettingsPage() {
         </Button>
       </Card>
 
-      <Card title="Облачная синхронизация" actions={<Icon name="refresh" />}>
-        <div className="small muted">
-          Данные хранятся на телефоне и дублируются в ваш проект Supabase. Пока облако не настроено,
-          приложение работает полностью офлайн.
-        </div>
-
-        <details className="guide">
-          <summary>
-            <Icon name="doc" size={16} />
-            <span>Как настроить облако — подробная инструкция</span>
-          </summary>
-          <ol className="guide-steps">
-            <li>
-              Заведите бесплатную учётную запись:{' '}
-              <a
-                className="link"
-                href="https://supabase.com/dashboard/sign-up"
-                target="_blank"
-                rel="noreferrer"
-              >
-                supabase.com — регистрация
-              </a>
-              . Подойдёт вход через GitHub или почту.
-            </li>
-            <li>
-              В панели нажмите <b>New project</b>: любое имя, пароль базы (сохраните его), регион — ближе к
-              вам.{' '}
-              <a
-                className="link"
-                href="https://supabase.com/dashboard/projects"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Список проектов
-              </a>
-            </li>
-            <li>Дождитесь окончания создания проекта — это 1–2 минуты.</li>
-            <li>
-              Скопируйте два значения из раздела <b>Settings → API Keys</b>: <b>Project URL</b> и{' '}
-              <b>anon public key</b>. Вставьте их в поля «Адрес проекта» и «Ключ (anon)» ниже.{' '}
-              <a
-                className="link"
-                href="https://supabase.com/docs/guides/api/api-keys"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Где взять ключи
-              </a>
-            </li>
-            <li>
-              Откройте <b>SQL Editor → New query</b>, вставьте содержимое файла{' '}
-              <a
-                className="link"
-                href="https://github.com/vladimirgorodok/Avtotracker/blob/main/supabase/schema.sql"
-                target="_blank"
-                rel="noreferrer"
-              >
-                supabase/schema.sql
-              </a>{' '}
-              из репозитория и нажмите <b>Run</b>. Появятся таблицы и правила доступа к ним.
-            </li>
-            <li>
-              В разделе <b>Authentication → Providers</b> включите поставщика <b>Email</b>. Чтобы при входе
-              не требовалось подтверждать почту, выключите <b>Confirm email</b> (для личного пользования
-              удобнее).
-            </li>
-            <li>
-              Вернитесь в приложение, введите почту и пароль и нажмите <b>Создать запись</b>, затем{' '}
-              <b>Войти</b>.
-            </li>
-            <li>
-              Нажмите <b>Синхронизировать сейчас</b> — данные уедут в облако. Дальше отправлять изменения
-              можно кнопкой «Отправить» на главной.
-            </li>
-          </ol>
-          <div className="small muted">
-            Ключ (anon) можно хранить в приложении: сам по себе он не открывает чужие данные — доступ
-            ограничивают правила RLS из schema.sql. Пароль и токены входа хранятся только на телефоне.
-          </div>
-        </details>
-
-        <Field label="Адрес проекта">
-          <TextInput
-            value={settings.supabase_url}
-            onChange={(e) => saveSetting('supabase_url', e.target.value)}
-            placeholder="https://xxxx.supabase.co"
-          />
-        </Field>
-        {urlProblem(settings.supabase_url) ? (
-          <div className="alert alert-warn">
-            <Icon name="warning" />
-            <span>{urlProblem(settings.supabase_url)}</span>
-          </div>
-        ) : null}
-        <Field label="Ключ (anon)">
-          <TextInput
-            type="password"
-            value={settings.supabase_key}
-            onChange={(e) => saveSetting('supabase_key', e.target.value)}
-          />
-        </Field>
-        <SyncPanel />
-      </Card>
 
       <Card title="Яндекс Диск" actions={<Icon name="upload" />}>
         <div className="small muted">
@@ -248,7 +143,7 @@ export default function SettingsPage() {
       <Card title="Настройки в файле" actions={<Icon name="doc" />}>
         <div className="small muted">
           В файл попадает всё, что вы вводили руками: ставки, оформление, адрес и ключ ИИ-помощника,
-          адрес и ключ облака, вход в облако. Справочники и поездки — это данные, они сохраняются в
+          вход в Яндекс Диск. Справочники и поездки — это данные, они сохраняются в
           «Обмене данными» (полная копия). Перед переустановкой приложения или при смене телефона
           сохраните настройки в файл, после — загрузите из него.
         </div>

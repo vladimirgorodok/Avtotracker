@@ -26,7 +26,6 @@ import {
 import { allDocumentRows } from './documents';
 import { bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
 import { normalizeName } from './order';
-import { resetSyncMarkers } from './sync';
 import { TABLES } from '../types';
 import { CloudError, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
 
@@ -590,9 +589,6 @@ export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
       error instanceof Error ? error.message : 'Не удалось прочитать данные из облака',
     );
   }
-
-  // Данные заменились: для синхронизации с Supabase метки больше не верны
-  resetSyncMarkers();
 
   const icons = await restoreIconsFromDisk(disk, target, true).catch(() => ({
     pictures: 0,

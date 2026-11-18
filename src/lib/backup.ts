@@ -1,4 +1,4 @@
-/** Экспорт и импорт: ZIP с CSV, Excel, JSON-резервная копия, отчёт PDF. */
+/** Экспорт и импорт: Excel, JSON-резервная копия, файл настроек, отчёт PDF. */
 
 import { dbSync } from '../db';
 import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/repo';
@@ -25,107 +25,6 @@ export const TABLE_TITLES: Record<TableName, string> = {
   attachments: 'Документы',
 };
 
-function csvEscape(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-export function toCsv(rows: Record<string, unknown>[]): string {
-  if (rows.length === 0) return '';
-  const cols = Object.keys(rows[0]);
-  const head = cols.join(';');
-  const body = rows.map((r) => cols.map((c) => csvEscape(r[c])).join(';')).join('\n');
-  return `\uFEFF${head}\n${body}\n`;
-}
-
-/** Считаем разделители в строке, не заглядывая внутрь кавычек */
-function countDelimiters(line: string, delim: string): number {
-  let n = 0;
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') inQuotes = !inQuotes;
-    else if (ch === delim && !inQuotes) n++;
-  }
-  return n;
-}
-
-/**
- * Подобрать разделитель CSV. Свои выгрузки идут через «;», но чужой архив
- * часто с запятыми или табуляцией — иначе вся строка станет одной колонкой.
- */
-export function sniffDelimiter(text: string): string {
-  const sample = text
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== '')
-    .slice(0, 20);
-  if (sample.length === 0) return ';';
-  let best = ';';
-  let bestScore = 0;
-  for (const delim of [';', '\t', ',', '|']) {
-    const counts = sample.map((l) => countDelimiters(l, delim));
-    const first = counts[0];
-    if (first === 0) continue;
-    const stable = counts.filter((c) => c === first).length / counts.length;
-    const score = first * (0.5 + stable);
-    if (score > bestScore) {
-      bestScore = score;
-      best = delim;
-    }
-  }
-  return best;
-}
-
-/** Разобрать CSV. Разделитель определяется по самому тексту, если не задан явно. */
-export function parseCsv(text: string, delim?: string): Record<string, string>[] {
-  const separator = delim ?? sniffDelimiter(text);
-  const clean = text.replace(/^\uFEFF/, '');
-  const lines: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  for (let i = 0; i < clean.length; i++) {
-    const ch = clean[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (clean[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else inQuotes = false;
-      } else field += ch;
-    } else if (ch === '"') inQuotes = true;
-    else if (ch === separator) {
-      row.push(field);
-      field = '';
-    } else if (ch === '\n') {
-      row.push(field);
-      lines.push(row);
-      row = [];
-      field = '';
-    } else if (ch !== '\r') field += ch;
-  }
-  if (field !== '' || row.length > 0) {
-    row.push(field);
-    lines.push(row);
-  }
-  if (lines.length === 0) return [];
-  // Одинаковые заголовки не должны затирать друг друга
-  const seen = new Map<string, number>();
-  const header = lines[0].map((h) => {
-    const name = h === '' ? 'Колонка' : h;
-    const n = (seen.get(name) ?? 0) + 1;
-    seen.set(name, n);
-    return n === 1 ? name : `${name} ${n}`;
-  });
-  return lines
-    .slice(1)
-    .filter((l) => l.some((x) => x !== ''))
-    .map((l) => Object.fromEntries(header.map((h, i) => [h, l[i] ?? ''])));
-}
-
 function dumpTable(table: TableName): Record<string, unknown>[] {
   return dbSync().all<Record<string, unknown>>(`SELECT * FROM ${table}`);
 }
@@ -144,7 +43,7 @@ function stamp(): string {
 /* Настройки отдельным файлом                                          */
 /* ------------------------------------------------------------------ */
 
-/** Ключи настроек, которые можно переносить файлом (включая ключи ИИ и облака) */
+/** Ключи настроек, которые можно переносить файлом (включая ключ ИИ и вход в Яндекс Диск) */
 function settingKeys(): string[] {
   return Object.keys(DEFAULT_SETTINGS);
 }
@@ -196,30 +95,6 @@ export async function exportSettingsFile(): Promise<void> {
     buildSettingsFile(),
     'application/json',
   );
-}
-
-/** ZIP с CSV: по одному файлу на таблицу */
-export async function exportCsvZip(): Promise<void> {
-  const JSZip = (await import('jszip')).default;
-  const zip = new JSZip();
-  const data = dumpAll();
-  for (const t of TABLES) {
-    zip.file(`${t}.csv`, toCsv(data[t]));
-  }
-  zip.file(
-    'README.txt',
-    [
-      'АвтоБаза — выгрузка данных',
-      `Дата: ${new Date().toLocaleString('ru-RU')}`,
-      '',
-      'Каждый файл CSV соответствует таблице базы данных.',
-      'Разделитель — точка с запятой, кодировка UTF-8.',
-      '',
-      ...TABLES.map((t) => `${t}.csv — ${TABLE_TITLES[t]}`),
-    ].join('\n'),
-  );
-  const blob = await zip.generateAsync({ type: 'uint8array' });
-  await saveBinaryFile(`avtobaza-csv-${stamp()}.zip`, blob, 'application/zip');
 }
 
 /** Один файл Excel: лист на каждую таблицу */
@@ -327,34 +202,6 @@ function isTable(name: string): name is TableName {
   return (TABLES as readonly string[]).includes(name);
 }
 
-/** Колонки таблицы — чтобы лишние поля из чужого файла не ломали вставку */
-const columnCache = new Map<string, Map<string, string>>();
-
-/** Имя колонки → объявленный тип (TEXT / REAL / INTEGER) */
-export function columnTypesOf(table: string): Map<string, string> {
-  let cols = columnCache.get(table);
-  if (!cols) {
-    cols = new Map(
-      dbSync()
-        .all<{ name: string; type: string }>(`PRAGMA table_info(${table})`)
-        .map((c) => [c.name, String(c.type || '').toUpperCase()]),
-    );
-    columnCache.set(table, cols);
-  }
-  return cols;
-}
-
-export function columnsOf(table: string): Set<string> {
-  return new Set(columnTypesOf(table).keys());
-}
-
-/** «10 500,50» → 10500.5; не число — null */
-export function toNumber(raw: string): number | null {
-  const s = raw.replace(/\s|\u00a0/g, '').replace(',', '.');
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  return Number(s);
-}
-
 /**
  * Текст из байтов. Сначала UTF-8; если он «не сложился», пробуем windows-1251 —
  * так выгружает Excel и многие старые программы.
@@ -383,30 +230,6 @@ function describeImport(inserted: number, updated: number, skipped: number, file
   if (parts.length === 0) return `Файлов распознано: ${files}, новых записей нет`;
   return parts.join(', ');
 }
-
-/**
- * Строка из CSV → значения для базы.
- * Пустые клетки пропускаем совсем: тогда подставится значение по умолчанию
- * из схемы (в таблицах много полей вида NOT NULL DEFAULT ''), а не null,
- * из-за которого вставка падала целиком.
- */
-export function cleanCsvRow(table: string, row: Record<string, string>): Record<string, unknown> {
-  const types = columnTypesOf(table);
-  const clean: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) {
-    const type = types.get(k);
-    if (type === undefined) continue;
-    if (v === '') continue;
-    if (k === 'id' || type === 'TEXT') {
-      clean[k] = v;
-      continue;
-    }
-    const num = toNumber(v);
-    clean[k] = num === null ? v : num;
-  }
-  return clean;
-}
-
 /** Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений. */
 export function importJson(text: string, overwrite = false): ImportResult {
   const payload = JSON.parse(text) as {
@@ -466,43 +289,6 @@ export function importJson(text: string, overwrite = false): ImportResult {
     files: Object.keys(payload.tables ?? {}).length,
     message: describeImport(inserted, updated, skipped, Object.keys(payload.tables ?? {}).length),
   };
-}
-
-/** Импорт ZIP с CSV: строки добавляются, совпадающие id пропускаются. */
-export async function importCsvZip(bytes: Uint8Array): Promise<ImportResult> {
-  const JSZip = (await import('jszip')).default;
-  const zip = await JSZip.loadAsync(bytes);
-  const db = dbSync();
-  let inserted = 0;
-  let skipped = 0;
-  let files = 0;
-
-  for (const [name, file] of Object.entries(zip.files)) {
-    if (file.dir) continue;
-    const table = name.replace(/\.csv$/i, '').trim();
-    if (!isTable(table)) continue;
-    files++;
-    const text = decodeText(await file.async('uint8array'));
-    const rows = parseCsv(text);
-    db.tx(() => {
-      for (const row of rows) {
-        const id = String(row.id ?? '');
-        if (!id) {
-          skipped++;
-          continue;
-        }
-        const exists = dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
-        if (exists) {
-          skipped++;
-          continue;
-        }
-        insertRow(table, cleanCsvRow(table, row));
-        inserted++;
-      }
-    });
-  }
-
-  return { inserted, updated: 0, skipped, files, message: describeImport(inserted, 0, skipped, files) };
 }
 
 /** Встроить шрифт с кириллицей, иначе в PDF будут пустые квадраты */

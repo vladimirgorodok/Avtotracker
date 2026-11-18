@@ -128,12 +128,10 @@ async function main() {
   const { seedIfEmpty } = await import('../db/seed');
   const { summarizeWaybill, summarizeTrip, autoTripAmount } = await import('../lib/calc');
   const { closeWaybill, chargeTrip } = await import('../lib/actions');
-  const { dumpAll, toCsv, parseCsv, importJson, importCsvZip } = await import('../lib/backup');
+  const { dumpAll, importJson } = await import('../lib/backup');
   const { buildWaybillPdf, buildMonthReportPdf } = await import('../lib/backup');
-  const JSZip = (await import('jszip')).default;
-  const { todayIso, fmtDate, parseCoords, monthLabel } = await import('../lib/format');
+  const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel } = await import('../lib/format');
   const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
-  const { syncState, pendingByTable, isPending, resetSyncMarkers } = await import('../lib/sync');
 
   const { useApp } = await import('../store');
   const db = await getDb();
@@ -336,24 +334,10 @@ async function main() {
   eq('оплачено за месяц', fin.paid, 5000);
   eq('остаток', fin.balance, 7000);
 
-  console.log('\n9. Экспорт и импорт');
+  console.log('\n9. Резервная копия: выгрузка и импорт');
   const dump = dumpAll();
   check('в выгрузке есть все таблицы', Object.keys(dump).length === 13);
   check('перевозка попала в выгрузку', dump.trips.some((t) => t.id === tripId));
-
-  const csv = toCsv(dump.places);
-  const parsed = parseCsv(csv);
-  eq('CSV: строк столько же', parsed.length, dump.places.length);
-  eq('CSV: название места', parsed.find((r) => r.id === placeA)?.name, 'Склад А');
-  check('CSV: разделитель точка с запятой', csv.includes(';'));
-
-  const zip = new JSZip();
-  zip.file('places.csv', toCsv(dump.places));
-  zip.file('companies.csv', toCsv(dump.companies));
-  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
-  const importRes = await importCsvZip(zipBytes);
-  eq('импорт ZIP: ничего не добавилось (всё совпало)', importRes.inserted, 0);
-  check('импорт ZIP: записи пропущены', importRes.skipped > 0);
 
   const backup = JSON.stringify({ app: 'avtobaza', version: 1, tables: dump, settings: [] });
   const jsonRes = importJson(backup);
@@ -400,49 +384,22 @@ async function main() {
   check('сводка по документам', docSummary.count >= 1 && docSummary.bytes >= 12345);
   renameDocument(docId, 'Накладная №1 (исправлено)');
   eq('подпись изменена', listDocs('waybills', waybillId)[0].title, 'Накладная №1 (исправлено)');
-
-  console.log('\n12. Индикатор «ожидают отправки»');
-  resetSyncMarkers();
-  const stateBefore = syncState();
-  eq('облако не настроено', stateBefore.configured, false);
-  eq('нет входа', stateBefore.signedIn, false);
-  check('все записи ждут отправки', stateBefore.pending > 0);
-  const tablesPending = pendingByTable();
-  eq(
-    'сумма по таблицам совпадает с общим числом',
-    tablesPending.reduce((acc, t) => acc + t.count, 0),
-    stateBefore.pending,
-  );
-  check('перевозка отмечена как ожидающая', isPending('trips', tripId));
-
-  await new Promise((r) => setTimeout(r, 15));
-  useApp.getState().saveSetting('sync_pushed_at', new Date().toISOString());
-  eq('после отправки ничего не ждёт', syncState().pending, 0);
-  eq('перевозка отправлена', isPending('trips', tripId), false);
-
-  await new Promise((r) => setTimeout(r, 15));
-  repo.updateRow('places', placeA, { note: 'изменено после отправки' });
-  check('правка снова ждёт отправки', isPending('places', placeA));
-  eq('ждёт одна запись', syncState().pending, 1);
-
-  repo.updateRow('places', placeA, { note: '' });
-  resetSyncMarkers();
-  check('после полной сверки снова ждёт всё', syncState().pending > 1);
-
   deleteDocument(docId);
   eq('документ удалён', countDocs('waybills', waybillId), 0);
 
-  console.log('\n13. Сохранение базы');
+  console.log('\n12. Сохранение базы');
   await db.flush();
   check('база записана', db.export().length > 0);
 
-  console.log('\n14. Утилиты');
+  console.log('\n13. Утилиты');
   eq('формат даты', fmtDate('2026-11-12'), '12.11.2026');
   eq('координаты', JSON.stringify(parseCoords('56.001765,37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('название месяца', monthLabel('2026-11'), 'Ноябрь 2026 г.');
+  eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
+  eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
 
-  console.log('\n15. ИИ-помощник');
+  console.log('\n14. ИИ-помощник');
   const {
     normalizeBaseUrl,
     buildDataContext,
@@ -631,7 +588,7 @@ async function main() {
     (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
   }
 
-  console.log('\n16. Экраны приложения');
+  console.log('\n15. Экраны приложения');
 
   const firstId = (table: string): string =>
     dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE deleted = 0 ORDER BY created_at LIMIT 1`)?.id ?? '';
@@ -682,7 +639,6 @@ async function main() {
     },
     { label: 'Справочники', route: '/refs', url: '/refs', load: () => import('../pages/Refs') },
     { label: 'Обмен данными', route: '/data', url: '/data', load: () => import('../pages/Data') },
-    { label: 'Умный импорт', route: '/data/smart', url: '/data/smart', load: () => import('../pages/SmartImport') },
     { label: 'Ещё', route: '/more', url: '/more', load: () => import('../pages/More') },
     { label: 'Поиск по всему', route: '/search', url: '/search', load: () => import('../pages/Search') },
     { label: 'Настройки', route: '/settings', url: '/settings', load: () => import('../pages/Settings') },
@@ -753,7 +709,7 @@ async function main() {
     check('CSS читает отступы системных панелей', false, e instanceof Error ? e.message : String(e));
   }
 
-  console.log('\n16б. Оформление');
+  console.log('\n15б. Оформление');
   {
     const { applyTheme } = await import('../store');
     const { DEFAULT_SETTINGS } = await import('../types');
@@ -766,387 +722,7 @@ async function main() {
     eq('без явной гаммы — тёмно-синяя', root.dataset.palette, 'navy');
   }
 
-  console.log('\n17. Импорт ZIP в пустую базу');
-  {
-    const { TABLES } = await import('../types');
-    const full = dumpAll();
-    const zipAll = new JSZip();
-    for (const t of TABLES) zipAll.file(`${t}.csv`, toCsv(full[t]));
-    const zipAllBytes = await zipAll.generateAsync({ type: 'uint8array' });
-
-    const placesBefore = repo.countRows('places');
-    const tripsBefore = repo.countRows('trips');
-    db.tx(() => {
-      for (const t of TABLES) dbSync().run(`DELETE FROM ${t}`);
-    });
-    eq('база очищена', repo.countRows('places'), 0);
-
-    const restored = await importCsvZip(zipAllBytes);
-    check(
-      'импорт в пустую базу добавил записи',
-      restored.inserted > 0,
-      `(добавлено ${restored.inserted}, пропущено ${restored.skipped})`,
-    );
-    eq('места восстановлены', repo.countRows('places'), placesBefore);
-    eq('перевозки восстановлены', repo.countRows('trips'), tripsBefore);
-  }
-
-  console.log('\n18. Умный импорт чужого архива');
-  {
-    const si = await import('../lib/smart-import');
-
-    const foreign = [
-      'Дата;Путевой лист;Откуда;Куда;Вес, кг;Сумма;Груз;Тент',
-      '05.11.2026;ПЛ-777;Карьер Север;Порт Юг;18 500;12 000;Отсев;есть',
-      '06.11.2026;ПЛ-777;Порт Юг;База Запад;900;1 500;ПГС;нет',
-    ].join('\n');
-    const sheets = await si.readArchive(new TextEncoder().encode(foreign), 'Рейсы.csv');
-
-    eq('архив прочитан', sheets.length, 1);
-    eq('колонок в файле', sheets[0].columns.length, 8);
-
-    const plan = si.buildPlan(sheets);
-    const sheetPlan = plan.sheets[0];
-    eq('файл распознан как перевозки', sheetPlan.table, 'trips');
-    const mapped = sheetPlan.links.map((l) => l.to);
-    for (const field of ['date', 'waybill_number', 'place_from', 'place_to', 'weight', 'amount', 'cargo_name']) {
-      check(`колонка «${field}» распознана`, mapped.includes(field));
-    }
-    check('лишняя колонка осталась в стороне', sheetPlan.unknown.includes('Тент'));
-    check('подсказка про лишнее поле', plan.advice.some((a) => a.includes('Тент')));
-
-    const tripsBefore = repo.countRows('trips');
-    const res = si.applyPlan(sheets, plan);
-    eq('перенесено перевозок', res.inserted.trips, 2);
-    eq('перевозок стало больше', repo.countRows('trips'), tripsBefore + 2);
-    eq('места созданы', res.created.places, 3);
-    eq('грузы созданы', res.created.cargo_types, 2);
-    eq('путевой лист создан', res.created.waybills, 1);
-
-    const wb = repo.waybillRepo.list().find((w) => w.number === 'ПЛ-777');
-    check('номер листа перенесён', Boolean(wb));
-
-    const trip = repo.tripRepo
-      .all()
-      .find((t) => repo.tripRepo.points(t.id).some((p) => repo.refs.place(p.place_id)?.name === 'Карьер Север'));
-    check('перевозка с точками создана', Boolean(trip));
-    if (trip) {
-      const points = repo.tripRepo.points(trip.id);
-      eq('точек у перевозки', points.length, 2);
-      eq('первая точка — погрузка', points[0].kind, 'load');
-      eq('вторая точка — выгрузка', points[1].kind, 'unload');
-      eq('точки выполнены', points.filter((p) => p.status === 'done').length, 2);
-      eq('вес перенесён', trip.weight, 18500);
-      eq('сумма перенесена', trip.amount, 12000);
-      eq('груз привязан', repo.refs.cargoType(trip.cargo_type_id)?.name, 'Отсев');
-      eq('лист привязан', trip.waybill_id, wb?.id);
-    }
-
-    // Файл без понятного имени: таблицу подсказывают колонки
-    const fuel = await si.readArchive(
-      new TextEncoder().encode('Дата;Количество;Тип\n07.11.2026;350;АЗС'),
-      'Данные.csv',
-    );
-    const fuelPlan = si.buildPlan(fuel);
-    eq('таблица угадана по колонкам', fuelPlan.sheets[0].table, 'refuelings');
-    const fuelRes = si.applyPlan(fuel, fuelPlan);
-    eq('заправка перенесена', fuelRes.inserted.refuelings, 1);
-
-    // Старый архив в windows-1251 — так выгружает Excel
-    const legacy = new Uint8Array([
-      196, 224, 242, 224, 59, 204, 229, 241, 242, 238, 59, 194, 229, 241, 10, 48, 49, 46, 49, 49,
-      46, 50, 48, 50, 54, 59, 202, 224, 240, 252, 229, 240, 32, 209, 229, 226, 229, 240, 59, 49, 48,
-      48,
-    ]);
-    const legacySheets = await si.readArchive(legacy, 'Места.csv');
-    eq('кодировка windows-1251 разобрана', legacySheets[0].columns.join(';'), 'Дата;Место;Вес');
-    eq('значение в windows-1251 прочитано', legacySheets[0].rows[0]['Место'], 'Карьер Север');
-
-    // Даты и месяцы в разных форматах
-    eq('дата ДД.ММ.ГГГГ', si.parseDateValue('05.11.2026'), '2026-11-05');    eq('дата ГГГГ-ММ-ДД', si.parseDateValue('2026-11-05'), '2026-11-05');
-    eq('месяц словом', si.parseMonthValue('Ноябрь 2026'), '2026-11');
-    eq('месяц точкой', si.parseMonthValue('11.2026'), '2026-11');
-
-    // ИИ уточняет разбор, когда имена колонок ничего не говорят
-    const originalFetch = globalThis.fetch;
-    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content:
-                  '{"sheets":[{"source":"таблица","table":"places","confidence":0.9,' +
-                  '"columns":{"A":"name","B":"address"}}],"advice":["Добавьте поле «Район»"]}',
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )) as unknown as typeof fetch;
-    try {
-      const vague = await si.readArchive(
-        new TextEncoder().encode('A;B\nБаза Юг;Москва, Ленина 1'),
-        'таблица.csv',
-      );
-      const rawPlan = si.buildPlan(vague);
-      eq('без ИИ таблица не угадана', rawPlan.sheets[0].table, null);
-      const refined = await si.refineWithAi(vague, rawPlan);
-      eq('ИИ подставил таблицу', refined.sheets[0].table, 'places');
-      eq('пометка источника — ИИ', refined.sheets[0].via, 'ИИ');
-      check('совет ИИ добавлен', refined.advice.some((a) => a.includes('Район')));
-      const vagueRes = si.applyPlan(vague, refined);
-      eq('перенесено в места', vagueRes.inserted.places, 1);
-      check('место создано', repo.refs.places().some((p) => p.name === 'База Юг'));
-    } finally {
-      (globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch;
-    }
-
-    // Чужой архив с запятыми: разделитель подбирается по самому файлу,
-    // иначе вся строка становится одной колонкой и всё уезжает в «Автомобили»
-    const commaSheets = await si.readArchive(
-      new TextEncoder().encode(
-        'Дата,Машина,Откуда,Куда,Вес,Сумма\n05.11.2026,Volvo FH,Склад А,Склад Б,18500,42000',
-      ),
-      'Лист1.csv',
-    );
-    eq(
-      'запятая как разделитель разобрана',
-      commaSheets[0].columns.join('|'),
-      'Дата|Машина|Откуда|Куда|Вес|Сумма',
-    );
-    eq('перевозки не ушли в автомобили', si.buildPlan(commaSheets).sheets[0].table, 'trips');
-    const { summarizePlan } = await import('../pages/SmartImport');
-    const summary = summarizePlan(si.buildPlan(commaSheets));
-    eq('итог по таблицам посчитан', `${summary[0][0]}:${summary[0][1]}`, 'Перевозки:1');
-
-    // Строка без разделителей: одна колонка со всеми словами — таблица не угадана
-    const oneCol = await si.readArchive(
-      new TextEncoder().encode(
-        'Дата Машина Откуда Куда Вес Сумма\n05.11.2026 Volvo Склад А Склад Б 18500 42000',
-      ),
-      'данные.csv',
-    );
-    eq('одна колонка не свалилась в автомобили', si.buildPlan(oneCol).sheets[0].table, null);
-
-    // Перенос можно отменить: журнал помнит добавленные записи
-    const undoBefore = repo.countRows('places');
-    const undoSheets = await si.readArchive(
-      new TextEncoder().encode('Дата;Место;Вес\n05.11.2026;Карьер Юг;18000'),
-      'Места.csv',
-    );
-    const undoRes = si.applyPlan(undoSheets, si.buildPlan(undoSheets));
-    eq('перенос отдал список записей', undoRes.ids.places?.length, 1);
-    check('журнал запомнил место', repo.countRows('places') === undoBefore + 1);
-    eq('отмена убрала запись', repo.softDeleteMany('places', undoRes.ids.places ?? []), 1);
-    eq('после отмены записей столько же', repo.countRows('places'), undoBefore);
-
-    // Фильтр по месяцам показывает только месяцы с данными
-    const { monthChoices, fmtDateTime } = await import('../lib/format');
-    const choices = monthChoices(['2026-03', '2024-01'], '2019-07');
-    check('месяц с данными в списке', choices.includes('2026-03'));
-    check('пустые месяцы не показаны', !choices.includes('2022-05'));
-    check('выбранный месяц сохранён', choices.includes('2019-07'));
-    check('месяцы идут по убыванию', choices.join('|') === [...choices].sort((a, b) => b.localeCompare(a)).join('|'));
-    eq('пустой список — только текущий месяц', monthChoices().length, 1);
-
-    // Понятная подсказка вместо «Failed to fetch»
-    const { urlProblem } = await import('../lib/supabase');
-    check('адрес сайта распознан как ошибка', urlProblem('https://supabase.com').includes('сайта Supabase'));
-    eq('правильный адрес без замечаний', urlProblem('https://abcd1234.supabase.co'), '');
-    check('адрес без схемы распознан', urlProblem('abcd1234.supabase.co').includes('https://'));
-    eq('пустой адрес без замечаний', urlProblem('   '), '');
-    const months = repo.usedMonths();
-    check('месяцы с данными найдены', months.length > 0);
-    check('формат месяцев верный', months.every((m) => /^\d{4}-\d{2}$/.test(m)));
-
-    // Чужой архив из 11 файлов с английскими именами и camelCase-колонками
-    const archiveZip = new JSZip();
-    archiveZip.file(
-      '01-vehicles.csv',
-      'id,name,brand,model,plate,vin,year,fuelNorm,type,notes\n' +
-        'v1,Volvo FH,Volvo,FH,А123ВС777,X1Y2Z3,2019,32,tractor,\n' +
-        'v2,Schmitz,Schmitz,SCB,ВЕ4567,ZZZ,2020,,trailer,',
-    );
-    archiveZip.file(
-      '02-companies.csv',
-      'id,name,typicalCargoId,existingLogoUrl,internetLogoUrl,hostingLogoUrl\n' +
-        'c1,ООО Ромашка,k1,,,',
-    );
-    archiveZip.file(
-      '03-cargos.csv',
-      'id,name,existingLogoUrl,internetLogoUrl,hostingLogoUrl\nk1,Песок,,,\nk2,Щебень гранитный,,,',
-    );
-    archiveZip.file(
-      '04-places.csv',
-      'id,name,contact,coordinates,address,loadType,notes,companyId,typicalCargoId\n' +
-        'p1,Карьер Архив,Иван 900,"55.75, 37.61",Москва,rear,,c1,k1',
-    );
-    archiveZip.file(
-      '05-periods.csv',
-      'id,name,startDate,endDate,vehicleId\npr1,2019 год,01.01.2019,31.12.2019,v1',
-    );
-    archiveZip.file(
-      '06-waybills.csv',
-      'id,name,departureDate,returnDate,odometerOut,odometerIn,fuelOut,fuelIn,notes,periodId,vehicleId,trailerId\n' +
-        'w1,Лист 1,05.11.2026,06.11.2026,100000,100500,300,250,,pr1,v1,v2',
-    );
-    archiveZip.file(
-      '07-trips.csv',
-      'id,name,cargo,weightKg,loadingType,accrual,notes,waybillId\n' +
-        't1,Рейс с песком,Песок,20000,rear,12000,,w1\n' +
-        // У второй перевозки груз не указан: название не должно превратиться в груз
-        't2,08.05.2026 · МО_СОЛНЕЧНОГОРСК → Шушары,,4097,rear,11500,,w1',
-    );
-    archiveZip.file(
-      '08-stops.csv',
-      'id,name,order,date,plannedDate,arrivedAt,placeName,direction,tripId,placeId,companyId\n' +
-        's1,Погрузка,1,05.11.2026,05.11.2026,05.11.2026,Карьер Архив,load,t1,p1,c1\n' +
-        's2,Выгрузка,2,06.11.2026,06.11.2026,06.11.2026,Склад Юг,unload,t1,,c1\n' +
-        's3,Погрузка,1,07.11.2026,07.11.2026,07.11.2026,Карьер Архив,load,t2,p1,c1\n' +
-        's4,Выгрузка,2,08.11.2026,08.11.2026,08.11.2026,Склад Юг,unload,t2,,c1',
-    );
-    archiveZip.file('09-gas-stations.csv', 'id,name,notes,existingLogoUrl,internetLogoUrl,hostingLogoUrl\ng1,Лукойл-Тест,,,,\n');
-    archiveZip.file(
-      '10-fuels.csv',
-      'id,name,unknownTime,liters,source,dateTime,waybillId,gasStationId\n' +
-        'f1,Заправка,,250,station,05.11.2026 08:30,w1,g1',
-    );
-    archiveZip.file(
-      '11-finances.csv',
-      'id,name,type,date,amount,month,description,reconciliationStatus,tripId,waybillId\n' +
-        'fi1,Начисление,charge,06.11.2026,12000,11.2026,За рейс,done,t1,w1\n' +
-        'fi2,Оплата,Оплачено,07.11.2026,12000,2026-11-01T00:00:00.000Z,Получено,done,,w1',
-    );
-    const archiveSheets = await si.readArchive(await archiveZip.generateAsync({ type: 'uint8array' }), 'avtobaza.zip');
-    const archivePlan = si.buildPlan(archiveSheets);
-    const tableOf = (file: string) => archivePlan.sheets.find((s) => s.source === file)?.table ?? null;
-    eq('файлов в чужом архиве', archiveSheets.length, 11);
-    eq('01-vehicles → автомобили', tableOf('01-vehicles'), 'vehicles');
-    eq('02-companies → фирмы', tableOf('02-companies'), 'companies');
-    eq('03-cargos → грузы', tableOf('03-cargos'), 'cargo_types');
-    eq('04-places → места', tableOf('04-places'), 'places');
-    eq('05-periods → периоды', tableOf('05-periods'), 'vehicle_periods');
-    eq('06-waybills → листы', tableOf('06-waybills'), 'waybills');
-    eq('07-trips → перевозки', tableOf('07-trips'), 'trips');
-    eq('08-stops → точки', tableOf('08-stops'), 'trip_points');
-    eq('09-gas-stations → АЗС', tableOf('09-gas-stations'), 'fuel_stations');
-    eq('10-fuels → заправки', tableOf('10-fuels'), 'refuelings');
-    eq('11-finances → финансы', tableOf('11-finances'), 'finance_ops');
-
-    const linkOf = (file: string, column: string) =>
-      archivePlan.sheets.find((s) => s.source === file)?.links.find((l) => l.from === column);
-    eq('06-waybills.vehicleId — ссылка на автомобиль', linkOf('06-waybills', 'vehicleId')?.fk?.target, 'vehicles');
-    eq('07-trips.waybillId — ссылка на лист', linkOf('07-trips', 'waybillId')?.fk?.target, 'waybills');
-    eq('08-stops.tripId — ссылка на перевозку', linkOf('08-stops', 'tripId')?.fk?.target, 'trips');
-    eq('10-fuels.gasStationId — ссылка на АЗС', linkOf('10-fuels', 'gasStationId')?.fk?.target, 'fuel_stations');
-    eq('колонка id — ключ записи', archivePlan.sheets.find((s) => s.source === '07-trips')?.idColumn, 'id');
-    eq('camelCase departureDate → date_out', linkOf('06-waybills', 'departureDate')?.to, 'date_out');
-    eq('camelCase odometerIn → odometer_in', linkOf('06-waybills', 'odometerIn')?.to, 'odometer_in');
-    eq('accrual → начислено', linkOf('07-trips', 'accrual')?.to, 'amount');
-    eq('weightKg → вес', linkOf('07-trips', 'weightKg')?.to, 'weight');
-    eq('arrivedAt → фактическая дата', linkOf('08-stops', 'arrivedAt')?.to, 'fact_date');
-    eq('direction → тип точки', linkOf('08-stops', 'direction')?.to, 'kind');
-    eq('liters → количество', linkOf('10-fuels', 'liters')?.to, 'volume');
-    eq('month → месяц оплаты', linkOf('11-finances', 'month')?.to, 'pay_month');
-    check('название перевозки не стало грузом', !linkOf('07-trips', 'name'));
-    check('название точки не стало местом', !linkOf('08-stops', 'name'));
-    check('название заправки не стало АЗС', !linkOf('10-fuels', 'name'));
-    check('служебная колонка unknownTime пропущена', !linkOf('10-fuels', 'unknownTime'));
-    check(
-      'служебные логотипы не мешают',
-      !(archivePlan.sheets.find((s) => s.source === '03-cargos')?.unknown ?? []).some((c) =>
-        c.toLowerCase().includes('logo'),
-      ),
-    );
-
-    const archiveZipResult = si.applyPlan(archiveSheets, archivePlan);
-    eq('автомобилей перенесено', archiveZipResult.inserted.vehicles, 2);
-    eq('фирм перенесено', archiveZipResult.inserted.companies, 1);
-    eq('грузов перенесено', archiveZipResult.inserted.cargo_types, 2);
-    eq('мест из файла перенесено', archiveZipResult.inserted.places, 1);
-    eq('периодов перенесено', archiveZipResult.inserted.vehicle_periods, 1);
-    eq('листов перенесено', archiveZipResult.inserted.waybills, 1);
-    eq('перевозок перенесено', archiveZipResult.inserted.trips, 2);
-    eq('точек перенесено', archiveZipResult.inserted.trip_points, 4);
-    eq('заправок перенесено', archiveZipResult.inserted.refuelings, 1);
-    eq('финансов перенесено', archiveZipResult.inserted.finance_ops, 2);
-
-    // Связи между таблицами должны восстановиться по старым идентификаторам
-    const mine = (table: string, id: string | undefined) => (archiveZipResult.ids[table] ?? []).includes(id ?? '');
-    const newVehicle = repo.refs.vehicles().find((v) => v.name === 'Volvo FH' && mine('vehicles', v.id));
-    const newWaybill = repo.waybillRepo.list().find((w) => mine('waybills', w.id));
-    const newTrip = repo.tripRepo.get((archiveZipResult.ids.trips ?? [])[0] ?? '');
-    const newPlace = repo.refs.places().find((p) => p.name === 'Карьер Архив' && mine('places', p.id));
-    eq('лист связан с автомобилем', newWaybill?.vehicle_id, newVehicle?.id);
-    eq('одометр листа перенесён', newWaybill?.odometer_out, 100000);
-    eq('тоннаж листа перенесён', newWaybill?.odometer_in, 100500);
-    eq('лист с датой приезда закрыт', newWaybill?.status, 'closed');
-    eq('перевозка связана с листом', newTrip?.waybill_id, newWaybill?.id);
-    eq('вес перевозки перенесён', newTrip?.weight, 20000);
-    const points = newTrip ? repo.tripRepo.points(newTrip.id) : [];
-    eq('точек у перевозки из чужого архива', points.length, 2);
-    eq('точка погрузки связана с местом', points[0]?.place_id, newPlace?.id);
-    eq('тип точки из direction', points[0]?.kind, 'load');
-    eq('тип второй точки из direction', points[1]?.kind, 'unload');
-    eq('выполненная точка отмечена', points[0]?.status, 'done');
-    eq('перевозка с начислением — «начислена»', newTrip?.status, 'charged');
-    const secondTrip = repo.tripRepo.get((archiveZipResult.ids.trips ?? [])[1] ?? '');
-    eq('выполненная перевозка без начисления — «выполнена»', secondTrip?.status, 'done');
-    check(
-      'название перевозки без груза не стало грузом',
-      !repo.refs.cargoTypes().some((c) => c.name.includes('МО_СОЛНЕЧН')),
-    );
-    const newStation = repo.refs.fuelStations().find((s) => s.name === 'Лукойл-Тест' && mine('fuel_stations', s.id));
-    const fuelRow = repo.refuelRepo.list().find((f) => mine('refuelings', f.id));
-    eq('заправка связана с АЗС', fuelRow?.station_id, newStation?.id);
-    eq('заправка связана с листом', fuelRow?.waybill_id, newWaybill?.id);
-    eq('дата заправки из dateTime', fuelRow?.date, '2026-11-05');
-    eq('тип заправки из source', fuelRow?.kind, 'station');
-    eq('количество литров перенесено', fuelRow?.volume, 250);
-    const fin = repo.financeRepo.get((archiveZipResult.ids.finance_ops ?? [])[0] ?? '');
-    eq('финансы связаны с перевозкой', fin?.trip_id, newTrip?.id);
-    eq('месяц оплаты перенесён', fin?.pay_month, '2026-11');
-    eq('тип операции из type', fin?.kind, 'charge');
-    eq('сумма финансов перенесена', fin?.amount, 12000);
-    const pay = repo.financeRepo.get((archiveZipResult.ids.finance_ops ?? [])[1] ?? '');
-    eq('«Оплачено» — это поступление', pay?.kind, 'payment');
-    eq('месяц оплаты из момента времени', pay?.pay_month, '2026-11');
-    const place = repo.refs.place((archiveZipResult.ids.places ?? [])[0] ?? null);
-    eq('координаты разобраны', place?.lat, 55.75);
-    eq('долгота разобрана', place?.lon, 37.61);
-    eq('фирма места связана', place?.company_id, repo.refs.companies().find((c) => c.name === 'ООО Ромашка')?.id);
-    eq('груз места связан', place?.cargo_type_id, repo.refs.cargoTypes().find((c) => c.name === 'Песок' && mine('cargo_types', c.id))?.id);
-    eq('тип загрузки места перенесён', place?.load_type, 'rear');
-    eq('название места перенесено', place?.name, 'Карьер Архив');
-    const periodVehicle = repo.vehicleRepo.periods(newVehicle?.id ?? '');
-    eq('период связан с автомобилем', periodVehicle.length, 1);
-    eq('дата начала периода перенесена', periodVehicle[0]?.start_date, '2019-01-01');
-    eq('дата конца периода перенесена', periodVehicle[0]?.end_date, '2019-12-31');
-    check('место выгрузки создано по названию', repo.refs.places().some((p) => p.name === 'Склад Юг'));
-    check('связи между таблицами посчитаны', archiveZipResult.message.includes('связей между таблицами'));
-
-    // Повторный перенос того же архива не должен плодить справочники
-    const cargosBefore = repo.refs.cargoTypes().length;
-    const repeat = si.applyPlan(archiveSheets, archivePlan);
-    eq('грузы не задвоились', repeat.inserted.cargo_types ?? 0, 0);
-    eq('автомобили не задвоились', repeat.inserted.vehicles ?? 0, 0);
-    eq('фирмы не задвоились', repeat.inserted.companies ?? 0, 0);
-    eq('АЗС не задвоились', repeat.inserted.fuel_stations ?? 0, 0);
-    eq('места не задвоились', repeat.inserted.places ?? 0, 0);
-    eq('справочник грузов не вырос', repo.refs.cargoTypes().length, cargosBefore);
-    check('в итоге сказано про уже бывшие записи', repeat.message.includes('уже были в базе'));
-
-    // Даты и месяцы из чужого архива: местная полночь записана как момент времени в UTC
-    eq('полночь МСК → тот же день', si.parseDateValue('2026-11-10T21:00:00.000Z'), '2026-11-11');
-    eq('момент времени → местная дата', si.parseDateValue('2026-11-11T12:37:00.000Z'), '2026-11-11');
-    eq('месяц из момента времени', si.parseMonthValue('2026-11-01T00:00:00.000Z'), '2026-11');
-    eq('месяц из полной даты', si.parseMonthValue('2026-11-12'), '2026-11');
-    eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
-    eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
-  }
-
-  console.log('\n19. Текущая поездка: статусы, порядок и навигация');
+  console.log('\n16. Текущая поездка: статусы, порядок и навигация');
   {
     const { refreshTripStatus } = await import('../lib/actions');
     const { sortTrips, summarizeTrip: summarize } = await import('../lib/calc');
@@ -1228,7 +804,7 @@ async function main() {
     check('адрес без координат тоже открывает карту', mapLink(null, null, 'Москва, Ленина 1').includes('yandex.ru'));
   }
 
-  console.log('\n20. Заявка из файлов: разбор, справочники и поездка');
+  console.log('\n17. Заявка из файлов: разбор, справочники и поездка');
   {
     const ord = await import('../lib/order');
 
@@ -1539,13 +1115,13 @@ async function main() {
     }
   }
 
-  console.log('\n21. Настройки отдельным файлом');
+  console.log('\n18. Настройки отдельным файлом');
   {
     const { buildSettingsFile, applySettingsFile } = await import('../lib/backup');
     const before = repo.getSettings();
     repo.setSetting('ai_api_key', 'test-key-123');
     repo.setSetting('ai_model', 'test-model');
-    repo.setSetting('supabase_url', 'https://example.supabase.co');
+    repo.setSetting('yadisk_login', 'test-login');
     repo.setSetting('base_amount', 12000);
 
     const text = buildSettingsFile();
@@ -1555,7 +1131,7 @@ async function main() {
       'в файле есть ключ ИИ',
       payload.settings.some((s) => s.key === 'ai_api_key' && s.value === 'test-key-123'),
     );
-    check('в файле есть адрес облака', payload.settings.some((s) => s.key === 'supabase_url'));
+    check('в файле есть вход в Яндекс Диск', payload.settings.some((s) => s.key === 'yadisk_login'));
     check(
       'в файле есть ставки',
       payload.settings.some((s) => s.key === 'base_amount' && s.value === '12000'),
@@ -1564,13 +1140,13 @@ async function main() {
     // «Переустановка»: настройки пустые, файл возвращает их
     repo.setSetting('ai_api_key', '');
     repo.setSetting('ai_model', '');
-    repo.setSetting('supabase_url', '');
+    repo.setSetting('yadisk_login', '');
     repo.setSetting('base_amount', 10500);
     const applied = applySettingsFile(text);
     check('настройки применены', applied >= 4, `(${applied})`);
     eq('ключ ИИ восстановлен', repo.getSettings().ai_api_key, 'test-key-123');
     eq('модель восстановлена', repo.getSettings().ai_model, 'test-model');
-    eq('адрес облака восстановлен', repo.getSettings().supabase_url, 'https://example.supabase.co');
+    eq('вход в Яндекс Диск восстановлен', repo.getSettings().yadisk_login, 'test-login');
     eq('ставка восстановлена', repo.getSettings().base_amount, 12000);
 
     // Через общий импорт: файл только с настройками не требует таблиц
@@ -1611,11 +1187,11 @@ async function main() {
     // Вернуть исходные значения
     repo.setSetting('ai_api_key', before.ai_api_key);
     repo.setSetting('ai_model', before.ai_model);
-    repo.setSetting('supabase_url', before.supabase_url);
+    repo.setSetting('yadisk_login', before.yadisk_login);
     repo.setSetting('base_amount', before.base_amount);
   }
 
-  console.log('\n22. Подбор логотипов и значков по названию');
+  console.log('\n19. Подбор логотипов и значков по названию');
   {
     const pics = await import('../lib/pictures');
     const { dataUrlToBytes } = await import('../lib/files');
@@ -1890,7 +1466,7 @@ async function main() {
     check('на экране есть кнопка поиска', finderHtml.includes('Найти'));
   }
 
-  console.log('\n23. Логотипы и значки в списках выбора');
+  console.log('\n20. Логотипы и значки в списках выбора');
   {
     const { Select, SelectMenu } = await import('../ui/components');
     const { filterOptions, SELECT_SEARCH_FROM } = await import('../ui/select');
@@ -1978,7 +1554,7 @@ async function main() {
     eq('логотипы подставлены во все списки выбора справочников', wired, withPictures.length);
   }
 
-  console.log('\n24. Логотип в карточке записи');
+  console.log('\n21. Логотип в карточке записи');
   {
     const { PictureSearch } = await import('../ui/PictureSearch');
     const logo = 'data:image/png;base64,AAAA';
@@ -1999,7 +1575,7 @@ async function main() {
     check('без нынешней картинки подсказки нет', !empty.includes('новая её заменит'));
   }
 
-  console.log('\n25. Экран «Ещё»: разделы переключателем');
+  console.log('\n22. Экран «Ещё»: разделы переключателем');
   {
     const moreMod = await import('../pages/More');
     const html = renderToString(
@@ -2018,7 +1594,7 @@ async function main() {
     check('в данных есть вход в общий поиск', html.includes('Поиск по всему'));
   }
 
-  console.log('\n26. Поиск по всему');
+  console.log('\n23. Поиск по всему');
   {
     const { globalSearch, SEARCH_KINDS } = await import('../lib/search');
 
@@ -2094,7 +1670,7 @@ async function main() {
     );
   }
 
-  console.log('\n27. Порядок списков: свежие записи вверху');
+  console.log('\n24. Порядок списков: свежие записи вверху');
   {
     // Финансы: раньше список за месяц шёл от старых к новым — это и было замечено
     const janOld = repo.insertRow('finance_ops', {
@@ -2264,7 +1840,7 @@ async function main() {
     check('подписано, что это своя картинка', psHtml.includes('своя картинка вместо найденной'));
   }
 
-  console.log('\n28. Яндекс Диск: данные отдельно, значки отдельно');
+  console.log('\n25. Яндекс Диск: данные отдельно, значки отдельно');
   {
     const webdav = await import('../lib/webdav');
     const disk = await import('../lib/yadisk');
@@ -2591,7 +2167,7 @@ async function main() {
     check('в браузере родного обработчика нет', nativeMod.nativeWebDavReady() === false);
   }
 
-  console.log('\n29. Защита данных: копия базы и пустая выгрузка');
+  console.log('\n26. Защита данных: копия базы и пустая выгрузка');
   {
     const storage = await import('../db/storage');
     const { TABLES } = await import('../types');

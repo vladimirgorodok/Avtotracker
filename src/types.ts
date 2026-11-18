@@ -188,22 +188,6 @@ export interface AppSettings {
   ai_base_url: string;
   ai_api_key: string;
   ai_model: string;
-  supabase_url: string;
-  supabase_key: string;
-  supabase_email: string;
-  supabase_user_id: string;
-  supabase_access_token: string;
-  supabase_refresh_token: string;
-  /** Момент истечения токена доступа, ISO */
-  supabase_expires_at: string;
-  /** До какого момента локальные записи уже отправлены в облако */
-  sync_pushed_at: string;
-  /** До какого момента записи уже забраны из облака */
-  sync_pulled_at: string;
-  /** Время последней успешной синхронизации, ISO */
-  sync_last_at: string;
-  /** Текст последней ошибки синхронизации */
-  sync_last_error: string;
   /** Яндекс Диск: логин и пароль приложения для обмена по WebDAV */
   yadisk_login: string;
   yadisk_password: string;
@@ -239,17 +223,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ai_base_url: 'https://api.aitunnel.ru/v1',
   ai_api_key: '',
   ai_model: '',
-  supabase_url: '',
-  supabase_key: '',
-  supabase_email: '',
-  supabase_user_id: '',
-  supabase_access_token: '',
-  supabase_refresh_token: '',
-  supabase_expires_at: '',
-  sync_pushed_at: '',
-  sync_pulled_at: '',
-  sync_last_at: '',
-  sync_last_error: '',
   yadisk_login: '',
   yadisk_password: '',
   yadisk_folder: '/avtobaza',
