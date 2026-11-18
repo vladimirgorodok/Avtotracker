@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { getDb, setSaveErrorHandler } from './db';
 import { applyStatusBarTheme, applyTheme, applyViewMode, useApp } from './store';
-import { Icon, type IconName, Modal, Toasts } from './ui/components';
+import { Confirm, Icon, type IconName, Modal, Toasts } from './ui/components';
 import { Splash } from './ui/Splash';
+import { ExitScreen } from './ui/ExitScreen';
 import Home from './pages/Home';
 import Waybills from './pages/Waybills';
 import WaybillDetail from './pages/WaybillDetail';
@@ -63,7 +66,39 @@ function BottomNav({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function CreateSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Системная кнопка «Назад».
+ *
+ * На внутренних экранах — обычный возврат, а на главной она предлагает закрыть
+ * приложение: выход идёт через сохранение, поэтому случайное нажатие ничего не теряет.
+ */
+function BackExit({ onExit }: { onExit: () => void }) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const handle = CapApp.addListener('backButton', () => {
+      if (pathname !== '/') navigate(-1);
+      else onExit();
+    });
+    return () => {
+      void handle.then((h) => h.remove());
+    };
+  }, [pathname, navigate, onExit]);
+
+  return null;
+}
+
+function CreateSheet({
+  open,
+  onClose,
+  onExit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onExit: () => void;
+}) {
   const navigate = useNavigate();
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
@@ -146,7 +181,7 @@ function CreateSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
   }
 
   return (
-    <Modal open={open} title="Что добавить" onClose={onClose}>
+    <Modal open={open} title="Что сделать" onClose={onClose}>
       <div className="list">
         <button className="list-item" onClick={newWaybill}>
           <span className="avatar">
@@ -193,6 +228,16 @@ function CreateSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
             <span className="li-sub">Адрес, координаты, контакт</span>
           </span>
         </button>
+        <div className="divider" />
+        <button className="list-item" onClick={onExit}>
+          <span className="avatar">
+            <Icon name="power" />
+          </span>
+          <span className="li-main">
+            <span className="li-title">Закрыть приложение</span>
+            <span className="li-sub">Сохранение, обмен с облаком, выход</span>
+          </span>
+        </button>
       </div>
     </Modal>
   );
@@ -202,11 +247,23 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [askExit, setAskExit] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const init = useApp((s) => s.init);
   const settings = useApp((s) => s.settings);
   const dataWarning = useApp((s) => s.dataWarning);
   const finishSplash = useCallback(() => setSplashDone(true), []);
+  const openExit = useCallback(() => {
+    setCreateOpen(false);
+    setAskExit(false);
+    setExitOpen(true);
+  }, []);
+  /** «Назад» на главной: если открыт экран закрытия — возвращаемся, иначе спрашиваем */
+  const backFromRoot = useCallback(() => {
+    if (exitOpen) setExitOpen(false);
+    else setAskExit(true);
+  }, [exitOpen]);
 
   useEffect(() => {
     (async () => {
@@ -343,7 +400,20 @@ export default function App() {
               <Route path="/assistant/pictures" element={<PictureFinder />} />
             </Routes>
             <BottomNav onCreate={() => setCreateOpen(true)} />
-            <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} />
+            <CreateSheet
+              open={createOpen}
+              onClose={() => setCreateOpen(false)}
+              onExit={openExit}
+            />
+            <BackExit onExit={backFromRoot} />
+            <Confirm
+              open={askExit}
+              title="Закрыть приложение?"
+              text="Перед выходом сохраним базу на устройстве и, если есть изменения, выгрузим их в облако."
+              confirmLabel="Закрыть"
+              onCancel={() => setAskExit(false)}
+              onConfirm={openExit}
+            />
             <Toasts />
           </div>
         </HashRouter>
@@ -353,6 +423,7 @@ export default function App() {
         </div>
       )}
       {!splashDone && <Splash onDone={finishSplash} />}
+      {exitOpen && <ExitScreen onCancel={() => setExitOpen(false)} />}
     </>
   );
 }

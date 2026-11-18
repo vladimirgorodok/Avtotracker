@@ -15,7 +15,7 @@ function prefersReducedMotion(): boolean {
 }
 
 /** Фура — тот же рисунок, что и на значке приложения (assets/icon.svg). */
-function TruckMark() {
+export function TruckMark() {
   return (
     <svg viewBox="20 330 900 500" className="splash-truck-svg" aria-hidden="true">
       <defs>

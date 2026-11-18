@@ -2415,6 +2415,71 @@ async function main() {
     );
   }
 
+  console.log('\n28. Закрытие приложения: сохранение перед выходом');
+  {
+    const { readFileSync } = await import('node:fs');
+    const { createElement } = await import('react');
+    const { renderToString } = await import('react-dom/server');
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    const exitSource = readFileSync('src/ui/ExitScreen.tsx', 'utf8');
+    const autoSource = readFileSync('src/lib/yadisk-auto.ts', 'utf8');
+    const componentsSource = readFileSync('src/ui/components.tsx', 'utf8');
+    const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
+    const exitStart = css.indexOf('.exit-screen');
+    const exitCss = css.slice(exitStart, css.indexOf('Системные панели телефона', exitStart));
+
+    // Вход в закрытие: пункт в листе действий со своей иконкой
+    check('в листе действий есть закрытие', appSource.includes('Закрыть приложение'));
+    check('у закрытия своя иконка', componentsSource.includes('power:'));
+    check('пункт открывает экран закрытия', appSource.includes('onExit={openExit}'));
+    check('лист называется «Что сделать»', appSource.includes('title="Что сделать"'));
+
+    // Системная «Назад»: на главной спрашивает, внутри — обычный возврат
+    check('системная «Назад» перехвачена', appSource.includes("addListener('backButton'"));
+    check('на главной спрашивают подтверждение', appSource.includes('Закрыть приложение?'));
+    check('возврат по внутренним экранам сохранён', appSource.includes('navigate(-1)'));
+    check('подтверждение появляется над экраном закрытия', appSource.includes('if (exitOpen) setExitOpen(false)'));
+
+    // Порядок работы: база на устройстве, копия, облако, выход
+    check('база пишется на устройство', exitSource.includes('await db.flush()'));
+    check('перед выходом обновляется копия базы', exitSource.includes('refreshBackup'));
+    check('в облако уходит только при изменениях', exitSource.includes('state.dirty'));
+    check('без изменений обмен пропускается', exitSource.includes('Всё уже в облаке'));
+    check('ненастроенное облако не мешает выходу', exitSource.includes('Облако не настроено'));
+    check('выгрузка перед выходом не дублирует тихий обмен', autoSource.includes('pushOnExit'));
+    check('два обмена не идут разом', autoSource.includes('while (busy && Date.now() < deadline)'));
+
+    // Ошибка не запирает приложение, а показывает причину и выбор
+    check('ошибка обмена видна на экране', exitCss.includes('.exit-step-err'));
+    check('можно всё равно закрыть', exitSource.includes('Всё равно закрыть'));
+    check('есть путь вернуться в приложение', exitSource.includes('Вернуться в приложение'));
+    check('приложение закрывается системно', exitSource.includes('exitApp'));
+    check('прогресс показывается полосой и списком', exitSource.includes('aria-valuenow'));
+    check('во время работы можно отменить', exitSource.includes('Отмена'));
+
+    // Оформление — в стиле заставки
+    check('экран закрытия найден в оформлении', exitStart > 0 && exitCss.length > 500);
+    check('фон взят у заставки', exitCss.includes('var(--splash-bg)'));
+    check('фура уезжает при выходе', exitCss.includes('.exit-truck-away'));
+    check('дорога с разметкой — как на заставке', exitSource.includes('splash-dash'));
+    check('полоса прогресса со своим заполнением', exitCss.includes('.exit-bar span'));
+    check('уважает «уменьшение движения»', exitCss.includes('prefers-reduced-motion'));
+
+    // Сам экран собирается: видно заголовок, шаги и отмену
+    const mod = await import('../ui/ExitScreen');
+    const html = renderToString(
+      createElement(mod.ExitScreen as never, { onCancel: () => {} }) as never,
+    );
+    check('экран закрытия показывает заголовок', html.includes('Сохраняю и закрываю'));
+    check(
+      'видно все шаги',
+      html.includes('Записываю базу на устройство') &&
+        html.includes('Обновляю копию базы') &&
+        html.includes('Обмен с Яндекс Диском') &&
+        html.includes('Закрываю приложение'),
+    );
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }
