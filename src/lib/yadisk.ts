@@ -23,11 +23,11 @@ import {
   replaceFromJson,
   type ImportResult,
 } from './backup';
-import { allDocumentRows } from './documents';
+import { allDocumentRows, documentSummary } from './documents';
 import { bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
 import { normalizeName } from './order';
 import { TABLES } from '../types';
-import { CloudError, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
+import { CloudError, humanSize, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
 
 /** Таблицы, у которых есть поле с картинкой */
 export type PictureTable = 'companies' | 'cargo_types' | 'fuel_stations' | 'vehicles';
@@ -56,6 +56,11 @@ export function cloudConfigured(): boolean {
 /** Папка синхронизации на Диске */
 export function folderPath(): string {
   return normalizePath(String(settings().yadisk_folder ?? '') || '/avtobaza');
+}
+
+/** Место выгрузки: логин и папка. Отпечатки архива привязаны к нему. */
+export function cloudPlace(): string {
+  return `${String(settings().yadisk_login ?? '').trim()}@${folderPath()}`;
 }
 
 /** Сколько копий держать в облаке */
@@ -276,9 +281,44 @@ export async function buildIconsArchive(): Promise<IconsArchive | null> {
   };
   zip.file(MANIFEST, JSON.stringify(manifest));
   return {
-    bytes: await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }),
+    // Картинки уже сжаты (JPEG и PNG), поэтому упаковка без сжатия: архив
+    // собирается заметно быстрее, а размер почти не меняется.
+    bytes: await zip.generateAsync({ type: 'uint8array', compression: 'STORE' }),
     fingerprint: contentFingerprint(content),
   };
+}
+
+/**
+ * Отпечаток значков и документов по одной базе — без чтения файлов с устройства.
+ *
+ * Сборка архива читает с устройства все фотографии и занимает заметное время,
+ * поэтому сначала сверяем дешёвый отпечаток: если значков не касались, архив
+ * не собираем вовсе. Картинки справочников лежат прямо в базе (она и так в
+ * памяти) — их берём как есть; файлы документов не читаем, их опознаём по
+ * числу, размеру и времени. В отпечаток входит и место выгрузки: в новой папке
+ * или под другим логином архив должен уйти заново.
+ */
+export function iconsMeta(): string {
+  const db = dbSync();
+  let hash = 0x811c9dc5;
+  const mix = (text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i) & 0xff;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  };
+
+  for (const { table, column } of PICTURE_COLUMNS) {
+    const rows = db.all<{ name: string; picture: string }>(
+      `SELECT name, ${column} AS picture FROM ${table}
+       WHERE deleted = 0 AND ${column} LIKE 'data:%'`,
+    );
+    mix(`${table}:${rows.length}`);
+    for (const row of rows) mix(`${row.name}|${row.picture}`);
+  }
+
+  const docs = documentSummary();
+  return `${cloudPlace()}|${hash.toString(16)}|doc:${docs.count}:${docs.bytes}:${docs.lastAt}`;
 }
 
 /** Читает архив значков: опись и содержимое файлов */
@@ -405,6 +445,22 @@ export async function listIconsFiles(target = folderPath()): Promise<RemoteEntry
   );
 }
 
+/** Что лежит в папке: и данные, и значки — за одно чтение папки */
+async function listCloud(
+  target: string,
+): Promise<{ data: RemoteEntry[]; icons: RemoteEntry[] }> {
+  const entries = await client().list(target);
+  const files = entries.filter((e) => !e.isDirectory);
+  return {
+    data: newestFirst(
+      files.filter((e) => e.name.startsWith(DATA_PREFIX) && e.name.endsWith(DATA_SUFFIX)),
+    ),
+    icons: newestFirst(
+      files.filter((e) => e.name.startsWith(ICONS_PREFIX) && e.name.endsWith(ICONS_SUFFIX)),
+    ),
+  };
+}
+
 /** Удаляет копии сверх положенного числа; ошибки чистки выгрузку не ломают */
 async function trimOld(disk: YandexDisk, list: RemoteEntry[], keep: number): Promise<void> {
   for (const entry of list.slice(keep)) {
@@ -445,9 +501,18 @@ export interface CloudPushResult {
   iconsFailed: boolean;
 }
 
-export async function pushToDisk(): Promise<CloudPushResult> {
+/** Что сейчас происходит при выгрузке — чтобы показать это на экране */
+export interface PushStage {
+  step: 'data' | 'icons' | 'trim';
+  text: string;
+}
+
+export type PushReporter = (stage: PushStage) => void;
+
+export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult> {
   const disk = client();
   const target = folderPath();
+  report?.({ step: 'data', text: 'Готовлю папку на Диске' });
   await disk.createChain(target);
 
   // Пустая база не должна затирать копию с данными: иначе после сбоя
@@ -473,6 +538,7 @@ export async function pushToDisk(): Promise<CloudPushResult> {
   const dataName = dataFileName(at);
   const data = buildCloudData();
   const dataPath = `${target}/${dataName}`;
+  report?.({ step: 'data', text: `Отправляю данные (${humanSize(utf8Length(data))})` });
   await uploadChecked(disk, dataPath, utf8Length(data), () =>
     disk.putText(dataPath, data, 'application/json'),
   );
@@ -480,14 +546,16 @@ export async function pushToDisk(): Promise<CloudPushResult> {
   let iconsName: string | null = null;
   let iconsFailed = false;
   try {
-    iconsName = await uploadIcons(disk, target, at);
+    iconsName = await uploadIcons(disk, target, at, false, report);
   } catch {
     iconsFailed = true;
   }
 
   const keep = keepCopies();
-  await trimOld(disk, await listDataFiles(target), keep);
-  await trimOld(disk, await listIconsFiles(target), keep);
+  report?.({ step: 'trim', text: 'Убираю старые копии' });
+  const cloud = await listCloud(target);
+  await trimOld(disk, cloud.data, keep);
+  await trimOld(disk, cloud.icons, keep);
 
   const store = useApp.getState();
   store.saveSetting('yadisk_last_at', nowIso());
@@ -524,28 +592,47 @@ async function uploadIcons(
   target: string,
   at: Date,
   force = false,
+  report?: PushReporter,
 ): Promise<string | null> {
-  const archive = await buildIconsArchive();
-  if (!archive) return null;
   const store = useApp.getState();
+  const meta = iconsMeta();
+  // Значков и документов не касались — архив даже не собираем: сборка
+  // читает с устройства все фотографии и на телефоне идёт долго.
+  if (!force && meta === String(store.settings.yadisk_icons_meta ?? '')) return null;
+
+  report?.({ step: 'icons', text: 'Собираю архив значков и фотографий' });
+  const archive = await buildIconsArchive();
+  if (!archive) {
+    store.saveSetting('yadisk_icons_meta', meta);
+    return null;
+  }
   // Значки меняются редко, а архив бывает тяжёлым: если содержимое то же,
   // что в прошлой выгрузке, второй раз его не гоняем.
-  if (!force && String(store.settings.yadisk_icons_hash ?? '') === archive.fingerprint) return null;
+  const content = `${cloudPlace()}|${archive.fingerprint}`;
+  if (!force && String(store.settings.yadisk_icons_hash ?? '') === content) {
+    store.saveSetting('yadisk_icons_meta', meta);
+    return null;
+  }
   const name = iconsFileName(at);
   const path = `${target}/${name}`;
+  report?.({
+    step: 'icons',
+    text: `Отправляю значки и фотографии (${humanSize(archive.bytes.length)})`,
+  });
   await uploadChecked(disk, path, archive.bytes.length, () =>
     disk.putBytes(path, archive.bytes, 'application/zip'),
   );
-  store.saveSetting('yadisk_icons_hash', archive.fingerprint);
+  store.saveSetting('yadisk_icons_hash', content);
+  store.saveSetting('yadisk_icons_meta', meta);
   return name;
 }
 
 /** Выгрузить только значки (данные не трогаем) */
-export async function pushIconsOnly(): Promise<string | null> {
+export async function pushIconsOnly(report?: PushReporter): Promise<string | null> {
   const disk = client();
   const target = folderPath();
   await disk.createChain(target);
-  const name = await uploadIcons(disk, target, new Date(), true);
+  const name = await uploadIcons(disk, target, new Date(), true, report);
   await trimOld(disk, await listIconsFiles(target), keepCopies());
   if (name) {
     useApp.getState().saveSetting('yadisk_last_icons', name);

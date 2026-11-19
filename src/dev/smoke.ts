@@ -1993,11 +1993,16 @@ async function main() {
       );
     };
     const originalFetch28 = globalThis.fetch;
+    /** Сколько запросов ушло на Диск и сколько из них — чтение папки */
+    let calls = 0;
+    let listings = 0;
     const fakeDisk = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls++;
       const url = String(input);
       const method = String(init?.method ?? 'GET').toUpperCase();
       const path = decodeURIComponent(url.replace(webdav.YADISK_HOST, '')) || '/';
       if (method === 'PROPFIND') {
+        listings++;
         const children = [...dirs, ...files.keys()].filter(
           (p) => p !== path && p.startsWith(path === '/' ? '/' : `${path}/`) &&
             !p.slice(path === '/' ? 1 : path.length + 1).includes('/'),
@@ -2061,13 +2066,52 @@ async function main() {
       // Значки не менялись — второй раз архив не гоняем (он бывает тяжёлым)
       const zipCount = () => [...files.keys()].filter((p) => p.endsWith('.zip')).length;
       const before = zipCount();
+      const callsBefore = calls;
+      const listingsBefore = listings;
       const pushAgain = await disk.pushToDisk();
       eq('неизменённый архив значков повторно не выгружается', pushAgain.iconsName, null);
       eq('архивов значков в облаке столько же', zipCount(), before);
+      // Папку читаем один раз, а не дважды: раньше на выгрузку уходило два чтения
+      eq('папка читается за выгрузку один раз', listings - listingsBefore, 1);
+      check('запросов к Диску немного', calls - callsBefore <= 5, `(${calls - callsBefore})`);
+
+      const stages: string[] = [];
       repo.updateRow('companies', company, { logo: 'data:image/png;base64,CCCC' });
-      const pushChanged = await disk.pushToDisk();
+      const pushChanged = await disk.pushToDisk((s) => stages.push(`${s.step}|${s.text}`));
       check('изменённые значки выгружаются заново', pushChanged.iconsName !== null);
       check('изменённый архив лёг в облако', files.has(`/avtobaza/${pushChanged.iconsName}`));
+      check(
+        'выгрузка рассказывает о своих шагах',
+        stages.some((s) => s.startsWith('data|')) &&
+          stages.some((s) => s.startsWith('icons|')) &&
+          stages.some((s) => s.startsWith('trim|')),
+        stages.join('; '),
+      );
+      check(
+        'в отчёте видно, сколько весят значки',
+        stages.some((s) => s.includes('Отправляю значки и фотографии (')),
+      );
+
+      // Отпечаток значков: без него архив собирался бы на каждой выгрузке
+      const metaNow = disk.iconsMeta();
+      check('отпечаток значков запомнен', useApp.getState().settings.yadisk_icons_meta === metaNow);
+      check('в отпечаток входит место выгрузки', metaNow.startsWith('ivan@yandex.ru@/avtobaza|'), metaNow);
+      check(
+        'отпечаток считает картинки и документы',
+        metaNow.includes('doc:') && metaNow.split('|').length >= 3,
+        metaNow,
+      );
+
+      // Место выгрузки сменилось — в новой папке архив должен уйти заново
+      store.saveSetting('yadisk_folder', '/avtobaza/novaya');
+      const pushOtherFolder = await disk.pushToDisk();
+      check('в новой папке архив значков выгружается заново', pushOtherFolder.iconsName !== null);
+      check(
+        'архив лёг именно в новую папку',
+        files.has(`/avtobaza/novaya/${pushOtherFolder.iconsName}`),
+      );
+      store.saveSetting('yadisk_folder', '/avtobaza');
+      check('отпечаток снова про прежнюю папку', disk.iconsMeta().startsWith('ivan@yandex.ru@/avtobaza|'));
 
       // Другое устройство: данных нет, картинок нет — всё приходит из облака
       dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
@@ -2478,6 +2522,41 @@ async function main() {
         html.includes('Обмен с Яндекс Диском') &&
         html.includes('Закрываю приложение'),
     );
+  }
+
+  console.log('\n29. Обмен не гоняет значки и фотографии зря');
+  {
+    const { readFileSync } = await import('node:fs');
+    const diskSource = readFileSync('src/lib/yadisk.ts', 'utf8');
+    const autoSource = readFileSync('src/lib/yadisk-auto.ts', 'utf8');
+    const ydSource = readFileSync('src/pages/YandexDisk.tsx', 'utf8');
+    const exitSource = readFileSync('src/ui/ExitScreen.tsx', 'utf8');
+    const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
+
+    // Дешёвый отпечаток сверяется до сборки архива: сборка читает все фотографии
+    const metaAt = diskSource.indexOf('const meta = iconsMeta();');
+    const buildAt = diskSource.indexOf('const archive = await buildIconsArchive();');
+    check('отпечаток значков считается до сборки архива', metaAt > 0 && buildAt > metaAt);
+    check('значки не тронуты — архив не собираем', diskSource.includes('iconsMeta();\n  // Значков'));
+    check('отпечаток живёт в настройках', readFileSync('src/types.ts', 'utf8').includes('yadisk_icons_meta: string;'));
+    check('в отпечаток входит место выгрузки', diskSource.includes('function cloudPlace()'));
+    check('смена папки сбрасывает отпечатки', ydSource.includes("saveSetting('yadisk_icons_meta', '')"));
+
+    // Архив собирается без сжатия: картинки уже сжаты, а время дорого
+    check('архив значков пакуется без сжатия', diskSource.includes("compression: 'STORE'"));
+    check('старое сжатие не осталось', !diskSource.includes("compression: 'DEFLATE'"));
+
+    // Папка читается один раз за выгрузку, а не дважды
+    check('папка читается одним запросом', diskSource.includes('async function listCloud('));
+    check('данные и значки берутся из одного чтения', diskSource.includes('const cloud = await listCloud(target);'));
+
+    // Ход обмена виден: и на экране закрытия, и на странице Диска
+    check('выгрузка рассказывает о шагах', diskSource.includes('export type PushReporter'));
+    check('экран закрытия показывает шаг обмена', exitSource.includes('pushOnExit((stage) =>'));
+    check('страница Диска показывает шаг обмена', ydSource.includes('setStage(s.text)'));
+    check('видно, что обмен идёт, а не завис', exitSource.includes('exit-timer') && css.includes('.exit-timer'));
+    check('подсказка про долгие значки', exitSource.includes('значки и фотографии уходят дольше всего'));
+    check('обмен перед выходом принимает отчёт', autoSource.includes('pushOnExit(report?: PushReporter)'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

@@ -23,6 +23,7 @@ import {
   pullFromDisk,
   pushToDisk,
   type CloudPushResult,
+  type PushReporter,
 } from './yadisk';
 
 /** Пауза после изменений перед выгрузкой */
@@ -135,13 +136,13 @@ export function startAutoSync(): void {
  * Дожидается тихого обмена, если он уже идёт: иначе два прохода выгрузили бы
  * данные дважды и оставили в облаке две почти одинаковые копии.
  */
-export async function pushOnExit(): Promise<CloudPushResult> {
+export async function pushOnExit(report?: PushReporter): Promise<CloudPushResult> {
   const deadline = Date.now() + 15000;
   while (busy && Date.now() < deadline) await pause(150);
   busy = true;
   quietUntil = Date.now() + QUIET_MS;
   try {
-    return await pushToDisk();
+    return await pushToDisk(report);
   } finally {
     quietUntil = Date.now() + QUIET_MS;
     busy = false;

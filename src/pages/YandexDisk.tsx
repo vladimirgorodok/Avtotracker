@@ -36,6 +36,7 @@ export default function YandexDiskPage() {
   const revision = useApp((s) => s.revision);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [stage, setStage] = useState('');
   const [replace, setReplace] = useState(false);
   const [confirmPull, setConfirmPull] = useState(false);
 
@@ -51,12 +52,16 @@ export default function YandexDiskPage() {
     if (key !== 'yadisk_password') {
       saveSetting('yadisk_last_data', '');
       saveSetting('yadisk_last_icons', '');
+      // Отпечатки значков привязаны к папке: в новой папке архив должен уйти заново
+      saveSetting('yadisk_icons_hash', '');
+      saveSetting('yadisk_icons_meta', '');
     }
   }
 
   async function run(name: string, fn: () => Promise<string | void>, ok = 'Готово') {
     setBusy(name);
     setMessage('');
+    setStage('');
     try {
       const text = await fn();
       await getDb().then((db) => db.flush());
@@ -70,6 +75,7 @@ export default function YandexDiskPage() {
       notify('Обмен не удался', 'err');
     } finally {
       setBusy('');
+      setStage('');
     }
   }
 
@@ -196,6 +202,7 @@ export default function YandexDiskPage() {
       </Card>
 
       <Card title="Обмен" actions={<Icon name="upload" />}>
+        {busy && stage ? <div className="small muted">{stage}…</div> : null}
         <label className="row">
           <input
             type="checkbox"
@@ -225,7 +232,7 @@ export default function YandexDiskPage() {
           disabled={busy !== '' || !state.configured}
           onClick={() =>
             void run('push', async () => {
-              const res = await pushToDisk();
+              const res = await pushToDisk((s) => setStage(s.text));
               return res.iconsFailed
                 ? `Данные выгружены: ${res.dataName}. Архив значков не ушёл — попробуйте ещё раз.`
                 : `Выгружено: ${res.dataName}${res.iconsName ? ` и архив значков ${res.iconsName}` : ''}`;
@@ -257,7 +264,7 @@ export default function YandexDiskPage() {
           disabled={busy !== '' || !state.configured}
           onClick={() =>
             void run('icons-up', async () => {
-              const name = await pushIconsOnly();
+              const name = await pushIconsOnly((s) => setStage(s.text));
               return name
                 ? `Архив значков выгружен: ${name}`
                 : 'Значков и документов нет — выгружать нечего';

@@ -66,8 +66,16 @@ export function ExitScreen({ onCancel }: { onCancel: () => void }) {
   const [trouble, setTrouble] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [settled, setSettled] = useState(false);
+  const [seconds, setSeconds] = useState(0);
   const started = useRef(false);
   const cancelled = useRef(false);
+
+  /** Счётчик времени: по нему видно, что обмен идёт, а не завис */
+  useEffect(() => {
+    if (settled || trouble) return;
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [settled, trouble]);
 
   const put = useCallback((key: string, state: StepState, note?: string) => {
     setSteps((prev) =>
@@ -128,7 +136,7 @@ export function ExitScreen({ onCancel }: { onCancel: () => void }) {
       } else {
         put('cloud', 'run', 'Выгружаю изменения');
         try {
-          const res = await pushOnExit();
+          const res = await pushOnExit((stage) => put('cloud', 'run', stage.text));
           put(
             'cloud',
             'done',
@@ -222,6 +230,14 @@ export function ExitScreen({ onCancel }: { onCancel: () => void }) {
             </li>
           ))}
         </ul>
+
+        {seconds >= 5 && !settled && !trouble ? (
+          <div className="exit-timer">
+            {seconds >= 20
+              ? `идёт ${seconds} с · значки и фотографии уходят дольше всего`
+              : `идёт ${seconds} с`}
+          </div>
+        ) : null}
 
         {trouble ? (
           <div className="exit-actions">

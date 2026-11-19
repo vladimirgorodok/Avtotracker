@@ -213,6 +213,8 @@ export interface AppSettings {
   yadisk_last_icons: string;
   /** Отпечаток содержимого архива значков: неизменный архив заново не выгружаем */
   yadisk_icons_hash: string;
+  /** Отпечаток значков и документов по базе: по нему архив даже не собираем */
+  yadisk_icons_meta: string;
   /** Есть изменения, которых нет в облаке (1 — есть) */
   yadisk_dirty: number;
   /** Текст последней ошибки обмена с Диском */
@@ -241,6 +243,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   yadisk_last_data: '',
   yadisk_last_icons: '',
   yadisk_icons_hash: '',
+  yadisk_icons_meta: '',
   yadisk_dirty: 0,
   yadisk_last_error: '',
   last_vehicle_id: '',
