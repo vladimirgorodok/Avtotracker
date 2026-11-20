@@ -90,7 +90,8 @@ export default function YandexDiskPage() {
           Данные и значки хранятся в облаке отдельно. <b>Данные</b> — это справочники, путевые листы,
           поездки, заправки, финансы и настройки: они лежат в лёгком файле и уходят быстро.
           <b> Значки</b> — логотипы фирм, машин, грузов, АЗС и фотографии документов: они уходят
-          по одному файлу, и только те, которых в облаке ещё нет.
+          по одному файлу, и только те, которых в облаке ещё нет. Удалённые значки и фотографии
+          убираются из облака при следующем обмене.
         </div>
         <div className="grid-2">
           <KV label="Обмен" value={state.configured ? 'настроен' : 'не настроен'} hint={state.folder} />
@@ -258,9 +259,10 @@ export default function YandexDiskPage() {
             void run('push', async () => {
               const res = await pushToDisk((s) => setStage(s.text));
               const files = res.filesUploaded > 0 ? `, догружено файлов: ${res.filesUploaded}` : '';
+              const gone = res.filesRemoved > 0 ? `, убрано лишних файлов: ${res.filesRemoved}` : '';
               return res.iconsFailed
                 ? `Данные выгружены: ${res.dataName}. Значки и фотографии не ушли — попробуйте ещё раз.`
-                : `Выгружено: ${res.dataName}${files}`;
+                : `Выгружено: ${res.dataName}${files}${gone}`;
             }, 'Выгружено')
           }
         >
@@ -290,10 +292,15 @@ export default function YandexDiskPage() {
           onClick={() =>
             void run('icons-up', async () => {
               const res = await pushIconsOnly((s) => setStage(s.text));
-              if (res.total === 0) return 'Значков и документов нет — выгружать нечего';
+              const gone = res.removed > 0 ? `, убрано лишних файлов: ${res.removed}` : '';
+              if (res.total === 0) {
+                return gone
+                  ? `Значков и документов нет — в облаке убрано лишнее: ${res.removed}`
+                  : 'Значков и документов нет — выгружать нечего';
+              }
               return res.uploaded > 0
-                ? `Значки и фотографии выгружены: добавлено файлов ${res.uploaded} из ${res.total}`
-                : `В облаке уже всё: ${res.total} файлов`;
+                ? `Значки и фотографии выгружены: добавлено файлов ${res.uploaded} из ${res.total}${gone}`
+                : `В облаке уже всё: ${res.total} файлов${gone}`;
             }, 'Значки выгружены')
           }
         >

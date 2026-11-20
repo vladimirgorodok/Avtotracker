@@ -2129,7 +2129,8 @@ async function main() {
       repo.updateRow('companies', company, { logo: 'data:image/png;base64,CCCC' });
       const pushChanged = await disk.pushToDisk((s) => stages.push(`${s.step}|${s.text}`));
       check('изменённый значок выгружается', pushChanged.filesUploaded >= 1);
-      check('новый файл лёг в папку files', iconFilesIn().length > filesBefore);
+      check('новый файл лёг в папку files', iconFilesIn().length >= filesBefore);
+      check('старый файл значка из облака убран', pushChanged.filesRemoved >= 1);
       check(
         'выгрузка рассказывает о своих шагах',
         stages.some((s) => s.startsWith('data|')) &&
@@ -2302,6 +2303,84 @@ async function main() {
         dbSync().run('DELETE FROM waybills WHERE id = ?', [wbLocal]);
         dbSync().run('DELETE FROM vehicles WHERE id = ?', [vehicle]);
       }
+
+      // --- удалённое уходит и из облака: папка с файлами подчищается
+      const manifestRaw = () =>
+        new TextDecoder().decode(files.get('/avtobaza/avtobaza-files.json') ?? new Uint8Array());
+      const namesNow = () => iconFilesIn().map((p) => p.split('/').pop() as string);
+      // Чужой файл в папке: его трогать нельзя
+      files.set('/avtobaza/files/чужое-письмо.txt', new TextEncoder().encode('не наше'));
+
+      // Заводим запись со значком — он уходит в облако
+      const picGone = repo.insertRow('companies', {
+        name: 'Фирма со значком на удаление',
+        logo: 'data:image/png;base64,ZDDD',
+        note: '',
+      });
+      const pushPic = await disk.pushToDisk();
+      check('значок новой записи выгружен', pushPic.filesUploaded >= 1, `(${pushPic.filesUploaded})`);
+      check('в папке лежит файл значка', iconFilesIn().some((p) => p.includes('/pic-')));
+      const beforeClean = namesNow();
+
+      // Значок убрали — файл должен уйти и из облака
+      repo.updateRow('companies', picGone, { logo: '' });
+      const pushClean = await disk.pushToDisk();
+      const afterClean = namesNow();
+      const goneNames = beforeClean.filter((n) => !afterClean.includes(n));
+      check('удалённый значок убран из облака', pushClean.filesRemoved >= 1, `(${pushClean.filesRemoved})`);
+      check(
+        'убранного файла в папке больше нет',
+        goneNames.length >= 1 && !afterClean.includes(goneNames[0]),
+        goneNames.join(','),
+      );
+      check('опись больше не зовёт убранный файл', !manifestRaw().includes(goneNames[0]));
+      check('чужой файл в папке не тронут', files.has('/avtobaza/files/чужое-письмо.txt'));
+      files.delete('/avtobaza/files/чужое-письмо.txt');
+
+      // Значок вернули — файл возвращается в облако
+      repo.updateRow('companies', picGone, { logo: 'data:image/png;base64,ZDDD' });
+      const pushBack = await disk.pushToDisk();
+      check('вернувшийся значок снова выгружен', pushBack.filesUploaded >= 1);
+      check('в папке снова наш файл', namesNow().includes(goneNames[0]), goneNames[0]);
+
+      // База отстала от облака — чистку откладываем: чужое убирать нельзя
+      files.set('/avtobaza/files/pic-deadbeefdeadbeef.jpg', new TextEncoder().encode('x'));
+      store.saveSetting('yadisk_last_data', 'avtobaza-2020-01-01_000000.json');
+      const iconsLate = await disk.pushIconsOnly();
+      check('пока база отстала, чужое не убираем', files.has('/avtobaza/files/pic-deadbeefdeadbeef.jpg'));
+      eq('про отложенную чистку не отчитываются', iconsLate.removed, 0);
+      files.delete('/avtobaza/files/pic-deadbeefdeadbeef.jpg');
+      store.saveSetting('yadisk_last_data', pushBack.dataName);
+
+      // Убрали все значки и фотографии — в облаке тоже ничего не остаётся
+      const { PICTURE_COLUMNS } = await import('../lib/backup');
+      const picsWas: { table: string; column: string; id: string; value: string }[] = [];
+      for (const { table, column } of PICTURE_COLUMNS) {
+        for (const row of dbSync().all<{ id: string; value: string }>(
+          `SELECT id, ${column} AS value FROM ${table} WHERE ${column} <> ''`,
+        )) {
+          picsWas.push({ table, column, id: row.id, value: row.value });
+        }
+        dbSync().run(`UPDATE ${table} SET ${column} = ''`);
+      }
+      const docsWas = dbSync().all<{ id: string; deleted: number }>(
+        'SELECT id, deleted FROM attachments',
+      );
+      dbSync().run('UPDATE attachments SET deleted = 1');
+      const pushEmpty = await disk.pushToDisk();
+      check('пустая папка: наших файлов в облаке нет', iconFilesIn().length === 0, `(${iconFilesIn().length})`);
+      check('про убранное сказано в отчёте', pushEmpty.filesRemoved >= 1, `(${pushEmpty.filesRemoved})`);
+      check('опись стала пустой', manifestRaw().includes('"pictures":[]') && manifestRaw().includes('"documents":[]'));
+
+      // Возвращаем всё как было и выгружаем: дальше проверки идут по чистому месту
+      for (const p of picsWas) {
+        dbSync().run(`UPDATE ${p.table} SET ${p.column} = ? WHERE id = ?`, [p.value, p.id]);
+      }
+      for (const d of docsWas) {
+        dbSync().run('UPDATE attachments SET deleted = ? WHERE id = ?', [d.deleted, d.id]);
+      }
+      dbSync().run('DELETE FROM companies WHERE id = ?', [picGone]);
+      await disk.pushToDisk();
 
       // Ошибка доступа объясняется понятными словами
       (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
@@ -3359,6 +3438,23 @@ async function main() {
     check('в свёрнутом виде видно адрес и наличие ключа', aiSource.includes('ключ задан'));
     const ydSource = readFileSync('src/pages/YandexDisk.tsx', 'utf8');
     check('подключение к Диску тоже сворачивается', ydSource.includes("useState(() => !cloudState().configured)"));
+  }
+
+  console.log('\n35. Чистка в облаке: удалённое уходит');
+  {
+    const { readFileSync } = await import('node:fs');
+    const diskSource = readFileSync('src/lib/yadisk.ts', 'utf8');
+    const ydSource = readFileSync('src/pages/YandexDisk.tsx', 'utf8');
+    const exitSource = readFileSync('src/ui/ExitScreen.tsx', 'utf8');
+
+    // В облаке не копится лишнее: удалённое на устройстве убирается и с Диска
+    check('лишние файлы из облака убираются', diskSource.includes('function cleanLeftovers'));
+    check('убираем только наши файлы', diskSource.includes('OUR_FILE_RE.test(name)'));
+    check('отстали от облака — чистку откладываем', diskSource.includes('function mayCleanCloud'));
+    check('после полной уборки остаётся пустая опись', diskSource.includes('function emptyManifest'));
+    check('в отчёте видно, сколько убрали', ydSource.includes('убрано лишних файлов'));
+    check('при выходе из приложения уборка тоже видна', exitSource.includes('убрано лишних'));
+    check('в подсказке сказано, что удалённое уходит из облака', ydSource.includes('убираются из облака'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

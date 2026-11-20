@@ -498,6 +498,72 @@ async function listCloudFiles(disk: YandexDisk, target: string): Promise<Set<str
   }
 }
 
+/** Наши файлы в папке files: значки справочников и фотографии документов */
+const OUR_FILE_RE = /^(pic|doc)-[A-Za-z0-9_.-]+\.(jpe?g|png|gif|webp|bmp|heic)$/i;
+
+/** Пустая опись: остаётся после того, как значки и фотографии убрали */
+function emptyManifest(): IconsManifest {
+  return {
+    app: 'avtobaza',
+    kind: 'icons',
+    version: 1,
+    exported_at: nowIso(),
+    pictures: [],
+    documents: [],
+  };
+}
+
+/**
+ * Можно ли чистить папку с файлами: наша база не должна отставать от облака.
+ *
+ * Если в облаке лежит копия новее нашей, в папке могут быть картинки другого
+ * устройства, о которых мы ещё не знаем, — тогда чистку откладываем. `freshData`
+ * означает, что свой файл данных мы только что записали, и опись самая свежая.
+ */
+async function mayCleanCloud(
+  disk: YandexDisk,
+  target: string,
+  freshData: boolean,
+): Promise<boolean> {
+  if (freshData) return true;
+  const state = cloudState();
+  if (!state.lastData) return false;
+  const entries = await disk.list(target);
+  const newest = newestFirst(entries.filter((e) => !e.isDirectory && DATA_RE.test(e.name)))[0];
+  return !newest || newest.name === state.lastData;
+}
+
+/**
+ * Убирает из облака наши файлы, которых больше нет в описи.
+ *
+ * Иначе удалённые значки и фотографии оставались бы в папке навсегда: выгрузка
+ * только добавляет файлы. Чужие файлы не трогаем — чистим лишь те, что названы
+ * нашим способом (`pic-…` и `doc-…`).
+ */
+async function cleanLeftovers(
+  disk: YandexDisk,
+  target: string,
+  present: Set<string>,
+  keep: Set<string>,
+  freshData: boolean,
+  report?: PushReporter,
+): Promise<number> {
+  const lost = [...present].filter((name) => OUR_FILE_RE.test(name) && !keep.has(name));
+  if (lost.length === 0) return 0;
+  if (!(await mayCleanCloud(disk, target, freshData))) return 0;
+  report?.({ step: 'icons', text: `Убираю из облака лишнее (${lost.length})` });
+  let removed = 0;
+  for (const name of lost) {
+    try {
+      await disk.remove(`${target}/${FILES_FOLDER}/${name}`);
+      removed++;
+    } catch {
+      /* не вышло — уберём в следующий раз */
+    }
+  }
+  return removed;
+}
+
 /** Опись картинок и фотографий из облака или null, если её там нет */
 async function readIconsList(disk: YandexDisk, target: string): Promise<IconsManifest | null> {
   try {
@@ -546,6 +612,8 @@ export interface CloudPushResult {
   dataName: string;
   /** Сколько файлов значков и фотографий догрузили в облако */
   filesUploaded: number;
+  /** Сколько лишних файлов убрали из облака */
+  filesRemoved: number;
   /** Файлы не ушли, хотя картинки есть (данные при этом уже сохранены) */
   iconsFailed: boolean;
 }
@@ -593,10 +661,14 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
   );
 
   let filesUploaded = 0;
+  let filesRemoved = 0;
   let iconsFailed = false;
   try {
-    const icons = await syncIcons(disk, target, false, report);
+    // Свой файл данных уже записан — значит, опись самая свежая, и лишнее в
+    // облаке можно убирать сразу
+    const icons = await syncIcons(disk, target, false, report, true);
     filesUploaded = icons.uploaded;
+    filesRemoved = icons.removed;
   } catch {
     iconsFailed = true;
   }
@@ -614,7 +686,7 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
   store.saveSetting('yadisk_last_data', dataName);
   markClean();
   noteError('');
-  return { dataName, filesUploaded, iconsFailed };
+  return { dataName, filesUploaded, filesRemoved, iconsFailed };
 }
 
 function utf8Length(text: string): number {
@@ -644,6 +716,8 @@ export interface IconsSyncResult {
   uploaded: number;
   /** Сколько всего картинок и фотографий в описи */
   total: number;
+  /** Сколько лишних файлов убрали из облака */
+  removed: number;
   /** Ничего не изменилось — в облако даже не смотрели */
   skipped: boolean;
 }
@@ -658,37 +732,38 @@ async function iconsBytes(item: IconsFile): Promise<Uint8Array | null> {
 }
 
 /**
- * Выгружает картинки и фотографии: в облако уходит только то, чего там ещё нет.
+ * Выгружает картинки и фотографии: в облако уходит только то, чего там ещё нет,
+ * а лишнее (удалённое на устройстве) из облака убирается.
  *
  * Раньше всё складывалось в один архив, и добавление одной фотографии заставляло
  * выгружать архив целиком. Теперь перед выгрузкой читаем список файлов в папке
  * `files` и отправляем только новые — на телефоне это занимает секунды.
+ *
+ * `freshData` — свой файл данных только что записан: значит, наша опись самая
+ * свежая, и убирать за собой в облаке можно сразу.
  */
 async function syncIcons(
   disk: YandexDisk,
   target: string,
   force = false,
   report?: PushReporter,
+  freshData = false,
 ): Promise<IconsSyncResult> {
   const store = useApp.getState();
   const meta = iconsMeta();
   // Значков и документов не касались — в облако даже не смотрим и опись не собираем
   if (!force && meta === String(store.settings.yadisk_icons_meta ?? '')) {
-    return { uploaded: 0, total: 0, skipped: true };
+    return { uploaded: 0, total: 0, removed: 0, skipped: true };
   }
 
   const list = buildIconsList();
-  if (!list) {
-    store.saveSetting('yadisk_icons_meta', meta);
-    return { uploaded: 0, total: 0, skipped: false };
-  }
-
+  const keep = new Set(list ? list.items.map((item) => item.file) : []);
   const filesPath = `${target}/${FILES_FOLDER}`;
   report?.({ step: 'icons', text: 'Смотрю, что уже есть в облаке' });
   await disk.createChain(filesPath);
   const present = await listCloudFiles(disk, target);
-  const missing = list.items.filter((item) => !present.has(item.file));
 
+  const missing = list ? list.items.filter((item) => !present.has(item.file)) : [];
   let uploaded = 0;
   for (const item of missing) {
     const bytes = await iconsBytes(item);
@@ -704,18 +779,23 @@ async function syncIcons(
     uploaded++;
   }
 
+  // Убираем за собой: файлов, которых больше нет в описи, в облаке остаться не должно
+  const removed = await cleanLeftovers(disk, target, present, keep, freshData, report);
+
   // Опись обновляем после файлов: по ней другое устройство узнаёт, что подтягивать
-  report?.({ step: 'icons', text: 'Обновляю опись значков и фотографий' });
-  const text = JSON.stringify(list.manifest);
-  await uploadChecked(disk, `${target}/${LIST_NAME}`, utf8Length(text), () =>
-    disk.putText(`${target}/${LIST_NAME}`, text, 'application/json'),
-  );
+  if (list || removed > 0) {
+    report?.({ step: 'icons', text: 'Обновляю опись значков и фотографий' });
+    const text = JSON.stringify(list ? list.manifest : emptyManifest());
+    await uploadChecked(disk, `${target}/${LIST_NAME}`, utf8Length(text), () =>
+      disk.putText(`${target}/${LIST_NAME}`, text, 'application/json'),
+    );
+  }
 
   // Отпечаток запоминаем только после удачной выгрузки: если связь пропала,
   // в следующий раз снова сверимся с облаком и догрузим то, что не дошло
   store.saveSetting('yadisk_icons_meta', meta);
-  store.saveSetting('yadisk_last_icons', String(list.items.length));
-  return { uploaded, total: list.items.length, skipped: false };
+  store.saveSetting('yadisk_last_icons', String(list ? list.items.length : 0));
+  return { uploaded, total: list ? list.items.length : 0, removed, skipped: false };
 }
 
 /** Выгрузить только значки и фотографии (данные не трогаем) */
@@ -723,7 +803,7 @@ export async function pushIconsOnly(report?: PushReporter): Promise<IconsSyncRes
   const disk = client();
   const target = folderPath();
   await disk.createChain(target);
-  const res = await syncIcons(disk, target, true, report);
+  const res = await syncIcons(disk, target, true, report, false);
   if (!res.skipped) {
     useApp.getState().saveSetting('yadisk_last_at', nowIso());
     noteError('');
