@@ -322,8 +322,13 @@ export default function YandexDiskPage() {
               res.icons.pictures + res.icons.documents > 0
                 ? `, файлов подтянуто ${res.icons.pictures + res.icons.documents}`
                 : '';
+            const merges: string[] = [];
+            if (res.merged > 0) merges.push(`листов ${res.merged}`);
+            if (res.mergedRefs > 0) merges.push(`записей справочников ${res.mergedRefs}`);
+            if (res.mergedOps > 0) merges.push(`начислений ${res.mergedOps}`);
+            const mergedText = merges.length > 0 ? `, слито ${merges.join(', ')}` : '';
             return `Загружено: ${res.dataName}. Записей добавлено ${res.inserted}, обновлено ${res.updated}`
-              + (res.merged > 0 ? `, слито листов ${res.merged}` : '')
+              + mergedText
               + files
               + (res.icons.failed > 0 ? `. Не скачалось файлов: ${res.icons.failed}` : '');
           }, 'Загружено');

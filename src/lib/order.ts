@@ -11,6 +11,7 @@ import { askModel, isAiReady, readAiConfig, type AiMessage, type AiPart } from '
 import { autoTripAmount } from './calc';
 import { insertRow, refs, uid, updateRow, waybillRepo } from '../db/repo';
 import { parseCoords, todayIso } from './format';
+import { nameScore, normalizeName } from './names';
 import { bytesToDataUrl, downscaleImage } from './files';
 import { decodeText } from './backup';
 import type { AppSettings, Company, Id, Place, TripPointKind } from '../types';
@@ -344,32 +345,6 @@ export function parseOrderJson(raw: string): ParsedOrder {
 /* ------------------------------------------------------------------ */
 /* Сопоставление со справочниками                                      */
 /* ------------------------------------------------------------------ */
-
-/** Название без регистра, кавычек, «ООО» и лишних знаков */
-export function normalizeName(raw: string): string {
-  return String(raw ?? '')
-    .toLowerCase()
-    .replace(/[«»"'`]/g, ' ')
-    .replace(/\b(ооо|оао|зао|ип|пао|ао|гк|тд|тк|лтд|llc|ltd|inc|гмбх)\b/g, ' ')
-    .replace(/[.,()\-–—/\\+№#]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Похожесть названий: 1 — одинаковые, 0 — ничего общего */
-export function nameScore(a: string, b: string): number {
-  const x = normalizeName(a);
-  const y = normalizeName(b);
-  if (!x || !y) return 0;
-  if (x === y) return 1;
-  if (x.length > 3 && y.length > 3 && (x.includes(y) || y.includes(x))) return 0.9;
-  const tx = new Set(x.split(' ').filter((w) => w.length > 2));
-  const ty = new Set(y.split(' ').filter((w) => w.length > 2));
-  if (tx.size === 0 || ty.size === 0) return 0;
-  let common = 0;
-  for (const w of tx) if (ty.has(w)) common++;
-  return (common / (tx.size + ty.size - common)) * 0.85;
-}
 
 /** Расстояние в метрах (приблизительно, для ближних точек) */
 function metersBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {

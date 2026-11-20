@@ -2736,6 +2736,152 @@ async function main() {
     check('видно, что обмен идёт, а не завис', exitSource.includes('exit-timer') && css.includes('.exit-timer'));
     check('подсказка про долгие значки', exitSource.includes('значки и фотографии уходят дольше всего'));
     check('обмен перед выходом принимает отчёт', autoSource.includes('pushOnExit(report?: PushReporter)'));
+
+    // Что считается «той же записью», когда одно и то же завели два устройства
+    const backupSource = readFileSync('src/lib/backup.ts', 'utf8');
+    check('лист сверяется по дню и автомобилю', backupSource.includes('const twin = sameWaybill({'));
+    check(
+      'справочники сверяются по названию',
+      backupSource.includes("const SAME_BY_NAME: TableName[] = ['cargo_types', 'fuel_stations']"),
+    );
+    check('слитые записи справочника не удваиваются', backupSource.includes('if (refs.get(table)?.has(id)) continue;'));
+    check('ссылки переводятся на свою запись', backupSource.includes('REF_LINKS'));
+    check('начисление по перевозке не удваивается', backupSource.includes("AND kind = 'charge'"));
+  }
+
+  console.log('\n30. Обмен не плодит дубли: Грузы и Финансы');
+  {
+    const { softDeleteWhere, softDelete } = repo;
+    const storeNow = useApp.getState();
+
+    // --- Свежее устройство само заполняет справочники, и это правильные записи
+    softDeleteWhere('cargo_types', '1=1');
+    seedIfEmpty();
+    const mine = repo.refs.cargoTypes();
+    check('справочник грузов заполняется сам', mine.length >= 10, `(${mine.length})`);
+
+    // --- Так выглядит файл с другого устройства: те же названия, но свои номера
+    const otherSide = mine.map((c) => ({ ...c, id: `чужой-${c.id}` }));
+    const file = JSON.stringify({
+      app: 'avtobaza',
+      kind: 'cloud-data',
+      version: 1,
+      exported_at: '2026-11-20T00:00:00.000Z',
+      tables: { cargo_types: otherSide },
+    });
+    importJson(file, true);
+    const names = repo.refs.cargoTypes().map((c) => c.name.trim().toLowerCase());
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    eq('грузов с одинаковым названием нет', dupes.length, 0);
+
+    // --- Ссылка на чужую запись переводится на свою: записи не разъезжаются
+    const mineCargo = repo.refs.cargoTypes()[0];
+    const foreignTripId = 'чужой-рейс-1';
+    const linked = importJson(
+      JSON.stringify({
+        app: 'avtobaza',
+        kind: 'cloud-data',
+        version: 1,
+        tables: {
+          cargo_types: [{ ...mineCargo, id: `чужой-${mineCargo.id}` }],
+          trips: [
+            {
+              id: foreignTripId,
+              waybill_id: '',
+              cargo_type_id: `чужой-${mineCargo.id}`,
+              weight: null,
+              amount: 0,
+              note: '',
+              status: 'planned',
+            },
+          ],
+        },
+      }),
+      true,
+    );
+    eq('ссылка на груз переведена на свою запись', repo.tripRepo.get(foreignTripId)?.cargo_type_id, mineCargo.id);
+    check('слияние справочников видно в отчёте', linked.message.includes('слито записей справочников'), linked.message);
+
+    // --- АЗС: список приходит из облака целиком, дублей тоже быть не должно
+    const stations = repo.refs.fuelStations();
+    check('справочник АЗС заполняется сам', stations.length >= 5, `(${stations.length})`);
+    const myStation = stations[0];
+    importJson(
+      JSON.stringify({
+        app: 'avtobaza',
+        kind: 'cloud-data',
+        version: 1,
+        tables: {
+          fuel_stations: stations.map((s) => ({ ...s, id: `чужой-${s.id}` })),
+          refuelings: [
+            {
+              id: 'чужой-заправка-1',
+              waybill_id: '',
+              station_id: `чужой-${myStation.id}`,
+              date: '2026-02-02',
+              volume: 10,
+              kind: 'barrel',
+              note: '',
+            },
+          ],
+        },
+      }),
+      true,
+    );
+    const stNames = repo.refs.fuelStations().map((s) => s.name.trim().toLowerCase());
+    eq('АЗС с одинаковым названием нет', stNames.filter((n, i) => stNames.indexOf(n) !== i).length, 0);
+    eq('ссылка на АЗС переведена на свою запись', repo.refuelRepo.get('чужой-заправка-1')?.station_id, myStation.id);
+
+    // --- Та же проверка для начислений: перевозка начислена на двух устройствах
+    const wbId = repo.insertRow('waybills', {
+      date_out: '2026-02-02',
+      status: 'open',
+      vehicle_id: null,
+      note: '',
+    });
+    const tripId = repo.insertRow('trips', {
+      waybill_id: wbId,
+      cargo_type_id: null,
+      weight: null,
+      amount: 10500,
+      note: '',
+      status: 'done',
+    });
+    repo.insertRow('trip_points', {
+      trip_id: tripId,
+      seq: 1,
+      kind: 'load',
+      place_id: null,
+      plan_date: '2026-02-02',
+      fact_date: '2026-02-02',
+      load_type: null,
+      cargo_type_id: null,
+      weight: null,
+      status: 'done',
+      note: '',
+    });
+    chargeTrip(tripId, storeNow.settings);
+    eq('своё начисление по перевозке одно', repo.financeRepo.byTrip(tripId).length, 1);
+    const own = repo.financeRepo.byTrip(tripId)[0];
+    const foreign = JSON.stringify({
+      app: 'avtobaza',
+      kind: 'cloud-data',
+      version: 1,
+      exported_at: '2026-11-20T00:00:00.000Z',
+      tables: { finance_ops: [{ ...own, id: `чужое-${own.id}` }] },
+    });
+    importJson(foreign, true);
+    eq('начисление по перевозке не удвоилось', repo.financeRepo.byTrip(tripId).length, 1);
+    // уборка: строки проверки в базе не оставляем
+    softDeleteWhere('finance_ops', "id LIKE 'чужое-%'", []);
+    softDeleteWhere('finance_ops', 'trip_id = ?', [tripId]);
+    softDeleteWhere('trip_points', 'trip_id = ?', [tripId]);
+    softDelete('trips', tripId);
+    softDelete('trips', foreignTripId);
+    softDelete('waybills', wbId);
+    softDelete('refuelings', 'чужой-заправка-1');
+    softDeleteWhere('cargo_types', "id LIKE 'чужой-%'", []);
+    softDeleteWhere('fuel_stations', "id LIKE 'чужой-%'", []);
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

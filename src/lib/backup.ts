@@ -6,6 +6,7 @@ import { saveBinaryFile } from '../db/storage';
 import { DEFAULT_SETTINGS, TABLES, type AppSettings, type TableName } from '../types';
 import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
 import { sameWaybill, summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
+import { normalizeName } from './names';
 import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
 import { loadTypeLabel } from '../types';
 
@@ -211,6 +212,10 @@ export interface ImportResult {
   skipped: number;
   /** Сколько путевых листов из файла слилось с уже заведёнными на устройстве */
   merged: number;
+  /** Сколько записей справочников (грузы, АЗС) слилось со своими */
+  mergedRefs: number;
+  /** Сколько начислений слилось со своими по той же перевозке */
+  mergedOps: number;
   /** Сколько файлов архива удалось распознать */
   files: number;
   message: string;
@@ -244,12 +249,16 @@ function describeImport(
   updated: number,
   skipped: number,
   merged: number,
+  mergedRefs: number,
+  mergedOps: number,
   files: number,
 ): string {
   const parts: string[] = [];
   if (inserted > 0) parts.push(`добавлено ${inserted}`);
   if (updated > 0) parts.push(`обновлено ${updated}`);
   if (merged > 0) parts.push(`слито листов ${merged}`);
+  if (mergedRefs > 0) parts.push(`слито записей справочников ${mergedRefs}`);
+  if (mergedOps > 0) parts.push(`слито начислений ${mergedOps}`);
   if (skipped > 0) parts.push(`уже было ${skipped}`);
   if (files === 0) return 'В архиве не нашлось ни одной таблицы АвтоБазы';
   if (parts.length === 0) return `Файлов распознано: ${files}, новых записей нет`;
@@ -262,6 +271,41 @@ const WAYBILL_LINKS: Partial<Record<TableName, string>> = {
   refuelings: 'waybill_id',
   finance_ops: 'waybill_id',
 };
+
+/**
+ * Справочники, у которых название и есть лицо записи.
+ *
+ * Список грузов и АЗС новое устройство заполняет само, и такой же список приходит
+ * из облака — с другими номерами, но теми же названиями. Раньше в справочнике
+ * оказывалось по две записи «Щебень», «Лукойл» и так далее. Такую запись не
+ * удваиваем, а дополняем свою.
+ */
+const SAME_BY_NAME: TableName[] = ['cargo_types', 'fuel_stations'];
+
+/** Поля-ссылки на такие справочники: переводим их на свою запись */
+const REF_LINKS: Partial<Record<TableName, Record<string, TableName>>> = {
+  companies: { cargo_type_id: 'cargo_types' },
+  places: { cargo_type_id: 'cargo_types' },
+  trips: { cargo_type_id: 'cargo_types' },
+  trip_points: { cargo_type_id: 'cargo_types' },
+  refuelings: { station_id: 'fuel_stations' },
+};
+
+/** Поля, которые при слиянии не трогаем: они свои у каждой записи */
+const OWN_FIELDS = new Set(['id', 'created_at', 'updated_at', 'deleted']);
+
+/** Что дописать в свою запись из облачной копии: только пустые поля */
+function fillEmpty(
+  mine: Record<string, unknown>,
+  theirs: Record<string, unknown>,
+): Record<string, unknown> {
+  const fill: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(theirs)) {
+    if (OWN_FIELDS.has(key)) continue;
+    if (textOf(mine[key]) === '' && textOf(value) !== '') fill[key] = value;
+  }
+  return fill;
+}
 
 /** Поля шапки листа, которые дополняем из облачной копии, если у себя они пусты */
 const WAYBILL_FILL = [
@@ -281,33 +325,52 @@ function textOf(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
 }
 
-/** Переводит ссылки записи на свой путевой лист, если её лист слился с уже заведённым */
+/**
+ * Переводит ссылки записи на свои записи, если те слились с уже заведёнными:
+ * на свой путевой лист, на свой груз или АЗС.
+ */
 function redirected(
   table: TableName,
   row: Record<string, unknown>,
   waybillOf: Map<string, string>,
+  refs: Map<TableName, Map<string, string>>,
 ): Record<string, unknown> {
+  let out = row;
   const link = WAYBILL_LINKS[table];
   if (link) {
     const moved = waybillOf.get(textOf(row[link]));
-    return moved ? { ...row, [link]: moved } : row;
+    if (moved) out = { ...out, [link]: moved };
   }
-  if (table === 'attachments' && textOf(row.owner_table) === 'waybills') {
-    const moved = waybillOf.get(textOf(row.owner_id));
-    return moved ? { ...row, owner_id: moved } : row;
+  const links = REF_LINKS[table];
+  if (links) {
+    for (const [column, refTable] of Object.entries(links)) {
+      const moved = refs.get(refTable)?.get(textOf(out[column]));
+      if (moved) out = { ...out, [column]: moved };
+    }
   }
-  return row;
+  if (table === 'attachments' && textOf(out.owner_table) === 'waybills') {
+    const moved = waybillOf.get(textOf(out.owner_id));
+    if (moved) out = { ...out, owner_id: moved };
+  }
+  return out;
 }
 
 /**
  * Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений.
  *
- * Путевые листы сверяем не только по id: один и тот же лист, заведённый на двух
- * устройствах, приходит из облака под чужим id, и раньше из-за этого в базе
- * оказывались две шапки на один день — «новый путевой с пустой поездкой»,
- * после которого путались смена на главной и итоги. Теперь такой лист сливается
- * со своим: записи из файла переводятся на свой лист, а пустые поля шапки
- * дополняются из облака.
+ * Записи сверяем не только по id: одно и то же могли завести на двух устройствах,
+ * и тогда из облака приходит близнец под чужим id.
+ *
+ *  - путевые листы: «тот же лист» — та же дата, статус и автомобиль. Раньше из-за
+ *    этого в базе оказывались две шапки на один день — «новый путевой с пустой
+ *    поездкой», после которого путались смена на главной и итоги;
+ *  - грузы и АЗС: «та же запись» — то же название (список грузов заполняется на
+ *    новом устройстве само, поэтому дубли появлялись сразу после подключения облака);
+ *  - начисление за перевозку: по перевозке начисление одно, в том числе если её
+ *    закрыли на двух устройствах.
+ *
+ * При слиянии записи из файла переводятся на свою запись, а пустые поля своей
+ * дополняются из облачной копии: ничего из того, что уже введено, не затирается.
  */
 export function importJson(text: string, overwrite = false): ImportResult {
   const payload = JSON.parse(text) as {
@@ -323,6 +386,8 @@ export function importJson(text: string, overwrite = false): ImportResult {
       updated: 0,
       skipped: 0,
       merged: 0,
+      mergedRefs: 0,
+      mergedOps: 0,
       files: 0,
       message: `настроек восстановлено: ${applied}`,
     };
@@ -334,8 +399,14 @@ export function importJson(text: string, overwrite = false): ImportResult {
   let updated = 0;
   let skipped = 0;
   let merged = 0;
+  let mergedRefs = 0;
+  let mergedOps = 0;
   /** id листа из файла → id того же листа на устройстве */
   const waybillOf = new Map<string, string>();
+  /** id записи справочника из файла → id своей записи: отдельно по каждой таблице */
+  const refs = new Map<TableName, Map<string, string>>();
+  /** id начисления из файла → id своего начисления по той же перевозке */
+  const chargeOf = new Map<string, string>();
 
   db.tx(() => {
     // Сначала путевые листы: свой лист не удваиваем, а ссылки из файла переводим на него
@@ -359,6 +430,52 @@ export function importJson(text: string, overwrite = false): ImportResult {
       if (Object.keys(fill).length > 0) updateRow('waybills', twin.id, fill);
     }
 
+    // Грузы и АЗС: своя запись с тем же названием уже есть — не удваиваем её
+    for (const table of SAME_BY_NAME) {
+      const map = new Map<string, string>();
+      const mine = dbSync().all<Record<string, unknown>>(
+        `SELECT * FROM ${table} WHERE deleted = 0`,
+      );
+      for (const row of payload.tables?.[table] ?? []) {
+        const id = textOf(row.id);
+        if (!id) continue;
+        // Запись с таким id уже есть на устройстве: её судьбу решает основной цикл
+        if (mine.some((r) => textOf(r.id) === id)) continue;
+        const key = normalizeName(textOf(row.name));
+        if (!key) continue;
+        const twin = mine.find((r) => normalizeName(textOf(r.name)) === key);
+        if (!twin) continue;
+        map.set(id, textOf(twin.id));
+        mergedRefs++;
+        const fill = fillEmpty(twin, redirected(table, row, waybillOf, refs));
+        if (Object.keys(fill).length > 0) updateRow(table, textOf(twin.id), fill);
+      }
+      if (map.size > 0) refs.set(table, map);
+    }
+
+    // Начисление за перевозку: по перевозке оно одно, даже если её закрыли дважды
+    const myCharges = new Map<string, string>();
+    for (const row of dbSync().all<Record<string, unknown>>(
+      "SELECT id, trip_id FROM finance_ops WHERE deleted = 0 AND kind = 'charge'",
+    )) {
+      const trip = textOf(row.trip_id);
+      if (trip) myCharges.set(trip, textOf(row.id));
+    }
+    for (const row of payload.tables?.finance_ops ?? []) {
+      const id = textOf(row.id);
+      if (!id || textOf(row.kind) !== 'charge') continue;
+      const mine = myCharges.get(textOf(row.trip_id));
+      if (!mine || mine === id) continue;
+      chargeOf.set(id, mine);
+      mergedOps++;
+      const own = dbSync().one<Record<string, unknown>>('SELECT * FROM finance_ops WHERE id = ?', [
+        mine,
+      ]);
+      if (!own) continue;
+      const fill = fillEmpty(own, redirected('finance_ops', row, waybillOf, refs));
+      if (Object.keys(fill).length > 0) updateRow('finance_ops', mine, fill);
+    }
+
     for (const [table, rows] of Object.entries(payload.tables ?? {})) {
       if (!isTable(table)) continue;
       for (const row of rows) {
@@ -367,10 +484,13 @@ export function importJson(text: string, overwrite = false): ImportResult {
           skipped++;
           continue;
         }
-        // Лист уже есть на устройстве под своим id: запись не заводим, записи и так ушли на него
+        // Лист или запись справочника уже есть на устройстве под своим id:
+        // запись не заводим, ссылки из файла и так ушли на неё
         if (table === 'waybills' && waybillOf.has(id)) continue;
+        if (refs.get(table)?.has(id)) continue;
+        if (table === 'finance_ops' && chargeOf.has(id)) continue;
 
-        const clean = redirected(table, row, waybillOf);
+        const clean = redirected(table, row, waybillOf, refs);
 
         const exists = dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
         if (exists) {
@@ -396,8 +516,10 @@ export function importJson(text: string, overwrite = false): ImportResult {
     updated,
     skipped,
     merged,
+    mergedRefs,
+    mergedOps,
     files,
-    message: describeImport(inserted, updated, skipped, merged, files),
+    message: describeImport(inserted, updated, skipped, merged, mergedRefs, mergedOps, files),
   };
 }
 

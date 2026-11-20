@@ -33,7 +33,7 @@ import {
 } from './backup';
 import { allDocumentRows, documentSummary } from './documents';
 import { blobKeys, bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
-import { normalizeName } from './order';
+import { normalizeName } from './names';
 import { TABLES } from '../types';
 import { CloudError, humanSize, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
 
@@ -742,6 +742,10 @@ export interface CloudPullResult {
   skipped: number;
   /** Сколько путевых листов слилось с уже заведёнными на устройстве */
   merged: number;
+  /** Сколько записей справочников (грузы, АЗС) слилось со своими */
+  mergedRefs: number;
+  /** Сколько начислений слилось со своими по той же перевозке */
+  mergedOps: number;
   icons: RestoreResult;
 }
 
@@ -790,6 +794,8 @@ export async function pullFromDisk(
     updated: result.updated,
     skipped: result.skipped,
     merged: result.merged,
+    mergedRefs: result.mergedRefs,
+    mergedOps: result.mergedOps,
     icons,
   };
 }
