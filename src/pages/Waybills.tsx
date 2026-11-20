@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { refs, waybillRepo } from '../db/repo';
 import { summarizeWaybill } from '../lib/calc';
 import { fmtDate, fmtMoney, fmtNumber, monthKey, plural } from '../lib/format';
+import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Waybills() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export default function Waybills() {
     <div className="page">
       <header className="topbar">
         <h1>Путевые листы</h1>
+        <SaveBadge />
         <div className="topbar-actions">
           <Button variant="soft" icon="plus" onClick={() => navigate('/waybills/new')} />
         </div>

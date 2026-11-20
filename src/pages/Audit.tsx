@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Empty, Icon, Modal, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { fmtDateTime } from '../lib/format';
+import { SaveBadge } from '../ui/SaveBadge';
 import {
   LEVEL_LABELS,
   KIND_LABELS,
@@ -111,6 +112,7 @@ export default function Audit() {
           <Icon name="back" />
         </button>
         <h1>Проверка данных</h1>
+        <SaveBadge />
         <div className="topbar-actions" />
       </header>
 
@@ -118,9 +120,9 @@ export default function Audit() {
         <Card>
           <div className="small muted">
             Проверка просматривает все записи и собирает то, что похоже на ошибку: дубли в деньгах,
-            двойные начисления, одинаковые названия в справочниках, ссылки в никуда, пустые записи и
-            замечания по листам. Ничего не меняется без вашего подтверждения, а после правки есть кнопка
-            «Вернуть».
+            двойные начисления, одинаковые названия в справочниках, ссылки в никуда, пустые записи,
+            замечания по листам и лишние файлы. Ничего не меняется без вашего подтверждения, а после
+            правки есть кнопка «Вернуть».
           </div>
         </Card>
 

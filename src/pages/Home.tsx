@@ -17,6 +17,7 @@ import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
 import { refreshTripStatus } from '../lib/actions';
 import type { TripPoint } from '../types';
+import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Home({ onCreate }: { onCreate: () => void }) {
   const navigate = useNavigate();
@@ -69,6 +70,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     <div className="page">
       <header className="topbar">
         <h1>Главная</h1>
+        <SaveBadge />
       </header>
       <div className="page-body">
         <div className="filters">

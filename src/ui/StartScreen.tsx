@@ -7,8 +7,8 @@
  * выглядит знакомо.
  *
  * Обмен не держит приложение закрытым: ошибку видно, можно повторить или
- * открыть приложение без обмена. И совсем долгий обмен окно не ждёт: через
- * 15 секунд приложение открывается само, а обмен дойдёт в фоне.
+ * открыть приложение без обмена. Обмен идёт целиком на виду — окно не уходит
+ * само по времени, закрыть его раньше можно кнопкой «Пропустить».
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -40,8 +40,6 @@ const PLAN: { key: string; title: string; icon: IconName }[] = [
 const MIN_MS = 800;
 /** Сколько фура уезжает перед показом приложения */
 const LEAVE_MS = 800;
-/** Дольше этого обмен не держим: приложение открываем, а обмен дойдёт в фоне */
-const HOLD_MS = 15000;
 
 function initialSteps(): Step[] {
   return PLAN.map((p) => ({ ...p, state: 'wait' as StepState }));
@@ -110,68 +108,57 @@ export function StartScreen({ onDone }: { onDone: () => void }) {
       const at = Date.now();
       let failed = '';
 
-      // Долгий обмен не должен запирать вход: окно уйдёт, а обмен дойдёт в фоне
-      const hold = setTimeout(() => {
-        put('cloud', 'run', 'Обмен продолжается в фоне');
-        setSub('Открываю приложение — обмен закончится в фоне');
-        finish();
-      }, HOLD_MS);
-
+      // 1. База на устройстве
+      put('base', 'run');
       try {
-        // 1. База на устройстве
-        put('base', 'run');
-        try {
-          const db = await getDb();
-          await db.flush();
-          const rows = db.rowCount();
-          put(
-            'base',
-            'done',
-            rows > 0 ? `${rows} ${plural(rows, 'запись', 'записи', 'записей')}` : 'Записей пока нет',
-          );
-        } catch (e) {
-          failed = reason(e);
-          put('base', 'err', failed);
-        }
-
-        if (cancelled.current) return;
-
-        // 2. Облако: свои изменения выгружаем, чужую свежую копию забираем
-        put('cloud', 'run', 'Сверяюсь с облаком');
-        try {
-          const res = await startSync((stage) => put('cloud', 'run', stage.text));
-          put('cloud', res.action === 'off' ? 'skip' : 'done', res.text);
-        } catch (e) {
-          failed = failed || reason(e);
-          put('cloud', 'err', reason(e));
-        }
-
-        if (cancelled.current) return;
-
-        // Обмен может пройти мгновенно — окно всё равно показываем чуть подольше
-        const left = MIN_MS - (Date.now() - at);
-        if (left > 0) await wait(left);
-        if (cancelled.current) return;
-
-        // 3. Приложение: при ошибке сначала спрашиваем, при успехе — просто открываем
-        if (failed) {
-          setTrouble(true);
-          setSub('Обмен не удался — можно повторить или открыть приложение');
-          put('open', 'wait', 'Жду решения');
-          return;
-        }
-
-        put('open', 'run', 'Почти готово');
-        setSub('Всё свежее — открываю приложение');
-        setLeaving(true);
-        await wait(LEAVE_MS);
-        if (cancelled.current) return;
-        put('open', 'done', 'Готово');
-        setSettled(true);
-        finish();
-      } finally {
-        clearTimeout(hold);
+        const db = await getDb();
+        await db.flush();
+        const rows = db.rowCount();
+        put(
+          'base',
+          'done',
+          rows > 0 ? `${rows} ${plural(rows, 'запись', 'записи', 'записей')}` : 'Записей пока нет',
+        );
+      } catch (e) {
+        failed = reason(e);
+        put('base', 'err', failed);
       }
+
+      if (cancelled.current) return;
+
+      // 2. Облако: свои изменения выгружаем, чужую свежую копию забираем
+      put('cloud', 'run', 'Сверяюсь с облаком');
+      try {
+        const res = await startSync((stage) => put('cloud', 'run', stage.text));
+        put('cloud', res.action === 'off' ? 'skip' : 'done', res.text);
+      } catch (e) {
+        failed = failed || reason(e);
+        put('cloud', 'err', reason(e));
+      }
+
+      if (cancelled.current) return;
+
+      // Обмен может пройти мгновенно — окно всё равно показываем чуть подольше
+      const left = MIN_MS - (Date.now() - at);
+      if (left > 0) await wait(left);
+      if (cancelled.current) return;
+
+      // 3. Приложение: при ошибке сначала спрашиваем, при успехе — просто открываем
+      if (failed) {
+        setTrouble(true);
+        setSub('Обмен не удался — можно повторить или открыть приложение');
+        put('open', 'wait', 'Жду решения');
+        return;
+      }
+
+      put('open', 'run', 'Почти готово');
+      setSub('Всё свежее — открываю приложение');
+      setLeaving(true);
+      await wait(LEAVE_MS);
+      if (cancelled.current) return;
+      put('open', 'done', 'Готово');
+      setSettled(true);
+      finish();
     })();
   }, [attempt, put, finish]);
 
@@ -234,9 +221,7 @@ export function StartScreen({ onDone }: { onDone: () => void }) {
 
         {seconds >= 5 && !settled && !trouble ? (
           <div className="exit-timer">
-            {seconds >= 10
-              ? `идёт ${seconds} с · скоро открою приложение, обмен дойдёт в фоне`
-              : `идёт ${seconds} с`}
+            идёт {seconds} с · обмен идёт целиком на виду — закрыть раньше можно кнопкой «Пропустить»
           </div>
         ) : null}
 

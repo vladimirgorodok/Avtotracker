@@ -6,6 +6,7 @@ import { refs, tripRepo, waybillRepo } from '../db/repo';
 import { summarizeTrip, sortTrips } from '../lib/calc';
 import { monthKey, plural } from '../lib/format';
 import { TripCard } from './Home';
+import { SaveBadge } from '../ui/SaveBadge';
 
 type Tab = 'all' | 'planned' | 'done' | 'charged';
 
@@ -48,6 +49,7 @@ export default function Trips() {
     <div className="page">
       <header className="topbar">
         <h1>Поездки</h1>
+        <SaveBadge />
         <div className="topbar-actions">
           <Button variant="soft" icon="plus" onClick={() => navigate('/trips/new')} />
         </div>

@@ -98,6 +98,7 @@ export default function VehicleDetail() {
     });
     touch();
     notify('Автомобиль сохранён', 'ok');
+    navigate('/vehicles');
   }
 
   /** Логотип сразу попадает и в форму, и в базу */

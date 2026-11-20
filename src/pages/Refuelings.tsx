@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { refs, refuelRepo } from '../db/repo';
 import { fmtDateTime, fmtNumber, monthKey, plural } from '../lib/format';
 import { refuelKindLabel } from '../types';
+import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Refuelings() {
   const navigate = useNavigate();
@@ -31,6 +32,7 @@ export default function Refuelings() {
     <div className="page">
       <header className="topbar">
         <h1>Заправки</h1>
+        <SaveBadge />
         <div className="topbar-actions">
           <Button variant="soft" icon="plus" onClick={() => navigate('/refuelings/new')} />
         </div>

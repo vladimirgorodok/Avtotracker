@@ -5,6 +5,7 @@ import { monthChoices, monthLabel } from '../lib/format';
 import { usedMonths } from '../db/repo';
 import { useApp } from '../store';
 import { SELECT_SEARCH_FROM, filterOptions, type SelectOption } from './select';
+import { SaveBadge } from './SaveBadge';
 
 /** Месяцы с данными; база может быть ещё не готова */
 function safeUsedMonths(): string[] {
@@ -35,6 +36,7 @@ export function Page({
           </button>
         ) : null}
         <h1>{title}</h1>
+        <SaveBadge />
         <div className="topbar-actions">{actions}</div>
       </header>
       <div className="page-body">{children}</div>

@@ -77,6 +77,7 @@ export default function FinanceDetail() {
     });
     touch();
     notify('Операция сохранена', 'ok');
+    navigate('/finance');
   }
 
   return (

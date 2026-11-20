@@ -12,6 +12,8 @@ export function AiSettings() {
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [showKey, setShowKey] = useState(false);
+  // Адрес и ключ уже введены — держим их свёрнутыми, чтобы не занимали место
+  const [showKeys, setShowKeys] = useState(() => readAiConfig() === null);
 
   const cfg = readAiConfig();
   const configured = cfg !== null;
@@ -50,38 +52,55 @@ export function AiSettings() {
       <div className="row wrap">
         <Badge tone={configured ? 'ok' : 'warn'}>{configured ? 'Адрес и ключ указаны' : 'Нужен адрес и ключ'}</Badge>
         <Badge tone={ready ? 'ok' : 'neutral'}>{ready ? 'Готов к работе' : 'Модель не выбрана'}</Badge>
+        <span style={{ flex: 1 }} />
+        <Button
+          variant="ghost"
+          icon={showKeys ? 'up' : 'down'}
+          title={showKeys ? 'Свернуть адрес и ключ' : 'Показать адрес и ключ'}
+          onClick={() => setShowKeys((v) => !v)}
+        />
       </div>
 
-      <Field label="Адрес API" hint="Подойдёт любой сервис с OpenAI-совместимым API">
-        <TextInput
-          value={settings.ai_base_url}
-          onChange={(e) => saveSetting('ai_base_url', e.target.value)}
-          placeholder="https://api.aitunnel.ru/v1"
-        />
-      </Field>
-      {settings.ai_base_url.trim() !== '' && normalizeBaseUrl(settings.ai_base_url) !== settings.ai_base_url.trim() ? (
-        <div className="small muted">Адрес будет использован как {normalizeBaseUrl(settings.ai_base_url)}</div>
-      ) : null}
-
-      <Field label="Ключ API" hint="Хранится только на устройстве, в коде приложения его нет">
-        <div className="row">
-          <TextInput
-            className="grow"
-            type={showKey ? 'text' : 'password'}
-            value={settings.ai_api_key}
-            onChange={(e) => saveSetting('ai_api_key', e.target.value)}
-            placeholder="sk-..."
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <IconButton
-            icon="eye"
-            title={showKey ? 'Скрыть ключ' : 'Показать ключ'}
-            onClick={() => setShowKey((v) => !v)}
-          />
+      {!showKeys ? (
+        <div className="small muted">
+          Адрес: {normalizeBaseUrl(settings.ai_base_url) || 'не указан'}
+          {settings.ai_api_key.trim() !== '' ? ' · ключ задан' : ' · ключа нет'}. Всё введено — откройте
+          стрелкой, если нужно их изменить.
         </div>
-      </Field>
-      {keyLine ? <div className={`small ${keyProblem ? 'alert alert-warn' : 'muted'}`}>{keyLine}</div> : null}
+      ) : (
+        <>
+          <Field label="Адрес API" hint="Подойдёт любой сервис с OpenAI-совместимым API">
+            <TextInput
+              value={settings.ai_base_url}
+              onChange={(e) => saveSetting('ai_base_url', e.target.value)}
+              placeholder="https://api.aitunnel.ru/v1"
+            />
+          </Field>
+          {settings.ai_base_url.trim() !== '' && normalizeBaseUrl(settings.ai_base_url) !== settings.ai_base_url.trim() ? (
+            <div className="small muted">Адрес будет использован как {normalizeBaseUrl(settings.ai_base_url)}</div>
+          ) : null}
+
+          <Field label="Ключ API" hint="Хранится только на устройстве, в коде приложения его нет">
+            <div className="row">
+              <TextInput
+                className="grow"
+                type={showKey ? 'text' : 'password'}
+                value={settings.ai_api_key}
+                onChange={(e) => saveSetting('ai_api_key', e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <IconButton
+                icon="eye"
+                title={showKey ? 'Скрыть ключ' : 'Показать ключ'}
+                onClick={() => setShowKey((v) => !v)}
+              />
+            </div>
+          </Field>
+          {keyLine ? <div className={`small ${keyProblem ? 'alert alert-warn' : 'muted'}`}>{keyLine}</div> : null}
+        </>
+      )}
 
       <Field label="Модель">
         <TextInput

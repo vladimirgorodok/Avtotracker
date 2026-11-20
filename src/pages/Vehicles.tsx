@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { listWhere, vehicleRepo, waybillRepo } from '../db/repo';
 import { fmtDate, plural } from '../lib/format';
 import type { Vehicle } from '../types';
+import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Vehicles() {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export default function Vehicles() {
     <div className="page">
       <header className="topbar">
         <h1>Автомобили</h1>
+        <SaveBadge />
         <div className="topbar-actions">
           <Button variant="soft" icon="plus" onClick={() => navigate('/vehicles/new')} />
         </div>

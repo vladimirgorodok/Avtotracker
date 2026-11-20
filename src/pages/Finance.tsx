@@ -6,6 +6,7 @@ import { financeRepo, refs, tripRepo } from '../db/repo';
 import { fmtDate, fmtMoney, monthKey, plural } from '../lib/format';
 import { summarizeFinance } from '../lib/calc';
 import { FINANCE_KINDS } from '../types';
+import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Finance() {
   const navigate = useNavigate();
@@ -36,6 +37,7 @@ export default function Finance() {
     <div className="page">
       <header className="topbar">
         <h1>Финансы</h1>
+        <SaveBadge />
         <div className="topbar-actions">
           <Button variant="soft" icon="plus" onClick={() => navigate('/finance/new')} />
         </div>

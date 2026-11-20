@@ -79,6 +79,7 @@ export default function RefuelDetail() {
     });
     touch();
     notify('Заправка сохранена', 'ok');
+    navigate('/refuelings');
   }
 
   return (

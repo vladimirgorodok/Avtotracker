@@ -17,7 +17,6 @@ import {
 import { PlacePicker } from '../ui/PlacePicker';
 import { useApp } from '../store';
 import { refs } from '../db/repo';
-import { addPhoto } from '../lib/documents';
 import { fmtNumber } from '../lib/format';
 import {
   MAX_FILES,
@@ -327,14 +326,7 @@ export default function OrderFromFiles() {
     setCreating(true);
     try {
       const res = applyDraft(draft, settings);
-      for (const item of picked) {
-        if (item.att.kind !== 'image') continue;
-        try {
-          await addPhoto('trips', res.tripId, item.file, `Заявка: ${item.att.name}`);
-        } catch {
-          /* фото заявки не главное — поездка уже создана */
-        }
-      }
+      // Файлы заявки — только материал для разбора: в базе они не сохраняются
       touch();
       notify(describeOrderResult(res), 'ok');
       navigate(`/trips/${res.tripId}`);
@@ -410,6 +402,7 @@ export default function OrderFromFiles() {
           Приложите фото заявки или файл с текстом (несколько сразу) — или вставьте заявку текстом прямо
           здесь, если она пришла сообщением, письмом или по телефону. Помощник прочитает даты, груз и точки
           маршрута, сверит фирмы и места со справочником и предложит, что добавить, а что дополнить.
+          Файлы заявки в базе не сохраняются — они нужны только для разбора.
         </div>
 
         {!ready ? (
@@ -851,7 +844,7 @@ export default function OrderFromFiles() {
             </Button>
             <div className="small muted">
               Поездка появится в списке со статусом «В плане». Недостающие данные — вес, контакты, даты —
-              заполните в её карточке. Фотографии заявки приложатся к поездке.
+              заполните в её карточке. Файлы заявки в базе не сохраняются: они нужны только для разбора.
             </div>
             <div className="row">
               <Button icon="doc" onClick={() => setRawOpen((v) => !v)}>

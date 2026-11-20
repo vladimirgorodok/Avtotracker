@@ -116,6 +116,8 @@ export default function WaybillDetail() {
     }
     touch();
     notify('Путевой лист сохранён', 'ok');
+    // Сохранили — карточка закрывается: кнопкой «крестик» больше ходить не надо
+    navigate('/waybills');
   }
 
   function doClose() {

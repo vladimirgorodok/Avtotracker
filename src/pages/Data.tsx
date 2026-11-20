@@ -141,7 +141,7 @@ export default function DataPage() {
         </div>
         <div className="small muted">
           Хранилище: {stats.storage}. Фотографии документов ({docs.count} шт., {Math.max(0, Math.round(docs.bytes / 1024))} КБ)
-          хранятся отдельно от базы и уезжают на Яндекс Диск отдельным архивом значков.
+          хранятся отдельно от базы: в облако каждая уезжает своим файлом, без архива.
         </div>
       </Card>
 

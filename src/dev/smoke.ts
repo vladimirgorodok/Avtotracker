@@ -2318,6 +2318,8 @@ async function main() {
     }
 
     // --- экраны
+    const { readFileSync } = await import('node:fs');
+    const ydSource = readFileSync('src/pages/YandexDisk.tsx', 'utf8');
     const ydMod = await import('../pages/YandexDisk');
     const ydHtml = renderToString(
       createElement(
@@ -2327,12 +2329,17 @@ async function main() {
       ) as never,
     );
     check('объяснено, что данные и значки лежат отдельно', ydHtml.includes('хранятся в облаке отдельно'));
-    check('подписано поле пароля приложения', ydHtml.includes('Пароль приложения'));
+    check('подписано поле пароля приложения', ydSource.includes('Пароль приложения'));
     check(
       'в инструкции есть ссылка на пароли приложений',
-      ydHtml.includes('id.yandex.ru/security/app-passwords'),
+      ydSource.includes('id.yandex.ru/security/app-passwords'),
     );
-    check('про тип пароля сказано', ydHtml.includes('WebDAV-клиент для Яндекс Диска'));
+    check('про тип пароля сказано', ydSource.includes('WebDAV-клиент для Яндекс Диска'));
+    // Введённые данные авторизации прячем: место в карточке они не занимают
+    check('данные подключения указаны — карточка свёрнута', ydHtml.includes('Данные подключения введены'));
+    check('в свёрнутой карточке видно логин и папку', ydHtml.includes('Логин ') && ydHtml.includes('папка '));
+    check('поля прячутся за стрелкой', ydSource.includes("useState(() => !cloudState().configured)"));
+    check('карточку можно раскрыть', ydSource.includes('Показать') && ydSource.includes("icon={showConn ? 'up' : 'down'}"));
     check('есть выгрузка данных', ydHtml.includes('Выгрузить данные'));
     check('есть загрузка данных', ydHtml.includes('Загрузить данные из облака'));
     check('есть выгрузка значков', ydHtml.includes('Выгрузить значки'));
@@ -2348,7 +2355,6 @@ async function main() {
     check('в настройках есть вход в Яндекс Диск', settingsHtml.includes('Настроить Яндекс Диск'));
 
     // --- родная часть для Android: без неё методы WebDAV на телефоне не отправить
-    const { readFileSync } = await import('node:fs');
     const pluginJava = readFileSync(
       'android/app/src/main/java/ru/avtobaza/app/WebDavPlugin.java',
       'utf8',
@@ -3109,6 +3115,60 @@ async function main() {
       );
     }
 
+    // --- Снимки заявок: их прикладывали к поездке, теперь в базе не нужны
+    const wbOrder = repo.insertRow('waybills', {
+      date_out: '2026-03-06',
+      status: 'open',
+      vehicle_id: null,
+      note: '',
+    });
+    const tripOrder = repo.insertRow('trips', {
+      waybill_id: wbOrder,
+      cargo_type_id: null,
+      weight: null,
+      amount: 1500,
+      note: '',
+      status: 'planned',
+    });
+    const shotId = repo.insertRow('attachments', {
+      owner_table: 'trips',
+      owner_id: tripOrder,
+      title: 'Заявка: снимок.jpg',
+      mime: 'image/jpeg',
+      path: 'shot.jpg',
+      thumb_path: 'shot.thumb.jpg',
+      size: 10,
+    });
+    const keepPhoto = repo.insertRow('attachments', {
+      owner_table: 'trips',
+      owner_id: tripOrder,
+      title: `Фото от ${'06.03.2026'}`,
+      mime: 'image/jpeg',
+      path: 'keep.jpg',
+      thumb_path: '',
+      size: 10,
+    });
+
+    const shotFinding = audit().find((f) => f.kind === 'junk' && f.id.includes(shotId));
+    check('снимок заявки в поездке найден', shotFinding !== undefined);
+    check('обычное фото поездки в находку не попало', !(shotFinding?.id ?? '').includes(keepPhoto));
+    check('снимки заявок убираются окончательно', shotFinding?.fix?.permanent === true);
+    check(
+      'видно, к какой поездке относился снимок',
+      (shotFinding?.details ?? []).some((d) => d.includes('перевозка')),
+    );
+    if (shotFinding) {
+      eq('до правки файл заявки на месте', repo.countRows('attachments', `id = '${shotId}'`), 1);
+      await applyFinding(shotFinding);
+      eq('файл заявки убран', repo.countRows('attachments', `id = '${shotId}'`), 0);
+      eq('обычное фото осталось', repo.countRows('attachments', `id = '${keepPhoto}'`), 1);
+    }
+
+    // Разбор заявок больше не сохраняет её файлы в базе
+    const orderPage = (await import('node:fs')).readFileSync('src/pages/OrderFromFiles.tsx', 'utf8');
+    check('разбор заявок не прикладывает снимки к поездке', !orderPage.includes('addPhoto'));
+    check('в разборе сказано, что файлы не сохраняются', orderPage.includes('в базе не сохраняются'));
+
     // --- Скрытые находки запоминаются на устройстве
     if (dupFinding) {
       await saveHidden([dupFinding.id]);
@@ -3136,6 +3196,9 @@ async function main() {
     repo.softDelete('waybills', wbGone);
     repo.softDelete('waybills', wbEmpty);
     repo.softDelete('waybills', wbBad);
+    repo.softDelete('attachments', keepPhoto);
+    repo.softDelete('trips', tripOrder);
+    repo.softDelete('waybills', wbOrder);
   }
 
   console.log('\n32. Обмен при запуске: окно после заставки');
@@ -3178,8 +3241,8 @@ async function main() {
     check('при неудаче видно причину', startSource.includes("'err', reason(e)"));
     check('во время обмена можно пропустить', startSource.includes('Пропустить'));
     check('видно, что обмен идёт, а не завис', startSource.includes('exit-timer'));
-    check('долгий обмен не держит вход в приложение', startSource.includes('HOLD_MS'));
-    check('после ожидания приложение открывается само', startSource.includes('обмен закончится в фоне'));
+    check('долгий обмен можно смотреть до конца', !startSource.includes('HOLD_MS'));
+    check('окно не уходит само по времени', !/setTimeout\(\(\) => \{\s*put\('cloud'/.test(startSource));
     check('вход открывается ровно один раз', startSource.includes('opened.current = true'));
 
     // Не мигает при быстром обмене
@@ -3210,6 +3273,92 @@ async function main() {
         html.includes('Открываю приложение'),
     );
     check('пропуск виден сразу', html.includes('Пропустить'));
+  }
+
+  console.log('\n33. Сохранение на виду: индикатор в шапке');
+  {
+    const { readFileSync } = await import('node:fs');
+    const { createElement } = await import('react');
+    const { renderToString } = await import('react-dom/server');
+    const { MemoryRouter } = await import('react-router-dom');
+    const badgeSource = readFileSync('src/ui/SaveBadge.tsx', 'utf8');
+    const autoSource = readFileSync('src/lib/yadisk-auto.ts', 'utf8');
+    const dbSource = readFileSync('src/db/index.ts', 'utf8');
+    const componentsSource = readFileSync('src/ui/components.tsx', 'utf8');
+    const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
+
+    // Видно и запись на устройство, и выгрузку в облако
+    check('в базе видно, что ещё не записано', dbSource.includes('hasUnsaved()'));
+    check('обмен рассказывает о своём состоянии', autoSource.includes('export function saveStatus()'));
+    check('у обмена есть все состояния', /SavePhase = 'off' \| 'saved' \| 'pending' \| 'busy' \| 'error'/.test(autoSource));
+    check(
+      'видно, сколько осталось до выгрузки',
+      autoSource.includes('waitMs: Math.max(0, pushAt - Date.now())'),
+    );
+    check('отсчёт идёт по той же задержке, что и выгрузка', autoSource.includes('delayMs: PUSH_DELAY_MS'));
+    check('ошибка выгрузки видна в шапке', badgeSource.includes('Не выгружено'));
+    check('шаг выгрузки отмечается в состоянии', /busy = true;\s*phase = 'busy'/.test(autoSource));
+
+    // Подписи по шагам: сохраняю → в облако N с → выгружаю → в облаке
+    check('видно запись на устройство', badgeSource.includes('Сохраняю…'));
+    check('видно отсчёт до выгрузки', badgeSource.includes('В облако ${left} с'));
+    check('видно саму выгрузку', badgeSource.includes('Выгружаю…'));
+    check('видно, что всё в облаке', badgeSource.includes('В облаке ${at}'));
+    check('время выгрузки показывается часами', badgeSource.includes('toLocaleTimeString'));
+    check('подпись обновляется каждую секунду', badgeSource.includes('setInterval'));
+    check('нажатие открывает экран Яндекс Диска', badgeSource.includes("navigate('/yadisk')"));
+    check('значок крутится, пока идёт работа', badgeSource.includes('save-badge-spin') && css.includes('.save-badge-spin'));
+    check('подробности — во всплывающей подсказке', badgeSource.includes('title={hint}'));
+    check(
+      'уважает «уменьшение движения»',
+      css.includes('prefers-reduced-motion') && /save-badge-spin svg/.test(css),
+    );
+
+    // Индикатор стоит в шапке на вкладках и на остальных экранах
+    check('индикатор в шапке страниц', componentsSource.includes('<SaveBadge />'));
+    for (const page of ['Home', 'Waybills', 'Trips', 'Refuelings', 'Finance', 'Vehicles', 'Audit']) {
+      const src = readFileSync(`src/pages/${page}.tsx`, 'utf8');
+      check(`индикатор в шапке: ${page}`, src.includes('<SaveBadge />'));
+    }
+    // Длинный заголовок не выдавливает индикатор из шапки
+    check('заголовок в шапке сокращается', /\.topbar h1 \{[\s\S]{0,200}text-overflow: ellipsis/.test(css));
+
+    // Сам индикатор собирается
+    const badgeMod = await import('../ui/SaveBadge');
+    const badgeHtml = renderToString(
+      createElement(MemoryRouter, {}, createElement(badgeMod.SaveBadge as never)) as never,
+    );
+    check('индикатор показывает состояние', /Сохранено|В облаке|Сохраняю/.test(badgeHtml));
+  }
+
+  console.log('\n34. Сохранил — и пошёл дальше');
+  {
+    const { readFileSync } = await import('node:fs');
+
+    // «Сохранить» закрывает карточку: за «крестик» больше держаться не надо
+    const targets: [string, string][] = [
+      ['WaybillDetail', '/waybills'],
+      ['TripDetail', '/trips'],
+      ['RefuelDetail', '/refuelings'],
+      ['FinanceDetail', '/finance'],
+      ['VehicleDetail', '/vehicles'],
+    ];
+    for (const [page, route] of targets) {
+      const src = readFileSync(`src/pages/${page}.tsx`, 'utf8');
+      const at = src.indexOf('function save()');
+      const rest = src.slice(at + 1);
+      const end = rest.indexOf('\n  function ');
+      const body = end > 0 ? rest.slice(0, end) : rest;
+      check(`${page}: сохранение закрывает карточку`, at > 0 && body.includes(`navigate('${route}')`));
+    }
+
+    // Введённые данные авторизации прячутся: место в карточке они не занимают
+    const aiSource = readFileSync('src/ui/AiSettings.tsx', 'utf8');
+    check('адрес и ключ ИИ прячутся, когда введены', aiSource.includes('readAiConfig() === null'));
+    check('их можно раскрыть обратно', aiSource.includes('Показать адрес и ключ'));
+    check('в свёрнутом виде видно адрес и наличие ключа', aiSource.includes('ключ задан'));
+    const ydSource = readFileSync('src/pages/YandexDisk.tsx', 'utf8');
+    check('подключение к Диску тоже сворачивается', ydSource.includes("useState(() => !cloudState().configured)"));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

@@ -59,6 +59,11 @@ export class Db {
     return this.blocked;
   }
 
+  /** Есть ли изменения, которые ещё не легли на диск: по этому видно «Сохраняю…» */
+  hasUnsaved(): boolean {
+    return this.dirty || this.saving;
+  }
+
   /** Смириться с пустой базой: непрочитанный файл откладываем в сторону */
   async acceptEmptyBase(): Promise<string | null> {
     const parked = await this.persister.parkBroken();

@@ -39,7 +39,8 @@ export type FindingKind =
   | 'ref-duplicate'
   | 'orphan'
   | 'empty'
-  | 'waybill-note';
+  | 'waybill-note'
+  | 'junk';
 
 /** Насколько находка важна: ошибка, внимание, просто к сведению */
 export type FindingLevel = 'err' | 'warn' | 'info';
@@ -81,6 +82,7 @@ export const KIND_LABELS: Record<FindingKind, string> = {
   orphan: 'Ссылки в никуда',
   empty: 'Пустые записи',
   'waybill-note': 'Замечания по листам',
+  junk: 'Лишние файлы',
 };
 
 export const LEVEL_LABELS: Record<FindingLevel, string> = {
@@ -606,6 +608,72 @@ function orphans(): Finding[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* 4б. Лишние файлы: снимки разобранных заявок                        */
+/* ------------------------------------------------------------------ */
+
+/** С этих слов начинались названия файлов заявок */
+const ORDER_PHOTO_PREFIX = 'Заявка:';
+
+/**
+ * Снимки заявок, сохранённые в поездках.
+ *
+ * Раньше при разборе заявки её фотографии прикладывались к созданной поездке —
+ * «чтобы были под рукой». Теперь так не делается: заявка уже разобрана, а
+ * снимки только занимают место. Здесь находятся те, что успели сохраниться.
+ */
+function orderPhotos(): Finding[] {
+  const rows = dbSync().all<Record<string, unknown>>(
+    `SELECT * FROM attachments
+      WHERE deleted = 0 AND owner_table = 'trips' AND title LIKE ?
+      ORDER BY created_at DESC`,
+    [`${ORDER_PHOTO_PREFIX}%`],
+  );
+  if (rows.length === 0) return [];
+
+  const links = rows.slice(0, SAMPLE_LIMIT).map((row) => {
+    const trip = tripRepo.get(str(row, 'owner_id'));
+    const name = str(row, 'title').slice(ORDER_PHOTO_PREFIX.length).trim();
+    return (
+      `файл «${name || str(row, 'path')}» → ` +
+      (trip
+        ? rowNote('trips', trip as unknown as Record<string, unknown>)
+        : 'поездка удалена')
+    );
+  });
+
+  const count = rows.length;
+  return [
+    {
+      id: `junk:order-photos:${rows
+        .map((r) => str(r, 'id'))
+        .sort()
+        .join(',')}`,
+      kind: 'junk',
+      level: 'info',
+      title: `Снимки заявок в поездках — ${count}`,
+      details: [
+        'Это фотографии заявок, которые прикладывались к поездке при её создании из заявки. ' +
+          'Поездка уже разобрана, поэтому сами снимки в базе больше не нужны — они занимают место ' +
+          'на устройстве и в облаке. Разбор заявок их больше не сохраняет.',
+        ...links,
+        ...(count > SAMPLE_LIMIT ? [`и ещё ${count - SAMPLE_LIMIT}`] : []),
+      ],
+      fix: {
+        label: `Убрать ${count} ${plural(count, 'файл', 'файла', 'файлов')}`,
+        what:
+          `Файлы удалятся с устройства и из базы (${count}). ` +
+          'Вернуть их будет нельзя — они удаляются окончательно. Сами поездки останутся на месте.',
+        permanent: true,
+        links,
+        apply: async () => {
+          for (const row of rows) await deleteDocument(str(row, 'id'));
+        },
+      },
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ */
 /* 5. Пустые записи                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -845,6 +913,7 @@ export function audit(): Finding[] {
     ...chargeDuplicates(),
     ...refDuplicates(),
     ...orphans(),
+    ...orderPhotos(),
     ...empties(),
     ...waybillNotes(),
   ];

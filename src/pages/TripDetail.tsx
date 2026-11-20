@@ -95,6 +95,7 @@ export default function TripDetail() {
     });
     touch();
     notify('Поездка сохранена', 'ok');
+    navigate('/trips');
   }
 
   function newPoint(kind: TripPointKind) {

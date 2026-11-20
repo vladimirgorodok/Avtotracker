@@ -203,7 +203,12 @@ body {
   font-size: 20px;
   margin: 0;
   flex: 1;
+  min-width: 0;
   font-weight: 650;
+  /* Место в шапке делят индикатор сохранения и кнопки — длинный заголовок сокращаем */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-actions {
@@ -618,6 +623,38 @@ a.badge {
   background: var(--info-soft);
   color: var(--info);
   border-color: transparent;
+}
+
+/* Индикатор сохранения в шапке: места занимает мало, а рассказывает всё */
+.save-badge {
+  gap: 4px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+button.save-badge {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--line);
+}
+
+.save-badge-spin svg {
+  animation: save-spin 0.9s linear infinite;
+}
+
+@keyframes save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-badge-spin svg {
+    animation-duration: 2.6s;
+  }
 }
 
 .chip {

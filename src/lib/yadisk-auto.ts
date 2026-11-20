@@ -55,8 +55,58 @@ export function autoSyncWanted(): boolean {
   }
 }
 
+/**
+ * Что сейчас происходит с данными. По этому в шапке видно, всё ли сохранено
+ * на устройстве и ушло ли в облако.
+ */
+export type SavePhase = 'off' | 'saved' | 'pending' | 'busy' | 'error';
+
+export interface SaveStatus {
+  /** Облако настроено и автобмен включён */
+  on: boolean;
+  /** off — облако выключено; saved — всё в облаке; pending — ждём выгрузку;
+   *  busy — выгружаем; error — выгрузить не удалось */
+  phase: SavePhase;
+  /** Сколько осталось до выгрузки, мс — по этому идёт отсчёт в шапке */
+  waitMs: number;
+  /** Сколько ждём после изменений перед выгрузкой, мс */
+  delayMs: number;
+  /** Время последнего удачного обмена, ISO */
+  lastAt: string;
+  /** Текст последней ошибки обмена */
+  error: string;
+}
+
+let phase: SavePhase = 'saved';
+let pushAt = 0;
+
+/** Как сейчас обстоят дела с сохранением и обменом — для шапки приложения */
+export function saveStatus(): SaveStatus {
+  let on = false;
+  let lastAt = '';
+  let error = '';
+  try {
+    const state = cloudState();
+    on = state.configured && state.auto;
+    lastAt = state.lastAt;
+    error = state.lastError;
+  } catch {
+    /* база ещё не открыта — считаем, что сохранять нечего */
+  }
+  return {
+    on,
+    phase: on ? phase : 'off',
+    waitMs: Math.max(0, pushAt - Date.now()),
+    delayMs: PUSH_DELAY_MS,
+    lastAt,
+    error,
+  };
+}
+
 function schedulePush(): void {
   if (pushTimer !== null) clearTimeout(pushTimer);
+  phase = 'pending';
+  pushAt = Date.now() + PUSH_DELAY_MS;
   pushTimer = setTimeout(() => {
     pushTimer = null;
     void quiet('push');
@@ -72,7 +122,10 @@ async function quiet(kind: 'push' | 'pull' | 'any'): Promise<void> {
   const state = cloudState();
   if (kind === 'push' && !state.dirty) return;
   busy = true;
+  phase = 'busy';
+  pushAt = 0;
   quietUntil = Date.now() + QUIET_MS;
+  let failed = false;
   try {
     if (state.dirty) {
       await pushToDisk();
@@ -88,10 +141,13 @@ async function quiet(kind: 'push' | 'pull' | 'any'): Promise<void> {
     if (newest.name === state.lastData) return;
     await pullFromDisk(false);
   } catch (error) {
+    failed = true;
     noteError(error instanceof Error ? error.message : 'Ошибка обмена с Яндекс Диском');
   } finally {
     quietUntil = Date.now() + QUIET_MS;
     busy = false;
+    phase = failed ? 'error' : 'saved';
+    pushAt = 0;
   }
 }
 
@@ -99,19 +155,29 @@ async function quiet(kind: 'push' | 'pull' | 'any'): Promise<void> {
 export async function autoSyncNow(): Promise<string> {
   if (!cloudConfigured()) throw new Error('Заполните логин Яндекс и пароль приложения');
   const state = cloudState();
-  if (state.dirty) {
-    const res = await pushToDisk();
-    return `Выгружено в облако: ${res.dataName}`;
+  phase = 'busy';
+  pushAt = 0;
+  try {
+    if (state.dirty) {
+      const res = await pushToDisk();
+      return `Выгружено в облако: ${res.dataName}`;
+    }
+    const files = await listDataFiles();
+    const newest = files[0];
+    if (!newest) {
+      const res = await pushToDisk();
+      return `В облаке копий не было — выгружено: ${res.dataName}`;
+    }
+    if (newest.name === state.lastData) return 'Обмен не нужен: на устройстве и в облаке одно и то же';
+    const res = await pullFromDisk(false);
+    return `Загружено из облака: ${res.dataName}`;
+  } catch (error) {
+    phase = 'error';
+    throw error;
+  } finally {
+    if (phase === 'busy') phase = 'saved';
+    pushAt = 0;
   }
-  const files = await listDataFiles();
-  const newest = files[0];
-  if (!newest) {
-    const res = await pushToDisk();
-    return `В облаке копий не было — выгружено: ${res.dataName}`;
-  }
-  if (newest.name === state.lastData) return 'Обмен не нужен: на устройстве и в облаке одно и то же';
-  const res = await pullFromDisk(false);
-  return `Загружено из облака: ${res.dataName}`;
 }
 
 /** Включить слежение за изменениями. Первый обмен делает экран запуска. */
@@ -166,6 +232,8 @@ export async function startSync(report?: PushReporter): Promise<StartSyncResult>
   const deadline = Date.now() + 15000;
   while (busy && Date.now() < deadline) await pause(150);
   busy = true;
+  phase = 'busy';
+  pushAt = 0;
   quietUntil = Date.now() + QUIET_MS;
   try {
     const state = cloudState();
@@ -187,11 +255,14 @@ export async function startSync(report?: PushReporter): Promise<StartSyncResult>
     const res = await pullFromDisk(false, report);
     return { action: 'got', text: `Загружено из облака: ${res.dataName}` };
   } catch (error) {
+    phase = 'error';
     noteError(error instanceof Error ? error.message : 'Ошибка обмена с Яндекс Диском');
     throw error;
   } finally {
     quietUntil = Date.now() + QUIET_MS;
     busy = false;
+    if (phase === 'busy') phase = 'saved';
+    pushAt = 0;
   }
 }
 
@@ -205,12 +276,19 @@ export async function pushOnExit(report?: PushReporter): Promise<CloudPushResult
   const deadline = Date.now() + 15000;
   while (busy && Date.now() < deadline) await pause(150);
   busy = true;
+  phase = 'busy';
+  pushAt = 0;
   quietUntil = Date.now() + QUIET_MS;
   try {
     return await pushToDisk(report);
+  } catch (error) {
+    phase = 'error';
+    throw error;
   } finally {
     quietUntil = Date.now() + QUIET_MS;
     busy = false;
+    if (phase === 'busy') phase = 'saved';
+    pushAt = 0;
   }
 }
 

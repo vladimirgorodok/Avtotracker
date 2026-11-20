@@ -39,6 +39,8 @@ export default function YandexDiskPage() {
   const [stage, setStage] = useState('');
   const [replace, setReplace] = useState(false);
   const [confirmPull, setConfirmPull] = useState(false);
+  // Данные подключения уже введены — карточку держим свёрнутой, место не занимает
+  const [showConn, setShowConn] = useState(() => !cloudState().configured);
 
   const state = cloudState();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,7 +125,24 @@ export default function YandexDiskPage() {
         {message ? <div className="alert alert-info"><Icon name="check" /><span>{message}</span></div> : null}
       </Card>
 
-      <Card title="Подключение" actions={<Icon name="settings" />}>
+      <Card
+        title="Подключение"
+        actions={
+          <Button
+            variant="ghost"
+            icon={showConn ? 'up' : 'down'}
+            title={showConn ? 'Свернуть' : 'Показать'}
+            onClick={() => setShowConn((v) => !v)}
+          />
+        }
+      >
+        {!showConn ? (
+          <div className="small muted">
+            Логин {settings.yadisk_login || '—'} · папка {state.folder}. Данные подключения введены —
+            откройте стрелкой, если нужно их изменить.
+          </div>
+        ) : (
+          <>
         <details className="guide">
           <summary>
             <Icon name="doc" size={16} />
@@ -201,6 +220,8 @@ export default function YandexDiskPage() {
         >
           {busy === 'check' ? 'Проверяю…' : 'Проверить подключение'}
         </Button>
+          </>
+        )}
       </Card>
 
       <Card title="Обмен" actions={<Icon name="upload" />}>
@@ -212,8 +233,8 @@ export default function YandexDiskPage() {
             onChange={(e) => saveSetting('yadisk_auto', e.target.checked ? 1 : 0)}
           />
           <span>
-            Обмениваться автоматически: после изменений — выгрузка, при запуске — окно обмена со
-            свежей копией из облака
+            Обмениваться автоматически: после изменений выгрузка сама, примерно через 12 секунд, а при
+            запуске — окно обмена со свежей копией из облака
           </span>
         </label>
         <Button
