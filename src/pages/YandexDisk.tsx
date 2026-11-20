@@ -52,8 +52,7 @@ export default function YandexDiskPage() {
     if (key !== 'yadisk_password') {
       saveSetting('yadisk_last_data', '');
       saveSetting('yadisk_last_icons', '');
-      // Отпечатки значков привязаны к папке: в новой папке архив должен уйти заново
-      saveSetting('yadisk_icons_hash', '');
+      // Отпечаток значков привязан к месту выгрузки: в новой папке файлы должны уйти заново
       saveSetting('yadisk_icons_meta', '');
     }
   }
@@ -88,8 +87,8 @@ export default function YandexDiskPage() {
         <div className="small muted">
           Данные и значки хранятся в облаке отдельно. <b>Данные</b> — это справочники, путевые листы,
           поездки, заправки, финансы и настройки: они лежат в лёгком файле и уходят быстро.
-          <b> Значки</b> — логотипы фирм, машин, грузов, АЗС и фотографии документов: они лежат в отдельном
-          архиве и подтягиваются к записям по названию.
+          <b> Значки</b> — логотипы фирм, машин, грузов, АЗС и фотографии документов: они уходят
+          по одному файлу, и только те, которых в облаке ещё нет.
         </div>
         <div className="grid-2">
           <KV label="Обмен" value={state.configured ? 'настроен' : 'не настроен'} hint={state.folder} />
@@ -104,7 +103,10 @@ export default function YandexDiskPage() {
             hint={state.lastData ? `последний файл: ${state.lastData}` : undefined}
           />
           <KV label="Значки и документы" value={iconsSummary} />
-          <KV label="Архив значков" value={state.lastIcons || 'ещё не выгружался'} />
+          <KV
+            label="Значки в облаке"
+            value={state.lastIcons ? `${state.lastIcons} файлов` : 'ещё не выгружались'}
+          />
         </div>
         {state.lastError ? (
           <div className="alert alert-warn">
@@ -115,7 +117,7 @@ export default function YandexDiskPage() {
         {missing ? (
           <div className="small muted">
             У части записей значок ещё не подобран — кнопка «Подтянуть значки» заполнит пустые поля
-            из архива в облаке.
+            из облака.
           </div>
         ) : null}
         {message ? <div className="alert alert-info"><Icon name="check" /><span>{message}</span></div> : null}
@@ -233,9 +235,10 @@ export default function YandexDiskPage() {
           onClick={() =>
             void run('push', async () => {
               const res = await pushToDisk((s) => setStage(s.text));
+              const files = res.filesUploaded > 0 ? `, догружено файлов: ${res.filesUploaded}` : '';
               return res.iconsFailed
-                ? `Данные выгружены: ${res.dataName}. Архив значков не ушёл — попробуйте ещё раз.`
-                : `Выгружено: ${res.dataName}${res.iconsName ? ` и архив значков ${res.iconsName}` : ''}`;
+                ? `Данные выгружены: ${res.dataName}. Значки и фотографии не ушли — попробуйте ещё раз.`
+                : `Выгружено: ${res.dataName}${files}`;
             }, 'Выгружено')
           }
         >
@@ -264,10 +267,11 @@ export default function YandexDiskPage() {
           disabled={busy !== '' || !state.configured}
           onClick={() =>
             void run('icons-up', async () => {
-              const name = await pushIconsOnly((s) => setStage(s.text));
-              return name
-                ? `Архив значков выгружен: ${name}`
-                : 'Значков и документов нет — выгружать нечего';
+              const res = await pushIconsOnly((s) => setStage(s.text));
+              if (res.total === 0) return 'Значков и документов нет — выгружать нечего';
+              return res.uploaded > 0
+                ? `Значки и фотографии выгружены: добавлено файлов ${res.uploaded} из ${res.total}`
+                : `В облаке уже всё: ${res.total} файлов`;
             }, 'Значки выгружены')
           }
         >
@@ -280,13 +284,15 @@ export default function YandexDiskPage() {
           onClick={() =>
             void run('icons-down', async () => {
               const res = await restoreIconsFromDisk();
+              const failed = res.failed > 0 ? ` Не скачалось файлов: ${res.failed}.` : '';
               if (res.pictures === 0 && res.documents === 0) {
                 return res.missing > 0
-                  ? `Новых картинок нет: ${res.missing} записей из архива не нашлось на устройстве`
-                  : 'Все значки и документы уже на месте';
+                  ? `Новых картинок нет: ${res.missing} записей из облака не нашлось на устройстве.${failed}`
+                  : `Все значки и документы уже на месте.${failed}`;
               }
               return `Подтянуто: картинок ${res.pictures}, документов ${res.documents}`
-                + (res.missing > 0 ? `. Не нашлось записей: ${res.missing}` : '');
+                + (res.missing > 0 ? `. Не нашлось записей: ${res.missing}` : '')
+                + failed;
             }, 'Значки подтянуты')
           }
         >
@@ -312,10 +318,14 @@ export default function YandexDiskPage() {
           setConfirmPull(false);
           void run('pull', async () => {
             const res = await pullFromDisk(replace);
+            const files =
+              res.icons.pictures + res.icons.documents > 0
+                ? `, файлов подтянуто ${res.icons.pictures + res.icons.documents}`
+                : '';
             return `Загружено: ${res.dataName}. Записей добавлено ${res.inserted}, обновлено ${res.updated}`
-              + (res.icons.pictures > 0 || res.icons.documents > 0
-                ? `, картинок подтянуто ${res.icons.pictures}`
-                : '');
+              + (res.merged > 0 ? `, слито листов ${res.merged}` : '')
+              + files
+              + (res.icons.failed > 0 ? `. Не скачалось файлов: ${res.icons.failed}` : '');
           }, 'Загружено');
         }}
       />

@@ -93,6 +93,28 @@ export async function deleteBlob(key: string): Promise<void> {
   }
 }
 
+/**
+ * Какие файлы лежат в хранилище устройства — одним запросом, без чтения самих файлов.
+ * Нужно при обмене: по этому списку видно, чего на устройстве нет и что надо скачать.
+ * Раньше приходилось читать каждый файл по отдельности, а это долго.
+ */
+export async function blobKeys(): Promise<Set<string>> {
+  try {
+    if (Capacitor.isNativePlatform()) {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const res = await Filesystem.readdir({ path: FOLDER, directory: Directory.Data });
+      return new Set(res.files.map((f) => f.name));
+    }
+    const keys = await idb<string[]>('readonly', (s) => s.getAllKeys());
+    return new Set(
+      keys.filter((key) => key.startsWith('blob:')).map((key) => key.slice('blob:'.length)),
+    );
+  } catch {
+    // Папки ещё нет — значит, файлов на устройстве нет
+    return new Set();
+  }
+}
+
 export function bytesToDataUrl(bytes: Uint8Array, mime = 'image/jpeg'): string {
   return `data:${mime};base64,${toBase64(bytes)}`;
 }
@@ -195,11 +217,4 @@ export async function imageToDataUrl(blob: Blob, maxSize = 256, quality = 0.85):
   );
   if (!out) throw new Error('Не удалось сжать изображение');
   return bytesToDataUrl(new Uint8Array(await out.arrayBuffer()), out.type);
-}
-
-/** Сколько места занимают файлы (приблизительно, для диагностики) */
-export async function blobKeys(): Promise<string[]> {
-  if (Capacitor.isNativePlatform()) return [];
-  const keys = await idb<IDBValidKey[]>('readonly', (s) => s.getAllKeys());
-  return keys.map((k) => String(k)).filter((k) => k.startsWith('blob:'));
 }

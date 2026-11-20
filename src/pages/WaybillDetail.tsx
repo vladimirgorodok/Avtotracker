@@ -17,7 +17,7 @@ import {
 } from '../ui/components';
 import { useApp } from '../store';
 import { insertRow, refs, refuelRepo, softDelete, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
-import { autoFillForNewWaybill, summarizeWaybill } from '../lib/calc';
+import { autoFillForNewWaybill, sameWaybill, summarizeWaybill } from '../lib/calc';
 import { closeWaybill, reopenWaybill, vehicleTitle } from '../lib/actions';
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, todayIso } from '../lib/format';
 import { refuelKindLabel } from '../types';
@@ -43,6 +43,14 @@ export default function WaybillDetail() {
     if (id === 'new') {
       const pre = autoFillForNewWaybill(settings.last_vehicle_id || null);
       const today = todayIso();
+      // Лист на этот день уже открыт — открываем его, а не заводим второй
+      const twin = sameWaybill({ date_out: today, status: 'open', vehicle_id: pre.vehicle_id, date_in: null });
+      if (twin) {
+        notify('Путевой лист на сегодня уже открыт', 'info');
+        setWaybillId(twin.id);
+        navigate(`/waybills/${twin.id}`, { replace: true });
+        return;
+      }
       const newId = uid();
       insertRow('waybills', {
         id: newId,

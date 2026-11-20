@@ -233,6 +233,31 @@ export function autoFillForNewWaybill(vehicleId: Id | null): {
   };
 }
 
+/**
+ * Тот же самый путевой лист на устройстве: тот же день выезда, то же состояние
+ * (открыт или закрыт) и тот же автомобиль. Пустое поле автомобиля считаем совпадением:
+ * его могли не заполнить, а лист от этого другим не становится.
+ *
+ * Нужно, чтобы один и тот же лист не заводился дважды — при заведении второго на этом же
+ * устройстве и при подтягивании копии из облака с другого устройства.
+ */
+export function sameWaybill(
+  like: Pick<Waybill, 'date_out' | 'status' | 'vehicle_id' | 'date_in'>,
+): Waybill | null {
+  if (!like.date_out) return null;
+  const status = like.status || 'open';
+  const vehicle = like.vehicle_id ?? '';
+  const dateIn = like.date_in ?? '';
+  for (const local of waybillRepo.list()) {
+    if (local.date_out !== like.date_out || local.status !== status) continue;
+    const localVehicle = local.vehicle_id ?? '';
+    if (localVehicle !== vehicle && localVehicle !== '' && vehicle !== '') continue;
+    if (status === 'closed' && (local.date_in ?? '') !== dateIn) continue;
+    return local;
+  }
+  return null;
+}
+
 /** Действующий период автомобиля */
 export function activePeriodLabel(vehicleId: Id): string {
   const p = vehicleRepo.periods(vehicleId)[0];

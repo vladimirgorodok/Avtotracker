@@ -1,14 +1,22 @@
 /**
- * Обмен с Яндекс Диском: данные — отдельно, значки — отдельно.
+ * Обмен с Яндекс Диском: данные — отдельным лёгким файлом, картинки — поштучно.
  *
- * В папке на Диске лежат файлы двух видов:
+ * В папке на Диске лежат:
  *  - `avtobaza-<дата>.json` — данные: справочники, путевые листы, поездки, деньги,
  *    настройки. Картинок в нём нет, поэтому файл лёгкий и уходит быстро;
- *  - `avtobaza-icons-<дата>.zip` — архив картинок: логотипы и значки справочников
- *    и фотографии документов. Значки подбираются к записям по названию (у техники —
- *    ещё и по номеру), поэтому архив можно подтянуть на другом устройстве.
+ *  - `avtobaza-files.json` — опись картинок и фотографий: что лежит в папке `files`
+ *    и к каким записям относится (значки подбираются по названию, у техники — ещё
+ *    и по номеру), поэтому значки можно подтянуть на другом устройстве;
+ *  - `files/` — сами файлы: логотипы и значки справочников и фотографии документов.
  *
- * В облаке хранятся последние несколько копий каждого файла, старые удаляются.
+ * Каждый файл уходит в облако один раз: перед выгрузкой смотрим, что уже лежит
+ * в папке `files`, и отправляем только новое. Раньше всё складывалось в один архив,
+ * и при добавлении одной фотографии в облако уходил архив целиком — из-за этого
+ * выгрузка занимала минуты.
+ *
+ * Прежние архивы `avtobaza-icons-<дата>.zip` ещё читаются: устройство со старой
+ * версией приложения продолжит подтягивать из них значки. Новые архивы не пишем.
+ *
  * Скачанные картинки не затирают уже подобранные: заполняются только пустые поля.
  */
 
@@ -24,7 +32,7 @@ import {
   type ImportResult,
 } from './backup';
 import { allDocumentRows, documentSummary } from './documents';
-import { bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
+import { blobKeys, bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
 import { normalizeName } from './order';
 import { TABLES } from '../types';
 import { CloudError, humanSize, normalizePath, YandexDisk, type RemoteEntry } from './webdav';
@@ -36,8 +44,16 @@ export const DATA_PREFIX = 'avtobaza-';
 export const DATA_SUFFIX = '.json';
 export const ICONS_PREFIX = 'avtobaza-icons-';
 export const ICONS_SUFFIX = '.zip';
-/** Имя списка внутри архива значков */
+/** Имя списка внутри архива значков (прежний вид облака) */
 const MANIFEST = 'icons.json';
+/** Папка с картинками и фотографиями внутри папки обмена */
+export const FILES_FOLDER = 'files';
+/** Опись файлов: что лежит в папке files и к каким записям относится */
+export const LIST_NAME = 'avtobaza-files.json';
+/** Файл данных: `avtobaza-2026-11-20_183005.json` */
+const DATA_RE = /^avtobaza-\d{4}-\d{2}-\d{2}_\d{6}\.json$/;
+/** Архив значков прежнего вида: `avtobaza-icons-2026-11-20_183005.zip` */
+const ICONS_RE = /^avtobaza-icons-\d{4}-\d{2}-\d{2}_\d{6}\.zip$/;
 
 /* ------------------------------------------------------------------ */
 /* Настройки                                                           */
@@ -58,7 +74,7 @@ export function folderPath(): string {
   return normalizePath(String(settings().yadisk_folder ?? '') || '/avtobaza');
 }
 
-/** Место выгрузки: логин и папка. Отпечатки архива привязаны к нему. */
+/** Место выгрузки: логин и папка. Отпечаток значков привязан к нему. */
 export function cloudPlace(): string {
   return `${String(settings().yadisk_login ?? '').trim()}@${folderPath()}`;
 }
@@ -78,7 +94,7 @@ export interface CloudState {
   lastAt: string;
   /** Имя последнего выгруженного файла данных */
   lastData: string;
-  /** Имя последнего архива значков */
+  /** Сколько картинок и фотографий лежит в облаке */
   lastIcons: string;
   /** Есть невыгруженные изменения */
   dirty: boolean;
@@ -141,15 +157,11 @@ export function dataFileName(at = new Date()): string {
   return `${DATA_PREFIX}${stamp(at)}${DATA_SUFFIX}`;
 }
 
-export function iconsFileName(at = new Date()): string {
-  return `${ICONS_PREFIX}${stamp(at)}${ICONS_SUFFIX}`;
-}
-
 /* ------------------------------------------------------------------ */
-/* Архив значков                                                       */
+/* Опись значков и фотографий                                          */
 /* ------------------------------------------------------------------ */
 
-/** Картинка справочника внутри архива */
+/** Картинка справочника в описи */
 export interface PictureRecord {
   table: PictureTable;
   /** Название записи — по нему картинка находится на другом устройстве */
@@ -157,12 +169,12 @@ export interface PictureRecord {
   /** Номер машины: уточняет запись, если названия совпали */
   plate: string;
   mime: string;
-  /** Имя файла внутри архива */
+  /** Имя файла в папке files */
   file: string;
   size: number;
 }
 
-/** Файл документа внутри архива */
+/** Файл документа в описи */
 export interface DocumentRecord {
   /** Номер записи в таблице документов */
   id: string;
@@ -183,47 +195,78 @@ export interface IconsManifest {
   documents: DocumentRecord[];
 }
 
-/** Что удалось восстановить из архива */
+/** Что удалось восстановить из архива или из описи */
 export interface RestoreResult {
   pictures: number;
   documents: number;
-  /** Сколько записей в архиве не нашло пары на устройстве */
+  /** Сколько записей в описи не нашло пары на устройстве */
   missing: number;
+  /** Сколько файлов не удалось скачать (связь пропала — попробуем в следующий раз) */
+  failed: number;
 }
 
 function fieldOf(table: PictureTable): string {
   return PICTURE_COLUMNS.find((p) => p.table === table)?.column ?? 'logo';
 }
 
-/** Отпечаток содержимого архива: по нему видно, менялся ли он с прошлой выгрузки */
-function contentFingerprint(items: { meta: string; bytes: Uint8Array }[]): string {
-  let hash = 0x811c9dc5;
-  const mix = (byte: number) => {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  };
-  for (const item of items) {
-    for (let i = 0; i < item.meta.length; i++) mix(item.meta.charCodeAt(i) & 0xff);
-    for (let i = 0; i < item.bytes.length; i++) mix(item.bytes[i]);
+/**
+ * Отпечаток содержимого: по нему картинка получает имя в облаке.
+ * Одинаковые картинки называются одинаково и второй раз не выгружаются.
+ */
+function shortHash(text: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (code + i), 0x85ebca6b) >>> 0;
   }
-  return `${items.length}:${hash.toString(16)}`;
+  return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
 }
 
-/** Что получилось собрать: сам архив и отпечаток его содержимого */
-export interface IconsArchive {
-  bytes: Uint8Array;
-  /** Отпечаток содержимого (не архива: у ZIP меняется дата внутри) */
-  fingerprint: string;
+function safeName(text: string): string {
+  return text.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[_.]+|[_.]+$/g, '').slice(0, 60);
 }
 
-/** Собирает архив картинок. Если картинок нет — архива нет. */
-export async function buildIconsArchive(): Promise<IconsArchive | null> {
-  const JSZip = (await import('jszip')).default;
+/** Расширение файла — по нему видно, чем открывать картинку */
+function extensionOf(mime: string, path = ''): string {
+  if (/png/i.test(mime)) return 'png';
+  if (/jpe?g/i.test(mime)) return 'jpg';
+  const dot = path.lastIndexOf('.');
+  const ext = dot >= 0 ? safeName(path.slice(dot + 1)).toLowerCase() : '';
+  return ext || 'bin';
+}
+
+/** Файл картинки или фотографии для выгрузки в облако */
+export interface IconsFile {
+  /** Имя файла в папке files */
+  file: string;
+  /** Откуда брать содержимое: картинка справочника лежит в базе, документ — в хранилище устройства */
+  kind: 'picture' | 'document';
+  /** Ссылка на картинку (data URL) или путь файла документа */
+  source: string;
+  size: number;
+  mime: string;
+}
+
+/** Опись для облака и файлы, которые к ней относятся */
+export interface IconsList {
+  manifest: IconsManifest;
+  items: IconsFile[];
+}
+
+/**
+ * Опись картинок и фотографий по одной базе — без чтения файлов с устройства.
+ *
+ * Картинки справочников лежат прямо в базе и называются по содержимому: если такую
+ * картинку уже выгружали, второй раз она не уйдёт. Фотографии документов называются
+ * по номеру записи, а размер берём из базы — файл читается только при самой выгрузке.
+ */
+export function buildIconsList(): IconsList | null {
   const db = dbSync();
-  const zip = new JSZip();
   const pictures: PictureRecord[] = [];
   const documents: DocumentRecord[] = [];
-  const content: { meta: string; bytes: Uint8Array }[] = [];
+  const items: IconsFile[] = [];
 
   for (const { table, column } of PICTURE_COLUMNS) {
     // Номер есть только у техники: по нему уточняем запись, если названия совпали
@@ -236,67 +279,59 @@ export async function buildIconsArchive(): Promise<IconsArchive | null> {
       if (!isEmbeddedPicture(value)) continue;
       const image = dataUrlToBytes(value);
       if (!image || image.bytes.length === 0) continue;
-      const file = `pic/${pictures.length}.img`;
-      zip.file(file, image.bytes);
+      const mime = image.mime || 'image/jpeg';
+      const file = `pic-${shortHash(value)}.${extensionOf(mime)}`;
       pictures.push({
         table: table as PictureTable,
         name: String(row.name ?? ''),
         plate: String(row.plate ?? ''),
-        mime: image.mime || 'image/jpeg',
+        mime,
         file,
         size: image.bytes.length,
       });
-      content.push({
-        meta: `${table}|${row.name ?? ''}|${row.plate ?? ''}|${image.mime}|${image.bytes.length}`,
-        bytes: image.bytes,
-      });
+      items.push({ file, kind: 'picture', source: value, size: image.bytes.length, mime });
     }
   }
 
   for (const doc of allDocumentRows()) {
-    const bytes = await getBlob(doc.path);
-    if (!bytes || bytes.length === 0) continue;
-    const file = `doc/${documents.length}.bin`;
-    zip.file(file, bytes);
+    if (!doc.path) continue;
+    const mime = doc.mime || 'image/jpeg';
+    const file = `doc-${safeName(doc.id) || shortHash(doc.path)}.${extensionOf(mime, doc.path)}`;
     documents.push({
       id: doc.id,
       title: doc.title,
-      mime: doc.mime || 'image/jpeg',
+      mime,
       path: doc.path,
       file,
-      size: bytes.length,
+      size: Number(doc.size) || 0,
     });
-    content.push({ meta: `doc|${doc.id}|${doc.mime}|${bytes.length}`, bytes });
+    items.push({ file, kind: 'document', source: doc.path, size: Number(doc.size) || 0, mime });
   }
 
   if (pictures.length === 0 && documents.length === 0) return null;
 
-  const manifest: IconsManifest = {
-    app: 'avtobaza',
-    kind: 'icons',
-    version: 1,
-    exported_at: nowIso(),
-    pictures,
-    documents,
-  };
-  zip.file(MANIFEST, JSON.stringify(manifest));
   return {
-    // Картинки уже сжаты (JPEG и PNG), поэтому упаковка без сжатия: архив
-    // собирается заметно быстрее, а размер почти не меняется.
-    bytes: await zip.generateAsync({ type: 'uint8array', compression: 'STORE' }),
-    fingerprint: contentFingerprint(content),
+    manifest: {
+      app: 'avtobaza',
+      kind: 'icons',
+      version: 1,
+      exported_at: nowIso(),
+      pictures,
+      documents,
+    },
+    items,
   };
 }
 
 /**
  * Отпечаток значков и документов по одной базе — без чтения файлов с устройства.
  *
- * Сборка архива читает с устройства все фотографии и занимает заметное время,
- * поэтому сначала сверяем дешёвый отпечаток: если значков не касались, архив
- * не собираем вовсе. Картинки справочников лежат прямо в базе (она и так в
- * памяти) — их берём как есть; файлы документов не читаем, их опознаём по
- * числу, размеру и времени. В отпечаток входит и место выгрузки: в новой папке
- * или под другим логином архив должен уйти заново.
+ * Сверка с облаком идёт по описи, но она собирается по этой же базе, поэтому
+ * дешёвый отпечаток нужен, чтобы лишний раз не ходить в облако: если значков
+ * не касались, обмен значками пропускаем целиком. Картинки справочников лежат
+ * прямо в базе (она и так в памяти) — их берём как есть; файлы документов не
+ * читаем, их опознаём по числу, размеру и времени. В отпечаток входит и место
+ * выгрузки: в новой папке или под другим логином файлы должны уйти заново.
  */
 export function iconsMeta(): string {
   const db = dbSync();
@@ -318,7 +353,9 @@ export function iconsMeta(): string {
   }
 
   const docs = documentSummary();
-  return `${cloudPlace()}|${hash.toString(16)}|doc:${docs.count}:${docs.bytes}:${docs.lastAt}`;
+  // `files` в начале — примета нового вида обмена: устройство, которое раньше
+  // выгружало архив, при первой же выгрузке разложит файлы поштучно
+  return `files|${cloudPlace()}|${hash.toString(16)}|doc:${docs.count}:${docs.bytes}:${docs.lastAt}`;
 }
 
 /** Читает архив значков: опись и содержимое файлов */
@@ -414,7 +451,7 @@ export async function restoreIcons(
     documents++;
   }
 
-  return { pictures, documents, missing };
+  return { pictures, documents, missing, failed: 0 };
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,37 +465,49 @@ function newestFirst(entries: RemoteEntry[]): RemoteEntry[] {
 /** Файлы данных в облаке, свежие сверху */
 export async function listDataFiles(target = folderPath()): Promise<RemoteEntry[]> {
   const entries = await client().list(target);
-  return newestFirst(
-    entries.filter(
-      (e) => !e.isDirectory && e.name.startsWith(DATA_PREFIX) && e.name.endsWith(DATA_SUFFIX),
-    ),
-  );
+  return newestFirst(entries.filter((e) => !e.isDirectory && DATA_RE.test(e.name)));
 }
 
-/** Архивы значков в облаке, свежие сверху */
+/** Архивы значков прежнего вида в облаке, свежие сверху */
 export async function listIconsFiles(target = folderPath()): Promise<RemoteEntry[]> {
   const entries = await client().list(target);
-  return newestFirst(
-    entries.filter(
-      (e) => !e.isDirectory && e.name.startsWith(ICONS_PREFIX) && e.name.endsWith(ICONS_SUFFIX),
-    ),
-  );
+  return newestFirst(entries.filter((e) => !e.isDirectory && ICONS_RE.test(e.name)));
 }
 
-/** Что лежит в папке: и данные, и значки — за одно чтение папки */
+/** Что лежит в папке: и данные, и прежние архивы значков — за одно чтение папки */
 async function listCloud(
   target: string,
 ): Promise<{ data: RemoteEntry[]; icons: RemoteEntry[] }> {
   const entries = await client().list(target);
   const files = entries.filter((e) => !e.isDirectory);
   return {
-    data: newestFirst(
-      files.filter((e) => e.name.startsWith(DATA_PREFIX) && e.name.endsWith(DATA_SUFFIX)),
-    ),
-    icons: newestFirst(
-      files.filter((e) => e.name.startsWith(ICONS_PREFIX) && e.name.endsWith(ICONS_SUFFIX)),
-    ),
+    data: newestFirst(files.filter((e) => DATA_RE.test(e.name))),
+    icons: newestFirst(files.filter((e) => ICONS_RE.test(e.name))),
   };
+}
+
+/** Файлы картинок и фотографий, которые уже лежат в облаке */
+async function listCloudFiles(disk: YandexDisk, target: string): Promise<Set<string>> {
+  try {
+    const entries = await disk.list(`${target}/${FILES_FOLDER}`);
+    return new Set(entries.filter((e) => !e.isDirectory).map((e) => e.name));
+  } catch (error) {
+    // Папки ещё нет — значит, в облаке ни одного файла нет
+    if (error instanceof CloudError && (error.code === 404 || error.code === 409)) return new Set();
+    throw error;
+  }
+}
+
+/** Опись картинок и фотографий из облака или null, если её там нет */
+async function readIconsList(disk: YandexDisk, target: string): Promise<IconsManifest | null> {
+  try {
+    const text = await disk.getText(`${target}/${LIST_NAME}`);
+    const parsed = JSON.parse(text) as IconsManifest;
+    if (!parsed || (!Array.isArray(parsed.pictures) && !Array.isArray(parsed.documents))) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 /** Удаляет копии сверх положенного числа; ошибки чистки выгрузку не ломают */
@@ -495,9 +544,9 @@ async function uploadChecked(
 
 export interface CloudPushResult {
   dataName: string;
-  /** Имя архива значков или null, если выгружать было нечего */
-  iconsName: string | null;
-  /** Архив не ушёл, хотя картинки есть (данные при этом уже сохранены) */
+  /** Сколько файлов значков и фотографий догрузили в облако */
+  filesUploaded: number;
+  /** Файлы не ушли, хотя картинки есть (данные при этом уже сохранены) */
   iconsFailed: boolean;
 }
 
@@ -543,10 +592,11 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
     disk.putText(dataPath, data, 'application/json'),
   );
 
-  let iconsName: string | null = null;
+  let filesUploaded = 0;
   let iconsFailed = false;
   try {
-    iconsName = await uploadIcons(disk, target, at, false, report);
+    const icons = await syncIcons(disk, target, false, report);
+    filesUploaded = icons.uploaded;
   } catch {
     iconsFailed = true;
   }
@@ -555,15 +605,16 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
   report?.({ step: 'trim', text: 'Убираю старые копии' });
   const cloud = await listCloud(target);
   await trimOld(disk, cloud.data, keep);
-  await trimOld(disk, cloud.icons, keep);
+  // Прежние архивы значков больше не пишем: держим один — он нужен только
+  // устройству со старой версией приложения
+  await trimOld(disk, cloud.icons, 1);
 
   const store = useApp.getState();
   store.saveSetting('yadisk_last_at', nowIso());
   store.saveSetting('yadisk_last_data', dataName);
-  if (iconsName) store.saveSetting('yadisk_last_icons', iconsName);
   markClean();
   noteError('');
-  return { dataName, iconsName, iconsFailed };
+  return { dataName, filesUploaded, iconsFailed };
 }
 
 function utf8Length(text: string): number {
@@ -587,59 +638,97 @@ export function rowsInData(text: string): number {
   return total;
 }
 
-async function uploadIcons(
-  disk: YandexDisk,
-  target: string,
-  at: Date,
-  force = false,
-  report?: PushReporter,
-): Promise<string | null> {
-  const store = useApp.getState();
-  const meta = iconsMeta();
-  // Значков и документов не касались — архив даже не собираем: сборка
-  // читает с устройства все фотографии и на телефоне идёт долго.
-  if (!force && meta === String(store.settings.yadisk_icons_meta ?? '')) return null;
-
-  report?.({ step: 'icons', text: 'Собираю архив значков и фотографий' });
-  const archive = await buildIconsArchive();
-  if (!archive) {
-    store.saveSetting('yadisk_icons_meta', meta);
-    return null;
-  }
-  // Значки меняются редко, а архив бывает тяжёлым: если содержимое то же,
-  // что в прошлой выгрузке, второй раз его не гоняем.
-  const content = `${cloudPlace()}|${archive.fingerprint}`;
-  if (!force && String(store.settings.yadisk_icons_hash ?? '') === content) {
-    store.saveSetting('yadisk_icons_meta', meta);
-    return null;
-  }
-  const name = iconsFileName(at);
-  const path = `${target}/${name}`;
-  report?.({
-    step: 'icons',
-    text: `Отправляю значки и фотографии (${humanSize(archive.bytes.length)})`,
-  });
-  await uploadChecked(disk, path, archive.bytes.length, () =>
-    disk.putBytes(path, archive.bytes, 'application/zip'),
-  );
-  store.saveSetting('yadisk_icons_hash', content);
-  store.saveSetting('yadisk_icons_meta', meta);
-  return name;
+/** Что получилось при обмене картинками и фотографиями */
+export interface IconsSyncResult {
+  /** Сколько файлов догрузили в облако */
+  uploaded: number;
+  /** Сколько всего картинок и фотографий в описи */
+  total: number;
+  /** Ничего не изменилось — в облако даже не смотрели */
+  skipped: boolean;
 }
 
-/** Выгрузить только значки (данные не трогаем) */
-export async function pushIconsOnly(report?: PushReporter): Promise<string | null> {
+/** Содержимое файла из описи: картинка лежит в базе, документ — в хранилище устройства */
+async function iconsBytes(item: IconsFile): Promise<Uint8Array | null> {
+  if (item.kind === 'picture') {
+    const image = dataUrlToBytes(item.source);
+    return image ? image.bytes : null;
+  }
+  return await getBlob(item.source);
+}
+
+/**
+ * Выгружает картинки и фотографии: в облако уходит только то, чего там ещё нет.
+ *
+ * Раньше всё складывалось в один архив, и добавление одной фотографии заставляло
+ * выгружать архив целиком. Теперь перед выгрузкой читаем список файлов в папке
+ * `files` и отправляем только новые — на телефоне это занимает секунды.
+ */
+async function syncIcons(
+  disk: YandexDisk,
+  target: string,
+  force = false,
+  report?: PushReporter,
+): Promise<IconsSyncResult> {
+  const store = useApp.getState();
+  const meta = iconsMeta();
+  // Значков и документов не касались — в облако даже не смотрим и опись не собираем
+  if (!force && meta === String(store.settings.yadisk_icons_meta ?? '')) {
+    return { uploaded: 0, total: 0, skipped: true };
+  }
+
+  const list = buildIconsList();
+  if (!list) {
+    store.saveSetting('yadisk_icons_meta', meta);
+    return { uploaded: 0, total: 0, skipped: false };
+  }
+
+  const filesPath = `${target}/${FILES_FOLDER}`;
+  report?.({ step: 'icons', text: 'Смотрю, что уже есть в облаке' });
+  await disk.createChain(filesPath);
+  const present = await listCloudFiles(disk, target);
+  const missing = list.items.filter((item) => !present.has(item.file));
+
+  let uploaded = 0;
+  for (const item of missing) {
+    const bytes = await iconsBytes(item);
+    if (!bytes || bytes.length === 0) continue;
+    report?.({
+      step: 'icons',
+      text: `Отправляю значки и фотографии (${uploaded + 1} из ${missing.length})`,
+    });
+    const path = `${filesPath}/${item.file}`;
+    await uploadChecked(disk, path, bytes.length, () =>
+      disk.putBytes(path, bytes, item.mime),
+    );
+    uploaded++;
+  }
+
+  // Опись обновляем после файлов: по ней другое устройство узнаёт, что подтягивать
+  report?.({ step: 'icons', text: 'Обновляю опись значков и фотографий' });
+  const text = JSON.stringify(list.manifest);
+  await uploadChecked(disk, `${target}/${LIST_NAME}`, utf8Length(text), () =>
+    disk.putText(`${target}/${LIST_NAME}`, text, 'application/json'),
+  );
+
+  // Отпечаток запоминаем только после удачной выгрузки: если связь пропала,
+  // в следующий раз снова сверимся с облаком и догрузим то, что не дошло
+  store.saveSetting('yadisk_icons_meta', meta);
+  store.saveSetting('yadisk_last_icons', String(list.items.length));
+  return { uploaded, total: list.items.length, skipped: false };
+}
+
+/** Выгрузить только значки и фотографии (данные не трогаем) */
+export async function pushIconsOnly(report?: PushReporter): Promise<IconsSyncResult> {
   const disk = client();
   const target = folderPath();
   await disk.createChain(target);
-  const name = await uploadIcons(disk, target, new Date(), true, report);
-  await trimOld(disk, await listIconsFiles(target), keepCopies());
-  if (name) {
-    useApp.getState().saveSetting('yadisk_last_icons', name);
+  const res = await syncIcons(disk, target, true, report);
+  if (!res.skipped) {
     useApp.getState().saveSetting('yadisk_last_at', nowIso());
     noteError('');
   }
-  return name;
+  return res;
 }
 
 /* ------------------------------------------------------------------ */
@@ -651,10 +740,15 @@ export interface CloudPullResult {
   inserted: number;
   updated: number;
   skipped: number;
+  /** Сколько путевых листов слилось с уже заведёнными на устройстве */
+  merged: number;
   icons: RestoreResult;
 }
 
-export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
+export async function pullFromDisk(
+  replace = false,
+  report?: PushReporter,
+): Promise<CloudPullResult> {
   const disk = client();
   const target = folderPath();
   const files = await listDataFiles(target);
@@ -663,6 +757,7 @@ export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
     throw new CloudError(`В папке «${target}» на Яндекс Диске нет файлов данных АвтоБазы`);
   }
 
+  report?.({ step: 'data', text: 'Читаю свежую копию из облака' });
   const text = await disk.getText(newest.path);
   let result: ImportResult;
   try {
@@ -677,11 +772,10 @@ export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
     );
   }
 
-  const icons = await restoreIconsFromDisk(disk, target, true).catch(() => ({
-    pictures: 0,
-    documents: 0,
-    missing: 0,
-  }));
+  // Картинки и фотографии из облака скачиваем: на устройстве нужных файлов может не быть
+  const icons = await restoreIconsFromDisk(disk, target, { report }).catch(
+    () => NOTHING_RESTORED,
+  );
 
   const store = useApp.getState();
   store.saveSetting('yadisk_last_at', nowIso());
@@ -695,19 +789,126 @@ export async function pullFromDisk(replace = false): Promise<CloudPullResult> {
     inserted: result.inserted,
     updated: result.updated,
     skipped: result.skipped,
+    merged: result.merged,
     icons,
   };
 }
 
-/** Подтянуть значки из самого свежего архива */
+/** Что нужно при подтягивании картинок и фотографий */
+export interface RestoreOptions {
+  /** Не затирать уже подобранные значки и имеющиеся файлы (по умолчанию так и есть) */
+  onlyMissing?: boolean;
+  report?: PushReporter;
+}
+
+const NOTHING_RESTORED: RestoreResult = { pictures: 0, documents: 0, missing: 0, failed: 0 };
+
+/**
+ * Подтягивает картинки и фотографии.
+ *
+ * По описи из облака видно, какие файлы к каким записям относятся: скачиваем
+ * только то, чего на устройстве нет. Пустые поля заполняются, уже подобранные
+ * значки не затираются. Если описи нет (облако со старой версии приложения),
+ * работает прежний путь — архив `avtobaza-icons-*.zip`.
+ */
 export async function restoreIconsFromDisk(
   disk = client(),
   target = folderPath(),
-  onlyMissing = true,
+  options: RestoreOptions = {},
 ): Promise<RestoreResult> {
+  const onlyMissing = options.onlyMissing ?? true;
+  const list = await readIconsList(disk, target);
+  if (!list) return await restoreArchiveFromDisk(disk, target, onlyMissing);
+
+  const filesPath = `${target}/${FILES_FOLDER}`;
+  const present = await listCloudFiles(disk, target);
+  // Какие фотографии уже лежат на устройстве: одним запросом, без чтения файлов
+  const local = await blobKeys();
+  const total = (list.pictures?.length ?? 0) + (list.documents?.length ?? 0);
+  let pictures = 0;
+  let documents = 0;
+  let missing = 0;
+  let failed = 0;
+  let done = 0;
+
+  /** Скачивает файл описи; ошибку связи не роняем — просто пробуем в следующий раз */
+  const fetchFile = async (name: string): Promise<Uint8Array | null> => {
+    if (!present.has(name)) return null;
+    done++;
+    options.report?.({
+      step: 'icons',
+      text: `Скачиваю значки и фотографии (${done} из ${total})`,
+    });
+    try {
+      return await disk.getBytes(`${filesPath}/${name}`);
+    } catch {
+      failed++;
+      return null;
+    }
+  };
+
+  for (const item of list.pictures ?? []) {
+    const row = findPictureRow(item);
+    if (!row) {
+      missing++;
+      continue;
+    }
+    const field = fieldOf(item.table);
+    if (onlyMissing && String(row[field] ?? '') !== '') continue;
+    const data = await fetchFile(item.file);
+    if (!data || data.length === 0) continue;
+    updateRow(item.table, String(row.id), {
+      [field]: bytesToDataUrl(data, item.mime || 'image/jpeg'),
+    });
+    pictures++;
+  }
+
+  for (const item of list.documents ?? []) {
+    const row = dbSync().one<{ id: string; path: string }>(
+      'SELECT id, path FROM attachments WHERE id = ? AND deleted = 0',
+      [item.id],
+    );
+    if (!row) {
+      missing++;
+      continue;
+    }
+    const path = String(row.path ?? '') || item.path;
+    if (!path) {
+      missing++;
+      continue;
+    }
+    // Файл уже на устройстве — качать нечего
+    if (local.has(path)) continue;
+    const data = await fetchFile(item.file);
+    if (!data || data.length === 0) continue;
+    await putBlob(path, data);
+    local.add(path);
+    documents++;
+  }
+
+  const store = useApp.getState();
+  store.saveSetting('yadisk_last_icons', String(total));
+  if (pictures > 0 || documents > 0) noteError('');
+  store.touch();
+  return { pictures, documents, missing, failed };
+}
+
+/** Прежний вид облака: картинки и фотографии лежат одним архивом */
+async function restoreArchiveFromDisk(
+  disk: YandexDisk,
+  target: string,
+  onlyMissing: boolean,
+): Promise<RestoreResult> {
+  // Архив весит десятки мегабайт: качаем его, только если есть что заполнять
+  if (onlyMissing && !hasMissingPictures()) return NOTHING_RESTORED;
   const files = await listIconsFiles(target);
   const newest = files[0];
-  if (!newest) throw new CloudError(`В папке «${target}» нет архива значков`);
+  if (!newest) {
+    if (onlyMissing) return NOTHING_RESTORED;
+    throw new CloudError(
+      `В папке «${target}» нет ни описи, ни архива значков — выгрузите их с другого устройства`,
+    );
+  }
   const bytes = await disk.getBytes(newest.path);
   const result = await restoreIcons(bytes, onlyMissing);
   const store = useApp.getState();
@@ -727,7 +928,7 @@ export async function checkDisk(login: string, password: string, folder: string)
   return await disk.check(normalizePath(folder || '/avtobaza'));
 }
 
-/** Сколько картинок и документов уйдёт в архив */
+/** Сколько картинок и документов ждёт выгрузки */
 export function localPictureStats(): { pictures: number; documents: number } {
   const db = dbSync();
   let pictures = 0;

@@ -137,10 +137,13 @@ export function ExitScreen({ onCancel }: { onCancel: () => void }) {
         put('cloud', 'run', 'Выгружаю изменения');
         try {
           const res = await pushOnExit((stage) => put('cloud', 'run', stage.text));
+          const files = res.filesUploaded > 0 ? `, файлов: ${res.filesUploaded}` : '';
           put(
             'cloud',
             'done',
-            res.iconsFailed ? `Выгружено: ${res.dataName} (без значка)` : `Выгружено: ${res.dataName}`,
+            res.iconsFailed
+              ? `Данные выгружены: ${res.dataName}. Значки и фотографии не ушли.`
+              : `Выгружено: ${res.dataName}${files}`,
           );
         } catch (e) {
           failed = failed || reason(e);

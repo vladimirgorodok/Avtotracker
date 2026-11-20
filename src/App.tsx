@@ -30,7 +30,7 @@ import Search from './pages/Search';
 import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
-import { autoFillForNewWaybill } from './lib/calc';
+import { autoFillForNewWaybill, sameWaybill } from './lib/calc';
 import { startAutoSync } from './lib/yadisk-auto';
 
 function BottomNav({ onCreate }: { onCreate: () => void }) {
@@ -106,8 +106,16 @@ function CreateSheet({
 
   function newWaybill() {
     const pre = autoFillForNewWaybill(settings.last_vehicle_id || null);
-    const id = uid();
     const today = todayIso();
+    // Лист на этот день уже открыт — открываем его, а не заводим второй
+    const twin = sameWaybill({ date_out: today, status: 'open', vehicle_id: pre.vehicle_id, date_in: null });
+    if (twin) {
+      notify('Путевой лист на сегодня уже открыт', 'info');
+      onClose();
+      navigate(`/waybills/${twin.id}`);
+      return;
+    }
+    const id = uid();
     insertRow('waybills', {
       id,
       number: '',

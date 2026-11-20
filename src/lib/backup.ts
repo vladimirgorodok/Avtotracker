@@ -5,7 +5,7 @@ import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/rep
 import { saveBinaryFile } from '../db/storage';
 import { DEFAULT_SETTINGS, TABLES, type AppSettings, type TableName } from '../types';
 import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
-import { summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
+import { sameWaybill, summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
 import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
 import { loadTypeLabel } from '../types';
 
@@ -45,7 +45,7 @@ function stamp(): string {
 
 /** Ключи настроек, которые можно переносить файлом (включая ключ ИИ и вход в Яндекс Диск) */
 function settingKeys(): string[] {
-  return Object.keys(DEFAULT_SETTINGS);
+  return Object.keys(DEFAULT_SETTINGS).filter((key) => !LOCAL_SETTINGS.has(key));
 }
 
 /**
@@ -153,9 +153,23 @@ export function isEmbeddedPicture(value: unknown): boolean {
 }
 
 /**
+ * Настройки, которые у каждого устройства свои: в облако их не выгружаем.
+ * Иначе одно устройство затирало бы отметки об обмене у другого — и оно
+ * решило бы, что выгружать уже нечего.
+ */
+const LOCAL_SETTINGS = new Set([
+  'yadisk_dirty',
+  'yadisk_last_at',
+  'yadisk_last_data',
+  'yadisk_last_icons',
+  'yadisk_last_error',
+  'yadisk_icons_meta',
+]);
+
+/**
  * Файл данных для облака: то же, что полная копия, но картинки из него убраны —
- * они уходят отдельным архивом. Так файл данных остаётся лёгким и уходит быстро,
- * а ссылки на чужие сайты (они короткие) сохраняются.
+ * они уходят отдельно, по одному файлу. Так файл данных остаётся лёгким и уходит
+ * быстро, а ссылки на чужие сайты (они короткие) сохраняются.
  */
 export function buildCloudData(): string {
   const tables = dumpAll();
@@ -169,7 +183,9 @@ export function buildCloudData(): string {
     kind: 'cloud-data',
     version: 1,
     exported_at: nowIso(),
-    settings: allSettings().map((s) => ({ key: s.key, value: s.value })),
+    settings: allSettings()
+      .filter((s) => !LOCAL_SETTINGS.has(s.key))
+      .map((s) => ({ key: s.key, value: s.value })),
     tables,
   };
   return JSON.stringify(payload);
@@ -193,6 +209,8 @@ export interface ImportResult {
   inserted: number;
   updated: number;
   skipped: number;
+  /** Сколько путевых листов из файла слилось с уже заведёнными на устройстве */
+  merged: number;
   /** Сколько файлов архива удалось распознать */
   files: number;
   message: string;
@@ -221,16 +239,76 @@ export function decodeText(bytes: Uint8Array): string {
 }
 
 /** Итог импорта словами — чтобы «ничего не добавилось» не выглядело как поломка */
-function describeImport(inserted: number, updated: number, skipped: number, files: number): string {
+function describeImport(
+  inserted: number,
+  updated: number,
+  skipped: number,
+  merged: number,
+  files: number,
+): string {
   const parts: string[] = [];
   if (inserted > 0) parts.push(`добавлено ${inserted}`);
   if (updated > 0) parts.push(`обновлено ${updated}`);
+  if (merged > 0) parts.push(`слито листов ${merged}`);
   if (skipped > 0) parts.push(`уже было ${skipped}`);
   if (files === 0) return 'В архиве не нашлось ни одной таблицы АвтоБазы';
   if (parts.length === 0) return `Файлов распознано: ${files}, новых записей нет`;
   return parts.join(', ');
 }
-/** Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений. */
+
+/** Поля-ссылки на путевой лист: при слиянии листов ссылки переводим на свой лист */
+const WAYBILL_LINKS: Partial<Record<TableName, string>> = {
+  trips: 'waybill_id',
+  refuelings: 'waybill_id',
+  finance_ops: 'waybill_id',
+};
+
+/** Поля шапки листа, которые дополняем из облачной копии, если у себя они пусты */
+const WAYBILL_FILL = [
+  'number',
+  'name',
+  'odometer_out',
+  'fuel_out',
+  'date_in',
+  'odometer_in',
+  'fuel_in',
+  'vehicle_id',
+  'trailer_id',
+  'note',
+] as const;
+
+function textOf(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value);
+}
+
+/** Переводит ссылки записи на свой путевой лист, если её лист слился с уже заведённым */
+function redirected(
+  table: TableName,
+  row: Record<string, unknown>,
+  waybillOf: Map<string, string>,
+): Record<string, unknown> {
+  const link = WAYBILL_LINKS[table];
+  if (link) {
+    const moved = waybillOf.get(textOf(row[link]));
+    return moved ? { ...row, [link]: moved } : row;
+  }
+  if (table === 'attachments' && textOf(row.owner_table) === 'waybills') {
+    const moved = waybillOf.get(textOf(row.owner_id));
+    return moved ? { ...row, owner_id: moved } : row;
+  }
+  return row;
+}
+
+/**
+ * Импорт JSON-копии. Совпадающие записи (по id) остаются без изменений.
+ *
+ * Путевые листы сверяем не только по id: один и тот же лист, заведённый на двух
+ * устройствах, приходит из облака под чужим id, и раньше из-за этого в базе
+ * оказывались две шапки на один день — «новый путевой с пустой поездкой»,
+ * после которого путались смена на главной и итоги. Теперь такой лист сливается
+ * со своим: записи из файла переводятся на свой лист, а пустые поля шапки
+ * дополняются из облака.
+ */
 export function importJson(text: string, overwrite = false): ImportResult {
   const payload = JSON.parse(text) as {
     app?: string;
@@ -244,6 +322,7 @@ export function importJson(text: string, overwrite = false): ImportResult {
       inserted: 0,
       updated: 0,
       skipped: 0,
+      merged: 0,
       files: 0,
       message: `настроек восстановлено: ${applied}`,
     };
@@ -254,25 +333,54 @@ export function importJson(text: string, overwrite = false): ImportResult {
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let merged = 0;
+  /** id листа из файла → id того же листа на устройстве */
+  const waybillOf = new Map<string, string>();
 
   db.tx(() => {
+    // Сначала путевые листы: свой лист не удваиваем, а ссылки из файла переводим на него
+    for (const row of payload.tables?.waybills ?? []) {
+      const id = textOf(row.id);
+      if (!id) continue;
+      if (dbSync().one<{ id: string }>('SELECT id FROM waybills WHERE id = ?', [id])) continue;
+      const twin = sameWaybill({
+        date_out: textOf(row.date_out),
+        status: textOf(row.status) === 'closed' ? 'closed' : 'open',
+        vehicle_id: textOf(row.vehicle_id) || null,
+        date_in: textOf(row.date_in) || null,
+      });
+      if (!twin) continue;
+      waybillOf.set(id, twin.id);
+      merged++;
+      const fill: Record<string, unknown> = {};
+      for (const key of WAYBILL_FILL) {
+        if (textOf(twin[key]) === '' && textOf(row[key]) !== '') fill[key] = row[key];
+      }
+      if (Object.keys(fill).length > 0) updateRow('waybills', twin.id, fill);
+    }
+
     for (const [table, rows] of Object.entries(payload.tables ?? {})) {
       if (!isTable(table)) continue;
       for (const row of rows) {
-        const id = String(row.id ?? '');
+        const id = textOf(row.id);
         if (!id) {
           skipped++;
           continue;
         }
+        // Лист уже есть на устройстве под своим id: запись не заводим, записи и так ушли на него
+        if (table === 'waybills' && waybillOf.has(id)) continue;
+
+        const clean = redirected(table, row, waybillOf);
+
         const exists = dbSync().one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
         if (exists) {
           if (overwrite) {
-            const entries = Object.entries(row).filter(([k]) => k !== 'id');
+            const entries = Object.entries(clean).filter(([k]) => k !== 'id');
             updateRow(table, id, Object.fromEntries(entries));
             updated++;
           } else skipped++;
         } else {
-          insertRow(table, row);
+          insertRow(table, clean);
           inserted++;
         }
       }
@@ -282,12 +390,14 @@ export function importJson(text: string, overwrite = false): ImportResult {
     }
   });
 
+  const files = Object.keys(payload.tables ?? {}).length;
   return {
     inserted,
     updated,
     skipped,
-    files: Object.keys(payload.tables ?? {}).length,
-    message: describeImport(inserted, updated, skipped, Object.keys(payload.tables ?? {}).length),
+    merged,
+    files,
+    message: describeImport(inserted, updated, skipped, merged, files),
   };
 }
 

@@ -32,6 +32,12 @@ class FakeObjectStore {
     queueMicrotask(() => req.onsuccess?.());
     return req;
   }
+  getAllKeys() {
+    const req = new FakeRequest<IDBValidKey[]>();
+    req.result = [...this.map.keys()];
+    queueMicrotask(() => req.onsuccess?.());
+    return req;
+  }
   delete(key: string) {
     this.map.delete(key);
     const req = new FakeRequest<unknown>();
@@ -1840,12 +1846,12 @@ async function main() {
     check('подписано, что это своя картинка', psHtml.includes('своя картинка вместо найденной'));
   }
 
-  console.log('\n25. Яндекс Диск: данные отдельно, значки отдельно');
+  console.log('\n25. Яндекс Диск: данные отдельным файлом, картинки поштучно');
   {
     const webdav = await import('../lib/webdav');
     const disk = await import('../lib/yadisk');
     const { buildCloudData } = await import('../lib/backup');
-    const { putBlob, getBlob, deleteBlob } = await import('../lib/files');
+    const { putBlob, getBlob, deleteBlob, dataUrlToBytes } = await import('../lib/files');
 
     // --- разбор ответов WebDAV
     const xml = [
@@ -1900,7 +1906,8 @@ async function main() {
     eq('папка обмена', disk.folderPath(), '/avtobaza');
     const nameAt = new Date(2026, 10, 17, 18, 30, 5);
     eq('имя файла данных', disk.dataFileName(nameAt), 'avtobaza-2026-11-17_183005.json');
-    eq('имя архива значков', disk.iconsFileName(nameAt), 'avtobaza-icons-2026-11-17_183005.zip');
+    eq('имя описи файлов', disk.LIST_NAME, 'avtobaza-files.json');
+    eq('папка картинок и фотографий', disk.FILES_FOLDER, 'files');
 
     // --- файл данных: картинки в него не попадают
     const picCompany = repo.insertRow('companies', {
@@ -1937,7 +1944,7 @@ async function main() {
       'https://example.com/logo.png',
     );
 
-    // --- архив значков: картинки и документы
+    // --- опись значков и фотографий: файлы уходят в облако поштучно
     await putBlob('doc-28.jpg', new Uint8Array([1, 2, 3, 4]));
     const docId = repo.insertRow('attachments', {
       owner_table: 'companies',
@@ -1948,20 +1955,52 @@ async function main() {
       thumb_path: '',
       size: 4,
     });
-    const built = await disk.buildIconsArchive();
-    check('архив значков собран', built !== null && built.bytes.length > 0);
-    const archive = built?.bytes ?? new Uint8Array();
-    const parsed = await disk.readIconsArchive(archive);
-    check(
-      'в описи архива есть картинка фирмы',
-      parsed.manifest.pictures.some((p) => p.table === 'companies' && p.name === 'Тестовая фирма'),
+    const list = disk.buildIconsList();
+    check('опись значков и фотографий собрана', list !== null && list.items.length >= 2);
+    const picRecord = (list?.manifest.pictures ?? []).find(
+      (p) => p.table === 'companies' && p.name === 'Тестовая фирма',
     );
-    check('в описи архива есть документ', parsed.manifest.documents.some((d) => d.id === docId));
-    const rebuilt = await disk.buildIconsArchive();
-    eq('отпечаток содержимого архива устойчив', rebuilt?.fingerprint, built?.fingerprint);
+    check('в описи есть картинка фирмы', Boolean(picRecord));
+    check(
+      'в описи есть документ',
+      (list?.manifest.documents ?? []).some((d) => d.id === docId),
+    );
+    check('файл картинки назван по содержимому', String(picRecord?.file ?? '').startsWith('pic-'));
+    check(
+      'файл документа назван по записи',
+      String((list?.manifest.documents ?? [])[0]?.file ?? '').startsWith('doc-'),
+    );
+    const listAgain = disk.buildIconsList();
+    eq(
+      'имя файла картинки не меняется — второй раз она не уйдёт',
+      (listAgain?.manifest.pictures ?? []).find((p) => p.name === 'Тестовая фирма')?.file,
+      picRecord?.file,
+    );
+    eq(
+      'размер документа взят из базы',
+      (list?.manifest.documents ?? []).find((d) => d.id === docId)?.size,
+      4,
+    );
     const stats = disk.localPictureStats();
     check('картинки посчитаны', stats.pictures >= 1, `(${stats.pictures})`);
     check('видно, что у части записей значка нет', disk.hasMissingPictures());
+
+    // --- прежний вид облака: архив значков ещё читается
+    const JSZip = (await import('jszip')).default;
+    const legacy = new JSZip();
+    legacy.file('icons.json', JSON.stringify(list?.manifest));
+    for (const item of list?.items ?? []) {
+      const bytes =
+        item.kind === 'picture' ? dataUrlToBytes(item.source)?.bytes : await getBlob(item.source);
+      if (bytes) legacy.file(item.file, bytes);
+    }
+    const archive = await legacy.generateAsync({ type: 'uint8array' });
+    const parsed = await disk.readIconsArchive(archive);
+    eq(
+      'прежний архив читается: картинки на месте',
+      parsed.manifest.pictures.length,
+      list?.manifest.pictures.length ?? 0,
+    );
 
     // --- картинки раскладываются по записям по названию
     dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
@@ -2050,27 +2089,37 @@ async function main() {
       files.set('/avtobaza/avtobaza-2020-01-03_000000.json', new TextEncoder().encode('{}'));
       const push = await disk.pushToDisk();
       check('файл данных выгружен', files.has(`/avtobaza/${push.dataName}`), push.dataName);
+      const iconFilesIn = () =>
+        [...files.keys()].filter((p) => p.startsWith(`/avtobaza/${disk.FILES_FOLDER}/`));
       check(
-        'архив значков выгружен',
-        push.iconsName !== null && files.has(`/avtobaza/${push.iconsName}`),
+        'значки и фотографии выгружены поштучно',
+        push.filesUploaded > 0 && iconFilesIn().length === push.filesUploaded,
+        `(${push.filesUploaded})`,
       );
+      check('опись файлов легла в облако', files.has(`/avtobaza/${disk.LIST_NAME}`));
       eq('после выгрузки изменений нет', disk.cloudState().dirty, false);
       eq(
-        'старые копии удалены, свежие остались',
-        [...files.keys()].filter((p) => p.endsWith('.json')).sort().join(','),
+        'старые копии данных удалены, свежие остались',
+        [...files.keys()]
+          .filter((p) => /\/avtobaza-\d{4}-\d{2}-\d{2}_\d{6}\.json$/.test(p))
+          .sort()
+          .join(','),
         `/avtobaza/avtobaza-2020-01-03_000000.json,/avtobaza/${push.dataName}`,
       );
       const uploaded = new TextDecoder().decode(files.get(`/avtobaza/${push.dataName}`)!);
       check('в облаке лёгкий файл без картинок', !uploaded.includes('data:image'));
+      check(
+        'настройки обмена у каждого устройства свои',
+        !uploaded.includes('yadisk_icons_meta') && !uploaded.includes('yadisk_dirty'),
+      );
 
-      // Значки не менялись — второй раз архив не гоняем (он бывает тяжёлым)
-      const zipCount = () => [...files.keys()].filter((p) => p.endsWith('.zip')).length;
-      const before = zipCount();
+      // Значки не менялись — в облако даже не смотрим
+      const filesBefore = iconFilesIn().length;
       const callsBefore = calls;
       const listingsBefore = listings;
       const pushAgain = await disk.pushToDisk();
-      eq('неизменённый архив значков повторно не выгружается', pushAgain.iconsName, null);
-      eq('архивов значков в облаке столько же', zipCount(), before);
+      eq('неизменённые значки повторно не выгружаются', pushAgain.filesUploaded, 0);
+      eq('файлов в облаке столько же', iconFilesIn().length, filesBefore);
       // Папку читаем один раз, а не дважды: раньше на выгрузку уходило два чтения
       eq('папка читается за выгрузку один раз', listings - listingsBefore, 1);
       check('запросов к Диску немного', calls - callsBefore <= 5, `(${calls - callsBefore})`);
@@ -2078,8 +2127,8 @@ async function main() {
       const stages: string[] = [];
       repo.updateRow('companies', company, { logo: 'data:image/png;base64,CCCC' });
       const pushChanged = await disk.pushToDisk((s) => stages.push(`${s.step}|${s.text}`));
-      check('изменённые значки выгружаются заново', pushChanged.iconsName !== null);
-      check('изменённый архив лёг в облако', files.has(`/avtobaza/${pushChanged.iconsName}`));
+      check('изменённый значок выгружается', pushChanged.filesUploaded >= 1);
+      check('новый файл лёг в папку files', iconFilesIn().length > filesBefore);
       check(
         'выгрузка рассказывает о своих шагах',
         stages.some((s) => s.startsWith('data|')) &&
@@ -2088,30 +2137,39 @@ async function main() {
         stages.join('; '),
       );
       check(
-        'в отчёте видно, сколько весят значки',
+        'в отчёте видно, что отправляются значки и фотографии',
         stages.some((s) => s.includes('Отправляю значки и фотографии (')),
+        stages.join('; '),
       );
 
-      // Отпечаток значков: без него архив собирался бы на каждой выгрузке
+      // Отпечаток значков: по нему видно, что значков не касались
       const metaNow = disk.iconsMeta();
       check('отпечаток значков запомнен', useApp.getState().settings.yadisk_icons_meta === metaNow);
-      check('в отпечаток входит место выгрузки', metaNow.startsWith('ivan@yandex.ru@/avtobaza|'), metaNow);
+      check(
+        'в отпечаток входит место выгрузки',
+        metaNow.startsWith('files|ivan@yandex.ru@/avtobaza|'),
+        metaNow,
+      );
       check(
         'отпечаток считает картинки и документы',
         metaNow.includes('doc:') && metaNow.split('|').length >= 3,
         metaNow,
       );
 
-      // Место выгрузки сменилось — в новой папке архив должен уйти заново
+      // Место выгрузки сменилось — в новой папке файлы должны уйти заново
       store.saveSetting('yadisk_folder', '/avtobaza/novaya');
       const pushOtherFolder = await disk.pushToDisk();
-      check('в новой папке архив значков выгружается заново', pushOtherFolder.iconsName !== null);
+      check('в новой папке значки выгружаются заново', pushOtherFolder.filesUploaded > 0);
       check(
-        'архив лёг именно в новую папку',
-        files.has(`/avtobaza/novaya/${pushOtherFolder.iconsName}`),
+        'файлы легли именно в новую папку',
+        [...files.keys()].some((p) => p.startsWith('/avtobaza/novaya/files/')),
       );
+      check('опись легла в новую папку', files.has('/avtobaza/novaya/avtobaza-files.json'));
       store.saveSetting('yadisk_folder', '/avtobaza');
-      check('отпечаток снова про прежнюю папку', disk.iconsMeta().startsWith('ivan@yandex.ru@/avtobaza|'));
+      check(
+        'отпечаток снова про прежнюю папку',
+        disk.iconsMeta().startsWith('files|ivan@yandex.ru@/avtobaza|'),
+      );
 
       // Другое устройство: данных нет, картинок нет — всё приходит из облака
       dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
@@ -2120,22 +2178,129 @@ async function main() {
       eq('имя загруженного файла', pull.dataName, pushChanged.dataName);
       check('записи из облака обновились', pull.inserted + pull.updated > 0);
       check(
-        'картинка подтянулась из архива',
+        'картинка подтянулась по описи',
         String(dbSync().one<{ logo: string }>('SELECT logo FROM companies WHERE id = ?', [company])?.logo ?? '').startsWith(
           'data:image/png',
         ),
       );
-      eq('документ подтянулся вместе с данными', (await getBlob('doc-28.jpg'))?.length, 4);
+      eq('документ подтянулся по описи', (await getBlob('doc-28.jpg'))?.length, 4);
       eq('после загрузки изменений нет', disk.cloudState().dirty, false);
 
       // Значки отдельно от данных
       dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
-      const iconFiles = await disk.listIconsFiles();
-      check('архивы значков видны отдельно', iconFiles.length >= 1);
+      await deleteBlob('doc-28.jpg');
       const iconsOnly = await disk.restoreIconsFromDisk();
       eq('значки подтянулись отдельной кнопкой', iconsOnly.pictures, 1);
+      eq('фотография подтянулась отдельной кнопкой', iconsOnly.documents, 1);
+      const iconsAgain = await disk.restoreIconsFromDisk();
+      eq('повторно ничего не скачивается', iconsAgain.pictures + iconsAgain.documents, 0);
       const upIcons = await disk.pushIconsOnly();
-      check('значки выгружаются отдельной кнопкой', upIcons !== null && files.has(`/avtobaza/${upIcons}`));
+      eq('выгружать значки повторно нечего', upIcons.uploaded, 0);
+      check('в описи видно, сколько файлов в облаке', upIcons.total >= 2, `(${upIcons.total})`);
+
+      // Подтягивание на другое устройство: один и тот же лист не должен удваиваться
+      {
+        const { todayIso } = await import('../lib/format');
+        const { sameWaybill } = await import('../lib/calc');
+        const today = todayIso();
+        const vehicle = repo.insertRow('vehicles', {
+          name: 'Тестовый тягач',
+          plate: 'А001АА01',
+          kind: 'tractor',
+          logo: '',
+          note: '',
+          archived: 0,
+        });
+
+        // как на телефоне: лист за сегодня и перевозка с точкой
+        const wbCloud = repo.insertRow('waybills', {
+          name: `${today} — открыт`,
+          date_out: today,
+          status: 'open',
+          odometer_out: 500000,
+          fuel_out: 700,
+          vehicle_id: vehicle,
+          note: '',
+        });
+        const tripCloud = repo.insertRow('trips', {
+          waybill_id: wbCloud,
+          cargo_type_id: null,
+          weight: 20000,
+          amount: 10500,
+          note: 'из облака',
+          status: 'planned',
+        });
+        const pointCloud = repo.insertRow('trip_points', {
+          trip_id: tripCloud,
+          seq: 1,
+          kind: 'load',
+          plan_date: today,
+          status: 'planned',
+          note: 'точка из облака',
+        });
+        const pushedTo = await disk.pushToDisk();
+        check('лист выгружен в облако', files.has(`/avtobaza/${pushedTo.dataName}`));
+
+        // как на планшете: своя шапка на ту же дату, автомобиль ещё не выбран
+        dbSync().run('DELETE FROM waybills WHERE id = ?', [wbCloud]);
+        dbSync().run('DELETE FROM trips WHERE id = ?', [tripCloud]);
+        const wbLocal = repo.insertRow('waybills', {
+          name: `${today} — открыт`,
+          date_out: today,
+          status: 'open',
+          odometer_out: null,
+          fuel_out: null,
+          vehicle_id: null,
+          note: 'местная шапка',
+        });
+        const tripLocal = repo.insertRow('trips', {
+          waybill_id: wbLocal,
+          cargo_type_id: null,
+          weight: null,
+          amount: 10500,
+          note: 'местная перевозка',
+          status: 'planned',
+        });
+
+        const pulled = await disk.pullFromDisk(false);
+        const openToday = repo.waybillRepo.list().filter((w) => w.date_out === today && w.status === 'open');
+        eq('после подтягивания лист на день один', openToday.length, 1);
+        eq('остался свой лист', openToday[0]?.id, wbLocal);
+        eq('слитый лист посчитан', pulled.merged, 1);
+        eq('шапка дополнилась автомобилем', openToday[0]?.vehicle_id, vehicle);
+        eq('шапка дополнилась одометром', openToday[0]?.odometer_out, 500000);
+        eq('шапка дополнилась топливом', openToday[0]?.fuel_out, 700);
+        eq('своё в шапке не затёрто', openToday[0]?.note, 'местная шапка');
+
+        const trips = repo.tripRepo.byWaybill(wbLocal);
+        eq('перевозки обоих устройств в одном листе', trips.length, 2);
+        check('перевозка из облака не потерялась', trips.some((t) => t.id === tripCloud));
+        check('своя перевозка на месте', trips.some((t) => t.id === tripLocal));
+        eq('точка из облака подтянулась', repo.tripRepo.points(tripCloud).length, 1);
+        check(
+          'перевозок без листа не осталось',
+          repo.tripRepo.all().every((t) => t.waybill_id !== wbCloud),
+        );
+
+        // повторное подтягивание ничего не удваивает
+        await disk.pullFromDisk(false);
+        eq('повторное подтягивание не удваивает перевозки', repo.tripRepo.byWaybill(wbLocal).length, 2);
+        eq(
+          'повторное подтягивание не удваивает лист',
+          repo.waybillRepo.list().filter((w) => w.date_out === today && w.status === 'open').length,
+          1,
+        );
+
+        // второй раз лист на этот день не заводится
+        const twinNow = sameWaybill({ date_out: today, status: 'open', vehicle_id: null, date_in: null });
+        eq('второй лист на этот день не заводится', twinNow?.id, wbLocal);
+
+        // уборка: строки проверки в базе не оставляем
+        dbSync().run('DELETE FROM trip_points WHERE id = ?', [pointCloud]);
+        dbSync().run('DELETE FROM trips WHERE id IN (?, ?)', [tripCloud, tripLocal]);
+        dbSync().run('DELETE FROM waybills WHERE id = ?', [wbLocal]);
+        dbSync().run('DELETE FROM vehicles WHERE id = ?', [vehicle]);
+      }
 
       // Ошибка доступа объясняется понятными словами
       (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
@@ -2533,18 +2698,32 @@ async function main() {
     const exitSource = readFileSync('src/ui/ExitScreen.tsx', 'utf8');
     const css = await (await fetch(`file://${process.cwd()}/src/styles.css`)).text();
 
-    // Дешёвый отпечаток сверяется до сборки архива: сборка читает все фотографии
+    // Дешёвый отпечаток сверяется до сбора описи: обход базы дешевле чтения файлов
     const metaAt = diskSource.indexOf('const meta = iconsMeta();');
-    const buildAt = diskSource.indexOf('const archive = await buildIconsArchive();');
-    check('отпечаток значков считается до сборки архива', metaAt > 0 && buildAt > metaAt);
-    check('значки не тронуты — архив не собираем', diskSource.includes('iconsMeta();\n  // Значков'));
+    const buildAt = diskSource.indexOf('const list = buildIconsList();');
+    check('отпечаток значков считается до сбора описи', metaAt > 0 && buildAt > metaAt);
+    check(
+      'значки не тронуты — в облако не смотрим',
+      diskSource.includes("meta === String(store.settings.yadisk_icons_meta ?? '')"),
+    );
     check('отпечаток живёт в настройках', readFileSync('src/types.ts', 'utf8').includes('yadisk_icons_meta: string;'));
     check('в отпечаток входит место выгрузки', diskSource.includes('function cloudPlace()'));
     check('смена папки сбрасывает отпечатки', ydSource.includes("saveSetting('yadisk_icons_meta', '')"));
 
-    // Архив собирается без сжатия: картинки уже сжаты, а время дорого
-    check('архив значков пакуется без сжатия', diskSource.includes("compression: 'STORE'"));
-    check('старое сжатие не осталось', !diskSource.includes("compression: 'DEFLATE'"));
+    // Файлы уходят поштучно: сначала читаем, что уже лежит в облаке, потом шлём новое
+    check('перед выгрузкой читается список файлов', diskSource.includes('await listCloudFiles(disk, target)'));
+    check('уходит только то, чего в облаке нет', diskSource.includes('!present.has(item.file)'));
+    check('картинка называется по содержимому', diskSource.includes('pic-${shortHash(value)}'));
+    check('фотография называется по номеру записи', diskSource.includes('doc-${safeName(doc.id)'));
+    check(
+      'вместо архива — опись файлов',
+      diskSource.includes("export const LIST_NAME = 'avtobaza-files.json'"),
+    );
+    check('файлы документов при сборе описи не читаются', diskSource.includes('size: Number(doc.size) || 0'));
+    check('новый архив больше не собирается', !diskSource.includes('buildIconsArchive'));
+    check('прежние архивы ещё читаются', diskSource.includes('async function restoreArchiveFromDisk('));
+    check('на устройстве файлы опознаются одним запросом', diskSource.includes('const local = await blobKeys();'));
+    check('папка с файлами отдельная', diskSource.includes("export const FILES_FOLDER = 'files'"));
 
     // Папка читается один раз за выгрузку, а не дважды
     check('папка читается одним запросом', diskSource.includes('async function listCloud('));
