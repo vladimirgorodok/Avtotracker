@@ -26,7 +26,7 @@ import { deleteDocument } from './documents';
 import { deleteBlob, getBlob, putBlob } from './files';
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural } from './format';
 import { normalizeName, plainName } from './names';
-import type { FinanceOp, TripPoint, Waybill } from '../types';
+import type { FinanceOp, Trip, TripPoint, Waybill } from '../types';
 
 /* ------------------------------------------------------------------ */
 /* Что такое находка                                                  */
@@ -105,11 +105,6 @@ let currency: string | null = null;
 function money(v: number | null | undefined): string {
   if (currency === null) currency = getSettings().currency;
   return fmtMoney(v, currency);
-}
-
-/** Забыть запомненную валюту — например, после смены настроек */
-export function resetAuditCache(): void {
-  currency = null;
 }
 
 const str = (row: Record<string, unknown>, key: string): string =>
@@ -302,24 +297,20 @@ function usageText(usage: Usage[]): string {
 }
 
 /** Перевести ссылки с одной записи на другую: записи не разъезжаются */
-function moveLinks(target: string, from: string, to: string): number {
+function moveLinks(target: string, from: string, to: string): void {
   const ts = nowIso();
-  let moved = 0;
   for (const ref of REFERENCES) {
     if (ref.target !== target) continue;
-    moved += countRows(ref.table, `${ref.column} = ?`, [from]);
     dbSync().run(
       `UPDATE ${ref.table} SET ${ref.column} = ?, updated_at = ? WHERE ${ref.column} = ? AND deleted = 0`,
       [to, ts, from],
     );
   }
-  // Картинки и документы тоже переезжают на оставленную запись
-  moved += countRows('attachments', 'owner_table = ? AND owner_id = ?', [target, from]);
+  // Документы и фото тоже переезжают на оставленную запись
   dbSync().run(
     `UPDATE attachments SET owner_id = ?, updated_at = ? WHERE owner_table = ? AND owner_id = ? AND deleted = 0`,
     [to, ts, target, from],
   );
-  return moved;
 }
 
 /* ------------------------------------------------------------------ */
@@ -624,13 +615,27 @@ function older(today: string, iso: string): boolean {
   return day !== '' && day < today;
 }
 
+/**
+ * Пустые записи.
+ *
+ * Пустой лист и брошенную перевозку ищем не перебором с запросом на каждую
+ * запись, а одним запросом: в базе бывают сотни листов, и поштучные запросы
+ * заметно замедляли проверку.
+ */
 function empties(): Finding[] {
   const out: Finding[] = [];
   const today = new Date().toISOString().slice(0, 10);
 
-  for (const wb of waybillRepo.list()) {
-    if (wb.status !== 'closed' && !older(today, wb.date_out || wb.created_at)) continue;
-    if (tripRepo.byWaybill(wb.id).length > 0 || refuelRepo.byWaybill(wb.id).length > 0) continue;
+  const emptyWaybills = dbSync().all<Record<string, unknown>>(
+    `SELECT w.* FROM waybills w
+      WHERE w.deleted = 0
+        AND (w.status = 'closed' OR substr(COALESCE(NULLIF(w.date_out, ''), w.created_at), 1, 10) < ?)
+        AND NOT EXISTS (SELECT 1 FROM trips t WHERE t.deleted = 0 AND t.waybill_id = w.id)
+        AND NOT EXISTS (SELECT 1 FROM refuelings r WHERE r.deleted = 0 AND r.waybill_id = w.id)`,
+    [today],
+  );
+  for (const row of emptyWaybills) {
+    const wb = row as unknown as Waybill;
     out.push({
       id: `empty-waybill:${wb.id}`,
       kind: 'empty',
@@ -651,12 +656,17 @@ function empties(): Finding[] {
     });
   }
 
-  for (const trip of tripRepo.all()) {
-    if (trip.status !== 'planned') continue;
-    if (!older(today, trip.created_at)) continue;
-    if (tripRepo.points(trip.id).length > 0) continue;
-    if (trip.cargo_type_id || trip.weight !== null) continue;
-    if (financeRepo.byTrip(trip.id).length > 0) continue;
+  const emptyTrips = dbSync().all<Record<string, unknown>>(
+    `SELECT t.* FROM trips t
+      WHERE t.deleted = 0 AND t.status = 'planned'
+        AND substr(t.created_at, 1, 10) < ?
+        AND t.cargo_type_id IS NULL AND t.weight IS NULL
+        AND NOT EXISTS (SELECT 1 FROM trip_points p WHERE p.deleted = 0 AND p.trip_id = t.id)
+        AND NOT EXISTS (SELECT 1 FROM finance_ops f WHERE f.deleted = 0 AND f.trip_id = t.id)`,
+    [today],
+  );
+  for (const row of emptyTrips) {
+    const trip = row as unknown as Trip;
     const s = summarizeTrip(trip);
     out.push({
       id: `empty-trip:${trip.id}`,
@@ -1003,9 +1013,4 @@ export function undoLastFix(): boolean {
   lastFix.undo();
   lastFix = null;
   return true;
-}
-
-/** Забыть последнюю правку: например, после обмена с облаком она уже не актуальна */
-export function forgetLastFix(): void {
-  lastFix = null;
 }
