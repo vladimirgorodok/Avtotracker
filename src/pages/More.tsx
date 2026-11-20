@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Icon, Tabs, type IconName, Page } from '../ui/components';
 import { useApp } from '../store';
 import { countRows } from '../db/repo';
+import { auditSummary } from '../lib/audit';
 import { cloudState } from '../lib/yadisk';
 import { fmtDateTime } from '../lib/format';
 
@@ -29,6 +30,9 @@ export default function MorePage() {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
   const [tab, setTab] = useState<MoreTab>('data');
+  // Проверка данных — дело небыстрое, поэтому считаем её только при изменениях
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const auditSub = useMemo(() => auditSummary(), [revision]);
 
   const dataItems: { to: string; title: string; sub: string; icon: IconName }[] = [
     { to: '/search', title: 'Поиск по всему', sub: 'Найти запись в любом разделе', icon: 'search' },
@@ -43,6 +47,7 @@ export default function MorePage() {
   const serviceItems: { to: string; title: string; sub: string; icon: IconName }[] = [
     { to: '/yadisk', title: 'Яндекс Диск', sub: diskSub(), icon: 'upload' },
     { to: '/data', title: 'Обмен данными', sub: 'Экспорт, импорт, резервные копии', icon: 'share' },
+    { to: '/audit', title: 'Проверка данных', sub: auditSub, icon: 'check' },
     { to: '/assistant', title: 'ИИ-помощник', sub: 'Разбор заявок и расчёты', icon: 'ai' },
     { to: '/assistant/pictures', title: 'Значки и логотипы', sub: 'Подбор картинок по названию', icon: 'search' },
     { to: '/settings', title: 'Настройки', sub: 'Ставки, тема, оформление', icon: 'settings' },

@@ -138,6 +138,7 @@ async function main() {
   const { buildWaybillPdf, buildMonthReportPdf } = await import('../lib/backup');
   const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel } = await import('../lib/format');
   const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
+  const { audit, auditText, auditSummary, applyFinding, undoLastFix, lastAppliedFix, loadHidden, saveHidden } = await import('../lib/audit');
 
   const { useApp } = await import('../store');
   const db = await getDb();
@@ -2882,6 +2883,259 @@ async function main() {
     softDelete('refuelings', 'чужой-заправка-1');
     softDeleteWhere('cargo_types', "id LIKE 'чужой-%'", []);
     softDeleteWhere('fuel_stations', "id LIKE 'чужой-%'", []);
+  }
+
+  console.log('\n31. Проверка данных: находки, правки и отмена');
+  {
+    // К строке идём напрямую: у части полей объявлен обязательный тип
+    const rowOf = (table: string, id: string) =>
+      dbSync().one<Record<string, unknown>>(`SELECT * FROM ${table} WHERE id = ?`, [id]);
+
+    // --- Дубли в финансах: одинаковые дата, вид и сумма
+    const dupA = repo.insertRow('finance_ops', {
+      date: '2026-03-03',
+      kind: 'payment',
+      amount: 7777.77,
+      pay_month: '2026-03',
+      trip_id: null,
+      waybill_id: null,
+      note: 'проба А',
+      auto: 0,
+    });
+    const dupB = repo.insertRow('finance_ops', {
+      date: '2026-03-03',
+      kind: 'payment',
+      amount: 7777.77,
+      pay_month: '2026-03',
+      trip_id: null,
+      waybill_id: null,
+      note: 'проба Б',
+      auto: 0,
+    });
+    const dupCount = () => repo.countRows('finance_ops', "date = '2026-03-03' AND amount = 7777.77");
+
+    let list = audit();
+    const dupFinding = list.find(
+      (f) => f.kind === 'finance-duplicate' && f.id.includes(dupA) && f.id.includes(dupB),
+    );
+    check('дубль в финансах найден', dupFinding !== undefined);
+    check('у дубля есть предложение', dupFinding?.fix !== null && dupFinding?.fix !== undefined);
+    check(
+      'в находке показаны обе записи',
+      (dupFinding?.details.filter((d) => d.includes('проба')).length ?? 0) === 2,
+    );
+    // Записи без перевозок: порядок не разобрать — предложение не делается
+    check('к каждой записи показаны связи', (dupFinding?.details.filter((d) => d.includes('связи:')).length ?? 0) === 2);
+    if (dupFinding) {
+      eq('до правки две записи', dupCount(), 2);
+      await applyFinding(dupFinding);
+      eq('после правки осталась одна', dupCount(), 1);
+      check('правка помнит, как вернуться', lastAppliedFix() !== null);
+      eq('вернуть правку удалось', undoLastFix(), true);
+      eq('после отмены снова две', dupCount(), 2);
+    }
+
+    // --- Двойное начисление по одной и той же перевозке
+    const wbCharge = repo.insertRow('waybills', {
+      date_out: '2026-03-04',
+      status: 'open',
+      vehicle_id: null,
+      note: '',
+    });
+    const tripCharge = repo.insertRow('trips', {
+      waybill_id: wbCharge,
+      cargo_type_id: null,
+      weight: null,
+      amount: 4321,
+      note: '',
+      status: 'charged',
+    });
+    const ch1 = repo.insertRow('finance_ops', {
+      date: '2026-03-04',
+      kind: 'charge',
+      amount: 4321,
+      pay_month: null,
+      trip_id: tripCharge,
+      waybill_id: wbCharge,
+      note: 'начисление 1',
+      auto: 1,
+    });
+    const ch2 = repo.insertRow('finance_ops', {
+      date: '2026-03-04',
+      kind: 'charge',
+      amount: 4321,
+      pay_month: null,
+      trip_id: tripCharge,
+      waybill_id: wbCharge,
+      note: 'начисление 2',
+      auto: 1,
+    });
+    const chargesOfTrip = () => repo.countRows('finance_ops', 'trip_id = ? AND kind = ?', [tripCharge, 'charge']);
+
+    list = audit();
+    const chFinding = list.find(
+      (f) => f.kind === 'charge-duplicate' && f.id.includes(ch1) && f.id.includes(ch2),
+    );
+    check('двойное начисление найдено', chFinding !== undefined);
+    eq('двойное начисление — ошибка', chFinding?.level, 'err');
+    check('в находке видна перевозка', chFinding?.details.some((d) => d.includes('перевозка')) ?? false);
+    if (chFinding) {
+      eq('начислений по перевозке два', chargesOfTrip(), 2);
+      await applyFinding(chFinding);
+      eq('осталось одно начисление', chargesOfTrip(), 1);
+      eq('вернуть удалось', undoLastFix(), true);
+      eq('отмена вернула оба начисления', chargesOfTrip(), 2);
+    }
+
+    // --- Одинаковые названия в справочнике: ссылки переезжают на оставшуюся запись
+    const cargoKeep = repo.insertRow('cargo_types', {
+      name: 'ЩебеньПроба',
+      icon: 'data:image/png;base64,AAAA',
+      note: '',
+    });
+    const cargoDrop = repo.insertRow('cargo_types', {
+      name: 'щебеньпроба',
+      icon: '',
+      note: 'с примечанием',
+    });
+    const wbRef = repo.insertRow('waybills', { date_out: '2026-03-05', status: 'open', vehicle_id: null, note: '' });
+    const tripRef = repo.insertRow('trips', {
+      waybill_id: wbRef,
+      cargo_type_id: cargoDrop,
+      weight: null,
+      amount: 1,
+      note: '',
+      status: 'planned',
+    });
+
+    list = audit();
+    const refFinding = list.find(
+      (f) => f.kind === 'ref-duplicate' && f.id.includes(cargoKeep) && f.id.includes(cargoDrop),
+    );
+    check('дубль груза найден', refFinding !== undefined);
+    if (refFinding) {
+      await applyFinding(refFinding);
+      eq('осталась одна запись груза', repo.countRows('cargo_types', 'id IN (?, ?)', [cargoKeep, cargoDrop]), 1);
+      eq(
+        'ссылка переехала на оставшуюся запись',
+        rowOf('trips', tripRef)?.cargo_type_id,
+        cargoKeep,
+      );
+      eq(
+        'пустое примечание заполнилось',
+        rowOf('cargo_types', cargoKeep)?.note,
+        'с примечанием',
+      );
+      eq('вернуть удалось', undoLastFix(), true);
+      eq('отмена вернула обе записи', repo.countRows('cargo_types', 'id IN (?, ?)', [cargoKeep, cargoDrop]), 2);
+      eq(
+        'отмена вернула ссылку',
+        rowOf('trips', tripRef)?.cargo_type_id,
+        cargoDrop,
+      );
+    }
+
+    // --- Ссылка в никуда: перевозка осталась без листа
+    const wbGone = repo.insertRow('waybills', { date_out: '2026-03-06', status: 'open', vehicle_id: null, note: '' });
+    const tripOrphan = repo.insertRow('trips', {
+      waybill_id: wbGone,
+      cargo_type_id: null,
+      weight: null,
+      amount: 0,
+      note: '',
+      status: 'planned',
+    });
+    repo.softDelete('waybills', wbGone);
+
+    list = audit();
+    const orphanFinding = list.find((f) => f.id === 'orphan:trips.waybill_id');
+    check('ссылка в никуда найдена', orphanFinding !== undefined);
+    check('в находке видно, о какой перевозке речь', orphanFinding?.details.some((d) => d.includes('перевозка')) ?? false);
+    if (orphanFinding) {
+      await applyFinding(orphanFinding);
+      eq(
+        'битая ссылка очищена',
+        rowOf('trips', tripOrphan)?.waybill_id,
+        '',
+      );
+      eq('вернуть удалось', undoLastFix(), true);
+      eq(
+        'отмена вернула ссылку',
+        rowOf('trips', tripOrphan)?.waybill_id,
+        wbGone,
+      );
+    }
+
+    // --- Пустой путевой лист: заведён давно и так и остался пустым
+    const wbEmpty = repo.insertRow('waybills', { date_out: '2020-01-05', status: 'open', vehicle_id: null, note: '' });
+    list = audit();
+    const emptyFinding = list.find((f) => f.id === `empty-waybill:${wbEmpty}`);
+    check('пустой лист найден', emptyFinding !== undefined);
+    if (emptyFinding) {
+      await applyFinding(emptyFinding);
+      eq('пустой лист помечен удалённым', repo.countRows('waybills', 'id = ?', [wbEmpty]), 0);
+      eq('вернуть удалось', undoLastFix(), true);
+      eq('отмена вернула лист', repo.countRows('waybills', 'id = ?', [wbEmpty]), 1);
+    }
+
+    // --- Замечание по листу с готовым исправлением: одометр сдачи меньше выезда
+    const wbBad = repo.insertRow('waybills', {
+      date_out: '2027-01-07',
+      odometer_out: 200000,
+      odometer_in: 190000,
+      fuel_out: null,
+      fuel_in: null,
+      status: 'open',
+      vehicle_id: null,
+      note: '',
+    });
+    list = audit();
+    const noteFinding = list.find((f) => f.kind === 'waybill-note' && f.id.startsWith(`waybill-note:${wbBad}:`));
+    check('замечание по одометру найдено', noteFinding !== undefined);
+    eq('замечание — ошибка', noteFinding?.level, 'err');
+    check('у замечания есть исправление', noteFinding?.fix !== null && noteFinding?.fix !== undefined);
+    if (noteFinding?.fix) {
+      await applyFinding(noteFinding);
+      eq(
+        'одометр сдачи убран',
+        rowOf('waybills', wbBad)?.odometer_in,
+        null,
+      );
+      eq('вернуть удалось', undoLastFix(), true);
+      eq(
+        'отмена вернула одометр',
+        rowOf('waybills', wbBad)?.odometer_in,
+        190000,
+      );
+    }
+
+    // --- Скрытые находки запоминаются на устройстве
+    if (dupFinding) {
+      await saveHidden([dupFinding.id]);
+      eq('скрытая находка запомнена', (await loadHidden()).includes(dupFinding.id), true);
+      await saveHidden([]);
+      eq('список скрытых очищен', (await loadHidden()).length, 0);
+    }
+
+    // --- Подписи для экрана и для помощника
+    check('подпись для меню не пустая', auditSummary().length > 0);
+    check('помощник узнаёт о находках', auditText().includes('Проверка данных'));
+    check('в рассказе есть куда нажать', auditText().includes('Проверка данных'));
+
+    // уборка: строки проверки в базе не оставляем
+    repo.softDelete('finance_ops', dupA);
+    repo.softDelete('finance_ops', dupB);
+    repo.softDelete('finance_ops', ch1);
+    repo.softDelete('finance_ops', ch2);
+    repo.softDelete('trips', tripCharge);
+    repo.softDelete('waybills', wbCharge);
+    repo.softDelete('trips', tripRef);
+    repo.softDelete('waybills', wbRef);
+    repo.softDeleteWhere('cargo_types', 'id IN (?, ?)', [cargoKeep, cargoDrop]);
+    repo.softDelete('trips', tripOrphan);
+    repo.softDelete('waybills', wbGone);
+    repo.softDelete('waybills', wbEmpty);
+    repo.softDelete('waybills', wbBad);
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

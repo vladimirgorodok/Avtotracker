@@ -18,6 +18,19 @@ export function normalizeName(raw: string): string {
     .trim();
 }
 
+/**
+ * Название как есть: без регистра, кавычек и лишних знаков, но с формой
+ * «ООО»/«ИП» — для фирм, где «ИП Иванов» и «ООО Иванов» разные записи.
+ */
+export function plainName(raw: string): string {
+  return String(raw ?? '')
+    .toLowerCase()
+    .replace(/[«»"'`]/g, ' ')
+    .replace(/[.,()\-–—/\\+№#]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Похожесть названий: 1 — одинаковые, 0 — ничего общего */
 export function nameScore(a: string, b: string): number {
   const x = normalizeName(a);

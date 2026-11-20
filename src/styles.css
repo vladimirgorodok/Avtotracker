@@ -2359,3 +2359,30 @@ body {
     --rail-w: 72px;
   }
 }
+
+/* Проверка данных: одна находка и её пояснения */
+.audit-finding {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.audit-finding:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.audit-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 620;
+  white-space: normal;
+}
+
+/* Пояснения идут строчками: переносы сохраняем как есть */
+.audit-lines {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -11,6 +11,7 @@ import { refs, tripRepo, waybillRepo } from '../db/repo';
 import { fmtDate, fmtMoney, fmtNumber, monthKey, plural, todayIso } from './format';
 import { summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
 import { deleteBlob, getBlob, putBlob } from './files';
+import { auditText } from './audit';
 import { useApp } from '../store';
 
 export interface AiConfig {
@@ -203,6 +204,8 @@ export function buildDataContext(): string {
     out.push(`Места (первые ${Math.min(places.length, PLACES_IN_CONTEXT)}): ${places.slice(0, PLACES_IN_CONTEXT).map((p) => p.name).join(', ')}.`);
   }
 
+  out.push('', 'Проверка данных:', auditText(6));
+
   return out.join('\n');
 }
 
@@ -212,6 +215,7 @@ export function systemPrompt(): string {
     'Отвечай по-русски, коротко и по делу, без вступлений и извинений.',
     'Опирайся только на данные ниже. Не выдумывай цифры: если данных нет, скажи об этом прямо и подскажи, что заполнить.',
     'Ты считаешь и советуешь, но сам ничего не записываешь в базу — предложи, что и где заполнить.',
+    'Про ошибки, дубли и лишние записи суди по блоку «Проверка данных» и подскажи открыть экран «Ещё → Проверка данных»: там по каждой находке есть кнопка с подтверждением и кнопка «Вернуть».',
     '',
     'Данные приложения:',
     buildDataContext(),
@@ -509,6 +513,9 @@ export function localAnswer(question: string): string | null {
   }
   if (has('расход', 'топлив', 'солярк', 'заправ', 'л/100', 'норма')) return fuelBlock();
   if (has('пробег', 'одометр', 'сколько проехал', 'километр')) return fuelBlock();
+  if (has('дубл', 'двойн', 'лишн', 'одинаков', 'артефакт', 'мусор', 'почист', 'наведи порядок')) {
+    return auditText();
+  }
   if (has('ошибк', 'ошибку', 'замечан', 'проверь', 'провер', 'правильно ли')) return errorsBlock();
   if (has('начисл', 'заработал', 'заработ', 'опла', 'оплат', 'поступил', 'доход', 'итог', 'остаток', 'деньг', 'финанс', 'долг', 'зарплат')) {
     return financeBlock();
@@ -575,6 +582,7 @@ export async function clearChat(): Promise<void> {
 export const CHAT_SUGGESTIONS = [
   'Сколько начислено за этот месяц?',
   'Какой расход топлива по последним листам?',
+  'Есть ли дубли и лишние записи?',
   'Есть ли ошибки в заполнении листов?',
   'Что сейчас в открытых листах?',
   'Покажи последние перевозки',

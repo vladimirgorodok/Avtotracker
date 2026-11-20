@@ -146,6 +146,25 @@ export default function Assistant() {
       </Card>
 
       <Card
+        title="Проверка данных"
+        actions={
+          <Badge tone="warn">
+            <Icon name="check" size={14} /> дубли и лишнее
+          </Badge>
+        }
+      >
+        <div className="small muted">
+          Помощник просматривает все записи и находит то, что похоже на ошибку: дубли в деньгах, двойные
+          начисления, одинаковые названия в справочниках, ссылки в никуда, пустые записи и замечания по
+          листам. По каждой находке видно, почему так решили, а правка выполняется только после
+          подтверждения — и её можно вернуть.
+        </div>
+        <Button variant="primary" icon="check" block onClick={() => navigate('/audit')}>
+          Открыть проверку данных
+        </Button>
+      </Card>
+
+      <Card
         title="Помощник"
         actions={
           <Badge tone={ready ? 'ok' : 'neutral'}>

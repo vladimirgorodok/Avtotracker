@@ -22,6 +22,7 @@ import Refs from './pages/Refs';
 import DataPage from './pages/Data';
 import MorePage from './pages/More';
 import SettingsPage from './pages/Settings';
+import Audit from './pages/Audit';
 import YandexDisk from './pages/YandexDisk';
 import Assistant from './pages/Assistant';
 import OrderFromFiles from './pages/OrderFromFiles';
@@ -403,6 +404,7 @@ export default function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/yadisk" element={<YandexDisk />} />
+              <Route path="/audit" element={<Audit />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />
               <Route path="/assistant/pictures" element={<PictureFinder />} />
