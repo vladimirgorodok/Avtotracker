@@ -6,6 +6,7 @@ import { getDb, setSaveErrorHandler } from './db';
 import { applyStatusBarTheme, applyTheme, applyViewMode, useApp } from './store';
 import { Confirm, Icon, type IconName, Modal, Toasts } from './ui/components';
 import { Splash } from './ui/Splash';
+import { StartScreen } from './ui/StartScreen';
 import { ExitScreen } from './ui/ExitScreen';
 import Home from './pages/Home';
 import Waybills from './pages/Waybills';
@@ -32,7 +33,7 @@ import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
 import { autoFillForNewWaybill, sameWaybill } from './lib/calc';
-import { startAutoSync } from './lib/yadisk-auto';
+import { autoSyncWanted, startAutoSync } from './lib/yadisk-auto';
 
 function BottomNav({ onCreate }: { onCreate: () => void }) {
   const loc = useLocation();
@@ -259,10 +260,17 @@ export default function App() {
   const [exitOpen, setExitOpen] = useState(false);
   const [askExit, setAskExit] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  // Окно обмена при запуске: ждём конца заставки, затем показываем или пропускаем
+  const [startPhase, setStartPhase] = useState<'wait' | 'show' | 'done'>('wait');
   const init = useApp((s) => s.init);
   const settings = useApp((s) => s.settings);
   const dataWarning = useApp((s) => s.dataWarning);
-  const finishSplash = useCallback(() => setSplashDone(true), []);
+  const finishSplash = useCallback(() => {
+    setSplashDone(true);
+    // Обмениваться нечем, если облако не настроено или автобмен выключен
+    setStartPhase(autoSyncWanted() ? 'show' : 'done');
+  }, []);
+  const finishStart = useCallback(() => setStartPhase('done'), []);
   const openExit = useCallback(() => {
     setCreateOpen(false);
     setAskExit(false);
@@ -270,9 +278,11 @@ export default function App() {
   }, []);
   /** «Назад» на главной: если открыт экран закрытия — возвращаемся, иначе спрашиваем */
   const backFromRoot = useCallback(() => {
+    // Пока идёт обмен при запуске, «Назад» ничего не делает
+    if (startPhase === 'show') return;
     if (exitOpen) setExitOpen(false);
     else setAskExit(true);
-  }, [exitOpen]);
+  }, [exitOpen, startPhase]);
 
   useEffect(() => {
     (async () => {
@@ -310,9 +320,9 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     applyTheme(settings.theme, settings.palette);
-    // Пока идёт заставка, значки в строке состояния светлые под её тёмный фон
-    if (splashDone) applyStatusBarTheme(settings.theme);
-  }, [ready, splashDone, settings.theme, settings.palette]);
+    // Пока идут тёмные заставка и окно обмена, значки в строке состояния светлые
+    if (splashDone && startPhase !== 'show') applyStatusBarTheme(settings.theme);
+  }, [ready, splashDone, startPhase, settings.theme, settings.palette]);
 
   useEffect(() => {
     // Вид для планшета: в «авто» подбирается по размеру экрана — следим за поворотом
@@ -433,6 +443,7 @@ export default function App() {
         </div>
       )}
       {!splashDone && <Splash onDone={finishSplash} />}
+      {startPhase === 'show' ? <StartScreen onDone={finishStart} /> : null}
       {exitOpen && <ExitScreen onCancel={() => setExitOpen(false)} />}
     </>
   );

@@ -212,7 +212,8 @@ export default function YandexDiskPage() {
             onChange={(e) => saveSetting('yadisk_auto', e.target.checked ? 1 : 0)}
           />
           <span>
-            Обмениваться автоматически: после изменений — выгрузка, при запуске — свежая копия из облака
+            Обмениваться автоматически: после изменений — выгрузка, при запуске — окно обмена со
+            свежей копией из облака
           </span>
         </label>
         <Button

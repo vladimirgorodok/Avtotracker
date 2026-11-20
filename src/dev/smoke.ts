@@ -3138,6 +3138,80 @@ async function main() {
     repo.softDelete('waybills', wbBad);
   }
 
+  console.log('\n32. Обмен при запуске: окно после заставки');
+  {
+    const { readFileSync } = await import('node:fs');
+    const { createElement } = await import('react');
+    const { renderToString } = await import('react-dom/server');
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    const startSource = readFileSync('src/ui/StartScreen.tsx', 'utf8');
+    const autoSource = readFileSync('src/lib/yadisk-auto.ts', 'utf8');
+    const exitSource = readFileSync('src/ui/ExitScreen.tsx', 'utf8');
+
+    // Окно показывается после заставки и только когда есть с кем обмениваться
+    check('окно обмена подключено в приложении', appSource.includes('startPhase === \'show\' ? <StartScreen'));
+    check('окно ждёт конца заставки', appSource.includes("setStartPhase(autoSyncWanted() ? 'show' : 'done')"));
+    check('без облака окно не показывается', autoSource.includes('export function autoSyncWanted()'));
+    check(
+      'автобмен выключен — окна нет',
+      autoSource.includes('return cloudConfigured() && cloudState().auto;'),
+    );
+
+    // Первый обмен идёт на виду, а не тихо в фоне
+    check('первый обмен вынесен в startSync', autoSource.includes('export async function startSync('));
+    check('тихий запуск больше не обменивается сам', !autoSource.includes("void quiet('any')"));
+    check('обмен при запуске рассказывает о ходе', autoSource.includes('startSync(report?: PushReporter)'));
+    check(
+      'свои изменения выгружаются',
+      /startSync[\s\S]{0,900}if \(state\.dirty\) \{\s*const res = await pushToDisk\(report\)/.test(autoSource),
+    );
+    check(
+      'чужая свежая копия забирается',
+      /newest\.name === state\.lastData[\s\S]{0,200}pullFromDisk\(false, report\)/.test(autoSource),
+    );
+    check('два обмена не идут разом', /startSync[\s\S]{0,600}while \(busy && Date\.now\(\) < deadline\)/.test(autoSource));
+    check('ошибка остаётся на экране «Яндекс Диск»', /startSync[\s\S]{0,1600}noteError\(/.test(autoSource));
+
+    // Ошибка не запирает приложение
+    check('при неудаче можно повторить', startSource.includes('Повторить') && startSource.includes('setAttempt'));
+    check('при неудаче можно открыть приложение', startSource.includes('Открыть приложение'));
+    check('при неудаче видно причину', startSource.includes("'err', reason(e)"));
+    check('во время обмена можно пропустить', startSource.includes('Пропустить'));
+    check('видно, что обмен идёт, а не завис', startSource.includes('exit-timer'));
+    check('долгий обмен не держит вход в приложение', startSource.includes('HOLD_MS'));
+    check('после ожидания приложение открывается само', startSource.includes('обмен закончится в фоне'));
+    check('вход открывается ровно один раз', startSource.includes('opened.current = true'));
+
+    // Не мигает при быстром обмене
+    check('окно держится на виду хотя бы чуть-чуть', startSource.includes('MIN_MS'));
+    check('фура уезжает перед показом приложения', startSource.includes('exit-truck-away'));
+    check('пока идёт обмен, «Назад» не выходит', appSource.includes("if (startPhase === 'show') return;"));
+    check(
+      'значки строки состояния светлые, пока окно на экране',
+      appSource.includes("splashDone && startPhase !== 'show'"),
+    );
+
+    // Оформление — то же, что у экрана закрытия
+    check('оформление взято у экрана закрытия', startSource.includes('className="exit-screen"'));
+    check('та же фура и дорога, что на заставке', startSource.includes('TruckMark') && startSource.includes('splash-dash'));
+    check('прогресс показывается полосой и списком', startSource.includes('aria-valuenow'));
+    check('экран закрытия не тронут', exitSource.includes('pushOnExit((stage) =>'));
+
+    // Сам экран собирается: видно заголовок, шаги и пропуск
+    const mod = await import('../ui/StartScreen');
+    const html = renderToString(
+      createElement(mod.StartScreen as never, { onDone: () => {} }) as never,
+    );
+    check('окно запуска показывает заголовок', html.includes('Проверяю и обновляю'));
+    check(
+      'видно все шаги',
+      html.includes('Проверяю данные на устройстве') &&
+        html.includes('Обмен с Яндекс Диском') &&
+        html.includes('Открываю приложение'),
+    );
+    check('пропуск виден сразу', html.includes('Пропустить'));
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

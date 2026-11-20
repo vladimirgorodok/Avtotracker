@@ -3,7 +3,8 @@
  *
  * Порядок (в облаке всегда одна свежая копия):
  *  - при запуске: если есть невыгруженные изменения — выгружаем их,
- *    иначе забираем свежую копию, если она появилась на другом устройстве;
+ *    иначе забираем свежую копию, если она появилась на другом устройстве.
+ *    Этот первый обмен идёт на виду — на экране запуска (startSync);
  *  - после изменений: через несколько секунд выгружаем новую копию;
  *  - при уходе приложения в фон: выгружаем, если есть что.
  *
@@ -40,6 +41,18 @@ let lastRevision = -1;
 /** Есть ли смысл что-то делать */
 function active(): boolean {
   return cloudConfigured() && cloudState().auto;
+}
+
+/**
+ * Нужен ли обмен при запуске: облако настроено и автобмен не выключен.
+ * По этому признаку приложение решает, показывать ли окно обмена после заставки.
+ */
+export function autoSyncWanted(): boolean {
+  try {
+    return active();
+  } catch {
+    return false;
+  }
 }
 
 function schedulePush(): void {
@@ -101,7 +114,7 @@ export async function autoSyncNow(): Promise<string> {
   return `Загружено из облака: ${res.dataName}`;
 }
 
-/** Включить слежение за изменениями и запустить обмен при старте */
+/** Включить слежение за изменениями. Первый обмен делает экран запуска. */
 export function startAutoSync(): void {
   if (started) return;
   started = true;
@@ -126,8 +139,60 @@ export function startAutoSync(): void {
       if (document.visibilityState === 'hidden') void quiet('push');
     });
   }
+}
 
-  void quiet('any');
+/** Что сделал обмен при запуске */
+export interface StartSyncResult {
+  /** sent — выгрузили, got — забрали из облака, none — обмениваться нечем, off — обмен выключен */
+  action: 'sent' | 'got' | 'none' | 'off';
+  /** Готовая надпись для экрана запуска */
+  text: string;
+}
+
+/**
+ * Обмен при запуске приложения — с рассказом о ходе.
+ *
+ * Тем же порядком, что и тихий обмен: сначала выгружаем свои изменения, иначе
+ * забираем свежую копию, если она появилась на другом устройстве. Отличается
+ * тем, что экран запуска показывает ход и потому ждёт конца работы.
+ *
+ * Ошибку записываем в заметку для экрана «Яндекс Диск» и отдаём наверх:
+ * экран запуска покажет причину и не станет держать приложение закрытым.
+ */
+export async function startSync(report?: PushReporter): Promise<StartSyncResult> {
+  if (!active()) return { action: 'off', text: 'Обмен с облаком выключен' };
+
+  // Дожидаемся тихого обмена, если он уже идёт: иначе выгрузки пошли бы вразнобой
+  const deadline = Date.now() + 15000;
+  while (busy && Date.now() < deadline) await pause(150);
+  busy = true;
+  quietUntil = Date.now() + QUIET_MS;
+  try {
+    const state = cloudState();
+    if (state.dirty) {
+      const res = await pushToDisk(report);
+      return { action: 'sent', text: `Выгружено: ${res.dataName}` };
+    }
+
+    report?.({ step: 'data', text: 'Смотрю, нет ли свежей копии' });
+    const files = await listDataFiles();
+    const newest = files[0];
+    if (!newest) {
+      const res = await pushToDisk(report);
+      return { action: 'sent', text: `В облаке копий не было — выгружено: ${res.dataName}` };
+    }
+    if (newest.name === state.lastData) {
+      return { action: 'none', text: 'На устройстве и в облаке одно и то же' };
+    }
+    const res = await pullFromDisk(false, report);
+    return { action: 'got', text: `Загружено из облака: ${res.dataName}` };
+  } catch (error) {
+    noteError(error instanceof Error ? error.message : 'Ошибка обмена с Яндекс Диском');
+    throw error;
+  } finally {
+    quietUntil = Date.now() + QUIET_MS;
+    busy = false;
+  }
 }
 
 /**
