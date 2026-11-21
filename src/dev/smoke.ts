@@ -2173,11 +2173,16 @@ async function main() {
         disk.iconsMeta().startsWith('files|ivan@yandex.ru@/avtobaza|'),
       );
 
+      // Прежний архив значков: при загрузке данных из облака он тоже уходит
+      const legacyName = 'avtobaza-icons-2019-05-05_050505.zip';
+      files.set(`/avtobaza/${legacyName}`, new TextEncoder().encode('прежний архив'));
+
       // Другое устройство: данных нет, картинок нет — всё приходит из облака
       dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
       await deleteBlob('doc-28.jpg');
       const pull = await disk.pullFromDisk(false);
       eq('имя загруженного файла', pull.dataName, pushChanged.dataName);
+      check('при загрузке прежний архив значков уходит', !files.has(`/avtobaza/${legacyName}`));
       check('записи из облака обновились', pull.inserted + pull.updated > 0);
       check(
         'картинка подтянулась по описи',
@@ -2351,6 +2356,19 @@ async function main() {
       eq('про отложенную чистку не отчитываются', iconsLate.removed, 0);
       files.delete('/avtobaza/files/pic-deadbeefdeadbeef.jpg');
       store.saveSetting('yadisk_last_data', pushBack.dataName);
+
+      // Прежний архив значков: писала его только старая версия — в облаке не держим
+      const archiveName = 'avtobaza-icons-2026-01-01_000000.zip';
+      files.set(`/avtobaza/${archiveName}`, new TextEncoder().encode('прежний архив'));
+      const pushArch = await disk.pushToDisk();
+      check('прежний архив значков убран из облака', !files.has(`/avtobaza/${archiveName}`));
+      check('про убранный архив сказано в отчёте', pushArch.filesRemoved >= 1, `(${pushArch.filesRemoved})`);
+
+      // Кнопка «Выгрузить значки» убирает архив даже без прочих изменений
+      files.set(`/avtobaza/${archiveName}`, new TextEncoder().encode('прежний архив'));
+      const iconsArch = await disk.pushIconsOnly();
+      check('кнопка выгрузки значков тоже убирает архив', !files.has(`/avtobaza/${archiveName}`));
+      check('и говорит, сколько убрала', iconsArch.removed >= 1, `(${iconsArch.removed})`);
 
       // Убрали все значки и фотографии — в облаке тоже ничего не остаётся
       const { PICTURE_COLUMNS } = await import('../lib/backup');
@@ -3455,6 +3473,14 @@ async function main() {
     check('в отчёте видно, сколько убрали', ydSource.includes('убрано лишних файлов'));
     check('при выходе из приложения уборка тоже видна', exitSource.includes('убрано лишних'));
     check('в подсказке сказано, что удалённое уходит из облака', ydSource.includes('убираются из облака'));
+
+    // Прежние архивы значков: старых версий нет — значит, архивам в облаке не место
+    check('прежние архивы убираются при обмене', diskSource.includes('async function dropArchives('));
+    check('выгрузка данных чистит архивы', diskSource.includes('await dropArchives(disk, cloud.icons)'));
+    check('кнопка значков чистит архивы', diskSource.includes('await listIconsFiles(target)'));
+    check('загрузка из облака тоже чистит архивы', diskSource.includes('в облаке им больше не место'));
+    check('архивы больше не держим «на всякий случай»', !diskSource.includes('trimOld(disk, cloud.icons, 1)'));
+    check('но прочитать оставшийся архив по-прежнему можно', diskSource.includes('async function readIconsArchive('));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

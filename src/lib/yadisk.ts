@@ -14,8 +14,9 @@
  * и при добавлении одной фотографии в облако уходил архив целиком — из-за этого
  * выгрузка занимала минуты.
  *
- * Прежние архивы `avtobaza-icons-<дата>.zip` ещё читаются: устройство со старой
- * версией приложения продолжит подтягивать из них значки. Новые архивы не пишем.
+ * Прежние архивы `avtobaza-icons-<дата>.zip` в облаке не держим: их писала только
+ * старая версия приложения, и при обмене они убираются. Если такой архив где-то
+ * остался, прочитать его ещё можно — файлы из него разложатся по записям.
  *
  * Скачанные картинки не затирают уже подобранные: заполняются только пустые поля.
  */
@@ -577,14 +578,27 @@ async function readIconsList(disk: YandexDisk, target: string): Promise<IconsMan
 }
 
 /** Удаляет копии сверх положенного числа; ошибки чистки выгрузку не ломают */
-async function trimOld(disk: YandexDisk, list: RemoteEntry[], keep: number): Promise<void> {
+async function trimOld(disk: YandexDisk, list: RemoteEntry[], keep: number): Promise<number> {
+  let removed = 0;
   for (const entry of list.slice(keep)) {
     try {
       await disk.remove(entry.path);
+      removed++;
     } catch {
       /* старая копия останется — не беда */
     }
   }
+  return removed;
+}
+
+/**
+ * Убирает из облака прежние архивы значков.
+ *
+ * Их писала только старая версия приложения, а нынешняя хранит картинки поштучно
+ * в папке `files`. Старых версий нет — значит, архивам в облаке делать нечего.
+ */
+async function dropArchives(disk: YandexDisk, entries: RemoteEntry[]): Promise<number> {
+  return trimOld(disk, entries.filter((e) => ICONS_RE.test(e.name)), 0);
 }
 
 /** Выгружает файл и убеждается, что он долетел целиком */
@@ -677,9 +691,9 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
   report?.({ step: 'trim', text: 'Убираю старые копии' });
   const cloud = await listCloud(target);
   await trimOld(disk, cloud.data, keep);
-  // Прежние архивы значков больше не пишем: держим один — он нужен только
-  // устройству со старой версией приложения
-  await trimOld(disk, cloud.icons, 1);
+  // Прежние архивы значков хранить в облаке незачем: их писала только старая
+  // версия приложения. Если такой файл остался, убираем его при обмене
+  filesRemoved += await dropArchives(disk, cloud.icons);
 
   const store = useApp.getState();
   store.saveSetting('yadisk_last_at', nowIso());
@@ -804,11 +818,13 @@ export async function pushIconsOnly(report?: PushReporter): Promise<IconsSyncRes
   const target = folderPath();
   await disk.createChain(target);
   const res = await syncIcons(disk, target, true, report, false);
+  // Заодно убираем прежние архивы значков: их писала только старая версия
+  const archives = await dropArchives(disk, await listIconsFiles(target));
   if (!res.skipped) {
     useApp.getState().saveSetting('yadisk_last_at', nowIso());
     noteError('');
   }
-  return res;
+  return { ...res, removed: res.removed + archives };
 }
 
 /* ------------------------------------------------------------------ */
@@ -835,8 +851,9 @@ export async function pullFromDisk(
 ): Promise<CloudPullResult> {
   const disk = client();
   const target = folderPath();
-  const files = await listDataFiles(target);
-  const newest = files[0];
+  // Папку читаем один раз: из неё же видно и свежую копию, и прежние архивы
+  const cloud = await listCloud(target);
+  const newest = cloud.data[0];
   if (!newest) {
     throw new CloudError(`В папке «${target}» на Яндекс Диске нет файлов данных АвтоБазы`);
   }
@@ -860,6 +877,8 @@ export async function pullFromDisk(
   const icons = await restoreIconsFromDisk(disk, target, { report }).catch(
     () => NOTHING_RESTORED,
   );
+  // Заодно убираем прежние архивы значков: в облаке им больше не место
+  await dropArchives(disk, cloud.icons);
 
   const store = useApp.getState();
   store.saveSetting('yadisk_last_at', nowIso());
