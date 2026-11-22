@@ -265,43 +265,45 @@ export default function TripDetail() {
         </Field>
       </Card>
 
-      <Button variant="primary" block icon="check" onClick={save}>
-        Сохранить
-      </Button>
+      <div className="form-actions">
+        <Button variant="primary" block icon="check" onClick={save}>
+          Сохранить
+        </Button>
 
-      {form.status === 'charged' ? (
-        <Button
-          variant="ghost"
-          block
-          icon="refresh"
-          onClick={() => {
-            unchargeTrip(form!.id);
-            touch();
-            notify('Начисление снято', 'info');
-          }}
-        >
-          Снять начисление
-        </Button>
-      ) : (
-        <Button
-          variant="success"
-          block
-          icon="money"
-          onClick={() => {
-            updateRow('trips', form!.id, {
-              amount: form!.amount,
-              cargo_type_id: form!.cargo_type_id,
-              weight: form!.weight,
-              note: form!.note,
-            });
-            chargeTrip(form!.id, settings, form!.amount ?? autoAmount);
-            touch();
-            notify(`Начислено ${fmtMoney(form!.amount ?? autoAmount, settings.currency)}`, 'ok');
-          }}
-        >
-          Начислить
-        </Button>
-      )}
+        {form.status === 'charged' ? (
+          <Button
+            variant="ghost"
+            block
+            icon="refresh"
+            onClick={() => {
+              unchargeTrip(form!.id);
+              touch();
+              notify('Начисление снято', 'info');
+            }}
+          >
+            Снять начисление
+          </Button>
+        ) : (
+          <Button
+            variant="success"
+            block
+            icon="money"
+            onClick={() => {
+              updateRow('trips', form!.id, {
+                amount: form!.amount,
+                cargo_type_id: form!.cargo_type_id,
+                weight: form!.weight,
+                note: form!.note,
+              });
+              chargeTrip(form!.id, settings, form!.amount ?? autoAmount);
+              touch();
+              notify(`Начислено ${fmtMoney(form!.amount ?? autoAmount, settings.currency)}`, 'ok');
+            }}
+          >
+            Начислить
+          </Button>
+        )}
+      </div>
 
       <Card
         title={

@@ -232,9 +232,11 @@ export default function VehicleDetail() {
         </Field>
       </Card>
 
-      <Button variant="primary" block icon="check" onClick={save}>
-        Сохранить
-      </Button>
+      <div className="form-actions">
+        <Button variant="primary" block icon="check" onClick={save}>
+          Сохранить
+        </Button>
+      </div>
 
       <div className="section-title">
         Периоды <span className="count">{periods.length}</span>

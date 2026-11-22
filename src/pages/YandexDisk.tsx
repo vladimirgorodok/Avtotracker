@@ -260,9 +260,11 @@ export default function YandexDiskPage() {
               const res = await pushToDisk((s) => setStage(s.text));
               const files = res.filesUploaded > 0 ? `, догружено файлов: ${res.filesUploaded}` : '';
               const gone = res.filesRemoved > 0 ? `, убрано лишних файлов: ${res.filesRemoved}` : '';
+              const dupes =
+                res.mergedDuplicates > 0 ? `, слито дублей: ${res.mergedDuplicates}` : '';
               return res.iconsFailed
                 ? `Данные выгружены: ${res.dataName}. Значки и фотографии не ушли — попробуйте ещё раз.`
-                : `Выгружено: ${res.dataName}${files}${gone}`;
+                : `Выгружено: ${res.dataName}${files}${gone}${dupes}`;
             }, 'Выгружено')
           }
         >
@@ -355,6 +357,7 @@ export default function YandexDiskPage() {
             if (res.merged > 0) merges.push(`листов ${res.merged}`);
             if (res.mergedRefs > 0) merges.push(`записей справочников ${res.mergedRefs}`);
             if (res.mergedOps > 0) merges.push(`начислений ${res.mergedOps}`);
+            if (res.mergedDuplicates > 0) merges.push(`дублей ${res.mergedDuplicates}`);
             const mergedText = merges.length > 0 ? `, слито ${merges.join(', ')}` : '';
             return `Загружено: ${res.dataName}. Записей добавлено ${res.inserted}, обновлено ${res.updated}`
               + mergedText

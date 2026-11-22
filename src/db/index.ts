@@ -45,11 +45,10 @@ export class Db {
     const db = saved && saved.length > 0 ? new SQL.Database(saved) : new SQL.Database();
     const inst = new Db(db, persister, problem);
     inst.migrate();
-    // Копию обновляем только у непустой базы: иначе после случайной очистки
-    // пустая база затрёт последнюю целую копию.
-    if (saved) await inst.refreshBackup();
     // Пустую базу сохраняем только если файла не было вовсе. Если файл есть,
     // но прочитать его не удалось, писать поверх нельзя — иначе данные пропадут.
+    // Копию на запуске не пересобираем: это полный export всей базы в память;
+    // копия обновляется при выходе и по кнопке «Сделать копию сейчас».
     if (!saved && !problem) await inst.flush();
     return inst;
   }
@@ -198,9 +197,11 @@ export class Db {
     // во время транзакции базу на диск не пишем: дождёмся коммита
     if (this.inTx) return;
     if (persistTimer) clearTimeout(persistTimer);
+    // Пауза чуть длиннее, чтобы серия правок (например, ввод текста) сходила
+    // в один export+запись, а не прогоняла всю базу через память на каждый символ
     persistTimer = setTimeout(() => {
       void this.flush().catch((e) => console.error('Не удалось сохранить базу', e));
-    }, 800);
+    }, 3000);
   }
 
   /** Немедленно записать базу на диск */

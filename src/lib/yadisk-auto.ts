@@ -114,6 +114,22 @@ function schedulePush(): void {
 }
 
 /**
+ * Обмен слил дубли записей справочников — говорим об этом.
+ *
+ * Случается это один раз: дальше дублей в списке уже нет. Молчать нельзя —
+ * записи убрались без спроса, а вернуть их можно на экране «Проверка данных».
+ */
+function noteMerged(count: number): void {
+  if (count <= 0) return;
+  useApp.getState().notify(`Дубли в справочниках слиты: ${count}. Вернуть — «Проверка данных»`);
+}
+
+/** Дописать в надпись про слитые дубли, если они были */
+function mergedText(count: number): string {
+  return count > 0 ? `, слито дублей: ${count}` : '';
+}
+
+/**
  * Тихий обмен: изменения выгружаем, свежую чужую копию забираем.
  * Смысл: на устройстве не должно остаться данных новее, чем в облаке.
  */
@@ -128,18 +144,21 @@ async function quiet(kind: 'push' | 'pull' | 'any'): Promise<void> {
   let failed = false;
   try {
     if (state.dirty) {
-      await pushToDisk();
+      const res = await pushToDisk();
+      noteMerged(res.mergedDuplicates);
       return;
     }
     if (kind === 'push') return;
     const files = await listDataFiles();
     const newest = files[0];
     if (!newest) {
-      await pushToDisk();
+      const res = await pushToDisk();
+      noteMerged(res.mergedDuplicates);
       return;
     }
     if (newest.name === state.lastData) return;
-    await pullFromDisk(false);
+    const res = await pullFromDisk(false);
+    noteMerged(res.mergedDuplicates);
   } catch (error) {
     failed = true;
     noteError(error instanceof Error ? error.message : 'Ошибка обмена с Яндекс Диском');
@@ -239,7 +258,7 @@ export async function startSync(report?: PushReporter): Promise<StartSyncResult>
     const state = cloudState();
     if (state.dirty) {
       const res = await pushToDisk(report);
-      return { action: 'sent', text: `Выгружено: ${res.dataName}` };
+      return { action: 'sent', text: `Выгружено: ${res.dataName}${mergedText(res.mergedDuplicates)}` };
     }
 
     report?.({ step: 'data', text: 'Смотрю, нет ли свежей копии' });
@@ -247,13 +266,19 @@ export async function startSync(report?: PushReporter): Promise<StartSyncResult>
     const newest = files[0];
     if (!newest) {
       const res = await pushToDisk(report);
-      return { action: 'sent', text: `В облаке копий не было — выгружено: ${res.dataName}` };
+      return {
+        action: 'sent',
+        text: `В облаке копий не было — выгружено: ${res.dataName}${mergedText(res.mergedDuplicates)}`,
+      };
     }
     if (newest.name === state.lastData) {
       return { action: 'none', text: 'На устройстве и в облаке одно и то же' };
     }
     const res = await pullFromDisk(false, report);
-    return { action: 'got', text: `Загружено из облака: ${res.dataName}` };
+    return {
+      action: 'got',
+      text: `Загружено из облака: ${res.dataName}${mergedText(res.mergedDuplicates)}`,
+    };
   } catch (error) {
     phase = 'error';
     noteError(error instanceof Error ? error.message : 'Ошибка обмена с Яндекс Диском');

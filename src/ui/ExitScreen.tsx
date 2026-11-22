@@ -139,12 +139,13 @@ export function ExitScreen({ onCancel }: { onCancel: () => void }) {
           const res = await pushOnExit((stage) => put('cloud', 'run', stage.text));
           const files = res.filesUploaded > 0 ? `, файлов: ${res.filesUploaded}` : '';
           const gone = res.filesRemoved > 0 ? `, убрано лишних: ${res.filesRemoved}` : '';
+          const dupes = res.mergedDuplicates > 0 ? `, слито дублей: ${res.mergedDuplicates}` : '';
           put(
             'cloud',
             'done',
             res.iconsFailed
               ? `Данные выгружены: ${res.dataName}. Значки и фотографии не ушли.`
-              : `Выгружено: ${res.dataName}${files}${gone}`,
+              : `Выгружено: ${res.dataName}${files}${gone}${dupes}`,
           );
         } catch (e) {
           failed = failed || reason(e);

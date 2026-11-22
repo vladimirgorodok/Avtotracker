@@ -276,6 +276,13 @@ body {
   width: 100%;
 }
 
+/* Кнопки действий карточки: на телефоне — в столбик, на планшете — строкой */
+.form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .btn-sm {
   padding: 7px 10px;
   font-size: 13px;
@@ -2314,6 +2321,8 @@ body {
   display: grid;
   /* min(420px, 100%) — чтобы при узком окне колонка не вылезала за экран */
   grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  /* Пустоты заполняем: карточка встанет рядом с той, что выше, а не под ней */
+  grid-auto-flow: row dense;
   align-items: start;
   gap: 14px;
   width: 100%;
@@ -2370,6 +2379,33 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 10px;
+}
+
+/* Предупреждения — во всю ширину, а не в половину */
+[data-view='tablet'] .page-body > .alert {
+  grid-column: 1 / -1;
+}
+
+/* Управление списком — поиск, вкладки, счётчик с кнопкой — во всю ширину */
+[data-view='tablet'] .page-body > .searchbar,
+[data-view='tablet'] .page-body > .filters,
+[data-view='tablet'] .page-body > .tabs,
+[data-view='tablet'] .page-body > .row,
+[data-view='tablet'] .page-body > .segmented {
+  grid-column: 1 / -1;
+}
+
+/* Карточка «пока пусто» — во всю ширину, а не в половине листа */
+[data-view='tablet'] .page-body > .card:has(.empty) {
+  grid-column: 1 / -1;
+}
+
+/* Кнопки действий — одной строкой во всю ширину, после карточек */
+[data-view='tablet'] .page-body > .form-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
 }
 
 /* Нижнего меню нет: плашки — по центру содержимого, у самого низа */

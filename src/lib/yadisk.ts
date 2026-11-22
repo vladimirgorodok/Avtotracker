@@ -33,6 +33,7 @@ import {
   type ImportResult,
 } from './backup';
 import { allDocumentRows, documentSummary } from './documents';
+import { mergeRefDuplicates } from './audit';
 import { blobKeys, bytesToDataUrl, dataUrlToBytes, getBlob, putBlob } from './files';
 import { normalizeName } from './names';
 import { TABLES } from '../types';
@@ -325,38 +326,29 @@ export function buildIconsList(): IconsList | null {
 }
 
 /**
- * Отпечаток значков и документов по одной базе — без чтения файлов с устройства.
+ * Дешёвый отпечаток значков и документов: по нему видно, касались ли их.
  *
- * Сверка с облаком идёт по описи, но она собирается по этой же базе, поэтому
- * дешёвый отпечаток нужен, чтобы лишний раз не ходить в облако: если значков
- * не касались, обмен значками пропускаем целиком. Картинки справочников лежат
- * прямо в базе (она и так в памяти) — их берём как есть; файлы документов не
- * читаем, их опознаём по числу, размеру и времени. В отпечаток входит и место
- * выгрузки: в новой папке или под другим логином файлы должны уйти заново.
+ * Раньше сюда хешировалось содержимое всех логотипов из базы — это гоняло
+ * мегабайты данных в память на каждом обмене. Теперь считаем только число и
+ * время изменения записей с картинкой, сами картинки не читаем. В отпечаток
+ * входит и место выгрузки: в новой папке или под другим логином файлы должны
+ * уйти заново.
  */
 export function iconsMeta(): string {
   const db = dbSync();
-  let hash = 0x811c9dc5;
-  const mix = (text: string) => {
-    for (let i = 0; i < text.length; i++) {
-      hash ^= text.charCodeAt(i) & 0xff;
-      hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-  };
-
+  const parts: string[] = [];
   for (const { table, column } of PICTURE_COLUMNS) {
-    const rows = db.all<{ name: string; picture: string }>(
-      `SELECT name, ${column} AS picture FROM ${table}
-       WHERE deleted = 0 AND ${column} LIKE 'data:%'`,
+    const row = db.one<{ n: number; at: string | null }>(
+      `SELECT COUNT(*) AS n, MAX(updated_at) AS at FROM ${table}
+       WHERE deleted = 0 AND ${column} IS NOT NULL AND ${column} != ''`,
     );
-    mix(`${table}:${rows.length}`);
-    for (const row of rows) mix(`${row.name}|${row.picture}`);
+    parts.push(`${table}:${Number(row?.n ?? 0)}:${String(row?.at ?? '')}`);
   }
 
   const docs = documentSummary();
   // `files` в начале — примета нового вида обмена: устройство, которое раньше
   // выгружало архив, при первой же выгрузке разложит файлы поштучно
-  return `files|${cloudPlace()}|${hash.toString(16)}|doc:${docs.count}:${docs.bytes}:${docs.lastAt}`;
+  return `files|${cloudPlace()}|pic:${parts.join(',')}|doc:${docs.count}:${docs.bytes}:${docs.lastAt}`;
 }
 
 /** Читает архив значков: опись и содержимое файлов */
@@ -380,21 +372,54 @@ export async function readIconsArchive(
   return { manifest, files };
 }
 
-/** Ищет запись справочника, к которой относится картинка */
-function findPictureRow(item: PictureRecord): Record<string, unknown> | null {
+/** Лёгкая запись справочника: без самих картинок, только то, что нужно для подбора */
+interface PictureRowRef {
+  id: string;
+  name: string;
+  plate: string;
+  hasPicture: boolean;
+}
+
+type PictureIndex = Map<string, PictureRowRef[]>;
+
+/** Индекс записей таблицы по нормализованному названию — без чтения самих логотипов */
+function buildPictureIndex(table: PictureTable): PictureIndex {
   const db = dbSync();
+  const field = fieldOf(table);
+  const plateCol = table === 'vehicles' ? 'plate' : "''";
   const rows = db.all<Record<string, unknown>>(
-    `SELECT * FROM ${item.table} WHERE deleted = 0`,
+    `SELECT id, name, ${plateCol} AS plate,
+            CASE WHEN ${field} IS NOT NULL AND ${field} != '' THEN 1 ELSE 0 END AS has_picture
+       FROM ${table} WHERE deleted = 0`,
   );
+  const index: PictureIndex = new Map();
+  for (const row of rows) {
+    const key = normalizeName(String(row.name ?? ''));
+    if (!key) continue;
+    const ref: PictureRowRef = {
+      id: String(row.id ?? ''),
+      name: String(row.name ?? ''),
+      plate: String(row.plate ?? ''),
+      hasPicture: Number(row.has_picture ?? 0) === 1,
+    };
+    const list = index.get(key);
+    if (list) list.push(ref);
+    else index.set(key, [ref]);
+  }
+  return index;
+}
+
+/** Ищет запись справочника, к которой относится картинка */
+function findPictureRow(item: PictureRecord, index: PictureIndex): PictureRowRef | null {
   const key = normalizeName(item.name);
   if (!key) return null;
-  const same = rows.filter((row) => normalizeName(String(row.name ?? '')) === key);
-  if (same.length === 0) return null;
+  const same = index.get(key);
+  if (!same || same.length === 0) return null;
   if (same.length === 1) return same[0];
   // Названия совпали — уточняем по номеру машины
   const plate = item.plate.trim();
   if (plate) {
-    const byPlate = same.find((row) => String(row.plate ?? '').trim() === plate);
+    const byPlate = same.find((row) => row.plate.trim() === plate);
     if (byPlate) return byPlate;
   }
   return same[0];
@@ -414,20 +439,27 @@ export async function restoreIcons(
   let pictures = 0;
   let documents = 0;
   let missing = 0;
+  const indexes = new Map<PictureTable, PictureIndex>();
 
   for (const item of manifest.pictures ?? []) {
     const data = files.get(item.file);
     if (!data || data.length === 0) continue;
-    const row = findPictureRow(item);
+    let index = indexes.get(item.table);
+    if (!index) {
+      index = buildPictureIndex(item.table);
+      indexes.set(item.table, index);
+    }
+    const row = findPictureRow(item, index);
     if (!row) {
       missing++;
       continue;
     }
+    if (onlyMissing && row.hasPicture) continue;
     const field = fieldOf(item.table);
-    if (onlyMissing && String(row[field] ?? '') !== '') continue;
-    updateRow(item.table, String(row.id), {
+    updateRow(item.table, row.id, {
       [field]: bytesToDataUrl(data, item.mime || 'image/jpeg'),
     });
+    row.hasPicture = true;
     pictures++;
   }
 
@@ -577,6 +609,21 @@ async function readIconsList(disk: YandexDisk, target: string): Promise<IconsMan
   }
 }
 
+/**
+ * Сливает дубли записей справочников перед обменом.
+ *
+ * Дубли остаются от прежних версий: раньше обмен заводил груз или АЗС заново,
+ * если такая же запись уже была. Чистка не должна ломать обмен, поэтому её сбой
+ * обмен не останавливает: убрать дубли можно и на экране «Проверка данных».
+ */
+function tidyRefDuplicates(): number {
+  try {
+    return mergeRefDuplicates();
+  } catch {
+    return 0;
+  }
+}
+
 /** Удаляет копии сверх положенного числа; ошибки чистки выгрузку не ломают */
 async function trimOld(disk: YandexDisk, list: RemoteEntry[], keep: number): Promise<number> {
   let removed = 0;
@@ -628,6 +675,8 @@ export interface CloudPushResult {
   filesUploaded: number;
   /** Сколько лишних файлов убрали из облака */
   filesRemoved: number;
+  /** Сколько дублей записей справочников слито перед выгрузкой */
+  mergedDuplicates: number;
   /** Файлы не ушли, хотя картинки есть (данные при этом уже сохранены) */
   iconsFailed: boolean;
 }
@@ -665,6 +714,12 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
     }
   }
 
+  // Дубли справочников убираем до выгрузки: в облако должен уйти уже чистый список
+  const mergedDuplicates = tidyRefDuplicates();
+  if (mergedDuplicates > 0) {
+    report?.({ step: 'data', text: `Слил дубли в справочниках (${mergedDuplicates})` });
+  }
+
   const at = new Date();
   const dataName = dataFileName(at);
   const data = buildCloudData();
@@ -700,7 +755,7 @@ export async function pushToDisk(report?: PushReporter): Promise<CloudPushResult
   store.saveSetting('yadisk_last_data', dataName);
   markClean();
   noteError('');
-  return { dataName, filesUploaded, filesRemoved, iconsFailed };
+  return { dataName, filesUploaded, filesRemoved, mergedDuplicates, iconsFailed };
 }
 
 function utf8Length(text: string): number {
@@ -842,6 +897,8 @@ export interface CloudPullResult {
   mergedRefs: number;
   /** Сколько начислений слилось со своими по той же перевозке */
   mergedOps: number;
+  /** Сколько дублей записей справочников слито после загрузки */
+  mergedDuplicates: number;
   icons: RestoreResult;
 }
 
@@ -873,6 +930,10 @@ export async function pullFromDisk(
     );
   }
 
+  // Дубли справочников сливаем до скачивания картинок: тогда картинка ляжет
+  // на оставленную запись, а не на ту, которую сейчас уберут
+  const mergedDuplicates = tidyRefDuplicates();
+
   // Картинки и фотографии из облака скачиваем: на устройстве нужных файлов может не быть
   const icons = await restoreIconsFromDisk(disk, target, { report }).catch(
     () => NOTHING_RESTORED,
@@ -884,6 +945,8 @@ export async function pullFromDisk(
   store.saveSetting('yadisk_last_at', nowIso());
   store.saveSetting('yadisk_last_data', newest.name);
   markClean();
+  // О слитых дублях в облаке ещё не знают: пусть уйдут при следующей выгрузке
+  if (mergedDuplicates > 0) markDirty();
   noteError('');
   store.touch();
 
@@ -895,6 +958,7 @@ export async function pullFromDisk(
     merged: result.merged,
     mergedRefs: result.mergedRefs,
     mergedOps: result.mergedOps,
+    mergedDuplicates,
     icons,
   };
 }
@@ -952,19 +1016,26 @@ export async function restoreIconsFromDisk(
     }
   };
 
+  const indexes = new Map<PictureTable, PictureIndex>();
   for (const item of list.pictures ?? []) {
-    const row = findPictureRow(item);
+    let index = indexes.get(item.table);
+    if (!index) {
+      index = buildPictureIndex(item.table);
+      indexes.set(item.table, index);
+    }
+    const row = findPictureRow(item, index);
     if (!row) {
       missing++;
       continue;
     }
-    const field = fieldOf(item.table);
-    if (onlyMissing && String(row[field] ?? '') !== '') continue;
+    if (onlyMissing && row.hasPicture) continue;
     const data = await fetchFile(item.file);
     if (!data || data.length === 0) continue;
-    updateRow(item.table, String(row.id), {
+    const field = fieldOf(item.table);
+    updateRow(item.table, row.id, {
       [field]: bytesToDataUrl(data, item.mime || 'image/jpeg'),
     });
+    row.hasPicture = true;
     pictures++;
   }
 

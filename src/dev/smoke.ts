@@ -1930,6 +1930,13 @@ async function main() {
       '',
     );
     check(
+      'поля с картинкой в файле нет вовсе — иначе своя картинка затрётся',
+      !Object.prototype.hasOwnProperty.call(
+        cloudCompanies.find((c) => c.id === company) ?? {},
+        'logo',
+      ),
+    );
+    check(
       'настройки в файл данных попали',
       (cloudPayload as unknown as { settings: { key: string }[] }).settings.some(
         (s) => s.key === 'yadisk_folder',
@@ -2193,6 +2200,21 @@ async function main() {
       eq('документ подтянулся по описи', (await getBlob('doc-28.jpg'))?.length, 4);
       eq('после загрузки изменений нет', disk.cloudState().dirty, false);
 
+      // Обмен не затирает свои картинки: второй раз качать уже нечего
+      const pullAgain = await disk.pullFromDisk(false);
+      eq(
+        'повторный обмен ничего не качает',
+        pullAgain.icons.pictures + pullAgain.icons.documents,
+        0,
+      );
+      check(
+        'картинка осталась на месте',
+        String(
+          dbSync().one<{ logo: string }>('SELECT logo FROM companies WHERE id = ?', [company])
+            ?.logo ?? '',
+        ).startsWith('data:image/png'),
+      );
+
       // Значки отдельно от данных
       dbSync().run('UPDATE companies SET logo = ? WHERE id = ?', ['', company]);
       await deleteBlob('doc-28.jpg');
@@ -2369,6 +2391,94 @@ async function main() {
       const iconsArch = await disk.pushIconsOnly();
       check('кнопка выгрузки значков тоже убирает архив', !files.has(`/avtobaza/${archiveName}`));
       check('и говорит, сколько убрала', iconsArch.removed >= 1, `(${iconsArch.removed})`);
+
+      // --- дубли справочников: обмен сливает их сам, чтобы список не пух
+      const cargoKeep = repo.insertRow('cargo_types', {
+        name: 'Дубль груза',
+        icon: 'data:image/png;base64,DDDD',
+        note: '',
+      });
+      const cargoDrop = repo.insertRow('cargo_types', {
+        name: 'дубль ГРУЗА',
+        icon: '',
+        note: 'заведён дважды',
+      });
+      const wbDupe = repo.insertRow('waybills', {
+        date_out: '2026-11-21',
+        status: 'open',
+        vehicle_id: null,
+        note: '',
+      });
+      const tripDupe = repo.insertRow('trips', {
+        waybill_id: wbDupe,
+        cargo_type_id: cargoDrop,
+        weight: null,
+        amount: 0,
+        note: '',
+        status: 'planned',
+      });
+
+      const pushDupe = await disk.pushToDisk();
+      check(
+        'обмен слил дубли справочников',
+        pushDupe.mergedDuplicates >= 1,
+        `(${pushDupe.mergedDuplicates})`,
+      );
+      eq('в списке осталась одна запись', repo.countRows('cargo_types', 'id IN (?, ?)', [cargoKeep, cargoDrop]), 1);
+      eq(
+        'перевозка переехала на оставленную запись',
+        String(
+          dbSync().one<{ cargo_type_id: string | null }>(
+            'SELECT cargo_type_id FROM trips WHERE id = ?',
+            [tripDupe],
+          )?.cargo_type_id ?? '',
+        ),
+        cargoKeep,
+      );
+      eq(
+        'пустое поле заполнилось из убранной записи',
+        String(
+          dbSync().one<{ note: string }>('SELECT note FROM cargo_types WHERE id = ?', [cargoKeep])
+            ?.note ?? '',
+        ),
+        'заведён дважды',
+      );
+      const dupeFile = JSON.parse(
+        new TextDecoder().decode(files.get(`/avtobaza/${pushDupe.dataName}`) ?? new Uint8Array()),
+      ) as { tables: { cargo_types: { name: string; deleted: number }[] } };
+      eq(
+        'в облако ушла одна запись',
+        dupeFile.tables.cargo_types.filter(
+          (c) => c.deleted === 0 && c.name.toLowerCase() === 'дубль груза',
+        ).length,
+        1,
+      );
+
+      // Дубли, оставшиеся от прежних версий, обмен сливает и при загрузке
+      const cargoOld = repo.insertRow('cargo_types', { name: 'Старый дубль', icon: '', note: '' });
+      const cargoOld2 = repo.insertRow('cargo_types', { name: 'СТАРЫЙ ДУБЛЬ', icon: '', note: '' });
+      const pullDupe = await disk.pullFromDisk(false);
+      check(
+        'загрузка тоже сливает дубли',
+        pullDupe.mergedDuplicates >= 1,
+        `(${pullDupe.mergedDuplicates})`,
+      );
+      eq(
+        'осталась одна запись и после загрузки',
+        repo.countRows('cargo_types', 'id IN (?, ?)', [cargoOld, cargoOld2]),
+        1,
+      );
+      eq('слитое помечено на выгрузку', disk.cloudState().dirty, true);
+
+      // Уборка: строки проверки в базе не оставляем
+      dbSync().run('DELETE FROM trips WHERE id = ?', [tripDupe]);
+      dbSync().run('DELETE FROM waybills WHERE id = ?', [wbDupe]);
+      dbSync().run('DELETE FROM cargo_types WHERE id IN (?, ?, ?, ?)', [
+        cargoKeep,
+        cargoDrop,
+        cargoOld,
+        cargoOld2,
+      ]);
 
       // Убрали все значки и фотографии — в облаке тоже ничего не остаётся
       const { PICTURE_COLUMNS } = await import('../lib/backup');
@@ -2695,6 +2805,25 @@ async function main() {
     check('содержимое не шире --content-max', body.includes('max-width: var(--content-max)'));
     check('кнопка «плюс» стоит в рельсе', css.includes("[data-view='tablet'] .fab"));
     check('список записей становится плитками', css.includes("[data-view='tablet'] .page-body > .list .list-item"));
+    check(
+      'кнопки действий на планшете — одной строкой во всю ширину',
+      css.includes("[data-view='tablet'] .page-body > .form-actions") &&
+        css.includes('grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr))'),
+    );
+    check(
+      'поиск, вкладки и счётчик со кнопкой — во всю ширину',
+      css.includes("[data-view='tablet'] .page-body > .searchbar") &&
+        css.includes("[data-view='tablet'] .page-body > .tabs"),
+    );
+    check(
+      'карточка «пока пусто» — во всю ширину',
+      css.includes("[data-view='tablet'] .page-body > .card:has(.empty)"),
+    );
+    check('пустоты в раскладке заполняются', css.includes('grid-auto-flow: row dense'));
+    const wbSource = readFileSync('src/pages/WaybillDetail.tsx', 'utf8');
+    check('кнопки листа собраны в один ряд', wbSource.includes('className="form-actions"'));
+    const tripSource = readFileSync('src/pages/TripDetail.tsx', 'utf8');
+    check('кнопки перевозки собраны в один ряд', tripSource.includes('className="form-actions"'));
 
     // Настройки: переключатель вида и перенос в файле
     const mod = await import('../pages/Settings');
@@ -2843,10 +2972,13 @@ async function main() {
 
     // Что считается «той же записью», когда одно и то же завели два устройства
     const backupSource = readFileSync('src/lib/backup.ts', 'utf8');
+    const namesSource = readFileSync('src/lib/names.ts', 'utf8');
     check('лист сверяется по дню и автомобилю', backupSource.includes('const twin = sameWaybill({'));
     check(
       'справочники сверяются по названию',
-      backupSource.includes("const SAME_BY_NAME: TableName[] = ['cargo_types', 'fuel_stations']"),
+      namesSource.includes(
+        "export const SAME_BY_NAME: TableName[] = ['cargo_types', 'fuel_stations']",
+      ) && backupSource.includes('SAME_BY_NAME'),
     );
     check('слитые записи справочника не удваиваются', backupSource.includes('if (refs.get(table)?.has(id)) continue;'));
     check('ссылки переводятся на свою запись', backupSource.includes('REF_LINKS'));
@@ -3481,6 +3613,26 @@ async function main() {
     check('загрузка из облака тоже чистит архивы', diskSource.includes('в облаке им больше не место'));
     check('архивы больше не держим «на всякий случай»', !diskSource.includes('trimOld(disk, cloud.icons, 1)'));
     check('но прочитать оставшийся архив по-прежнему можно', diskSource.includes('async function readIconsArchive('));
+
+    // Дубли справочников: список не пух, ссылки переезжают на оставленную запись
+    const auditSource = readFileSync('src/lib/audit.ts', 'utf8');
+    const autoSource = readFileSync('src/lib/yadisk-auto.ts', 'utf8');
+    check('слияние дублей живёт отдельной функцией', auditSource.includes('export function mergeRefDuplicates('));
+    check('обмен зовёт его перед выгрузкой и после загрузки', diskSource.includes('function tidyRefDuplicates('));
+    check(
+      'выгрузка чистит дубли до отправки файла',
+      diskSource.indexOf('const mergedDuplicates = tidyRefDuplicates();') <
+        diskSource.indexOf('const data = buildCloudData();'),
+    );
+    check('о слитых дублях сказано в отчётах', ydSource.includes('слито дублей') && exitSource.includes('слито дублей'));
+    check('в тихом обмене про дубли сообщаем отдельно', autoSource.includes('function noteMerged('));
+    check('в обмене при запуске дубли видны в надписи', autoSource.includes('function mergedText('));
+    check('отменить слияние можно кнопкой «Вернуть»', auditSource.includes('undo: () => restoreTables(snap)'));
+
+    // Картинки в облачный файл полем не пишутся: иначе своя картинка затрётся
+    const backupSource = readFileSync('src/lib/backup.ts', 'utf8');
+    check('картинка не уходит в облако пустым полем', backupSource.includes('delete row[column]'));
+    check('про это сказано в коде', backupSource.includes('пустое поле значило бы'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

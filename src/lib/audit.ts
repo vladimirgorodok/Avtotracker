@@ -9,6 +9,7 @@
  */
 
 import { dbSync } from '../db';
+import { SAME_BY_NAME } from './names';
 import {
   countRows,
   financeRepo,
@@ -22,6 +23,7 @@ import {
   waybillRepo,
 } from '../db/repo';
 import { summarizeTrip, summarizeWaybill, type TripSummary, type WaybillTotals } from './calc';
+import { useApp } from '../store';
 import { deleteDocument } from './documents';
 import { deleteBlob, getBlob, putBlob } from './files';
 import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural } from './format';
@@ -442,10 +444,27 @@ const REF_DUPES: RefDupeSpec[] = [
   { table: 'companies', word: 'фирма', picture: 'logo', key: plainName },
 ];
 
-function refDuplicates(): Finding[] {
-  const out: Finding[] = [];
+interface RefDupeEntry {
+  row: Record<string, unknown>;
+  id: string;
+  picture: boolean;
+  usage: ReturnType<typeof usageOf>;
+}
+
+/** Записи одного справочника с одинаковым названием: какую оставляем, какие убираем */
+interface RefDupeGroup {
+  spec: RefDupeSpec;
+  entries: RefDupeEntry[];
+  keep: RefDupeEntry;
+  drop: RefDupeEntry[];
+}
+
+/** Группы записей справочников, у которых одно название. `only` — какие таблицы смотреть */
+function refDupeGroups(only?: readonly string[]): RefDupeGroup[] {
+  const out: RefDupeGroup[] = [];
 
   for (const spec of REF_DUPES) {
+    if (only && !only.includes(spec.table)) continue;
     const rows = dbSync().all<Record<string, unknown>>(
       `SELECT * FROM ${spec.table} WHERE deleted = 0`,
     );
@@ -460,7 +479,7 @@ function refDuplicates(): Finding[] {
 
     for (const list of groups.values()) {
       if (list.length < 2) continue;
-      const scored = list.map((row) => ({
+      const entries = list.map((row) => ({
         row,
         id: str(row, 'id'),
         picture: str(row, spec.picture) !== '',
@@ -468,55 +487,102 @@ function refDuplicates(): Finding[] {
       }));
       // Оставляем ту запись, где уже есть картинка и больше связей
       const keep =
-        scored.find((s) => s.picture && usageTotal(s.usage) > 0) ??
-        scored.find((s) => s.picture) ??
-        [...scored].sort((a, b) => usageTotal(b.usage) - usageTotal(a.usage))[0]!;
-      const drop = scored.filter((s) => s.id !== keep.id);
-      const name = str(keep.row, 'name');
-      const links = drop.flatMap((s) => [
-        `${spec.word} «${str(s.row, 'name')}» (${spec.picture === 'icon' ? 'значок' : 'логотип'}: ${s.picture ? 'есть' : 'нет'}, ${usageText(s.usage)})`,
-      ]);
-
-      out.push({
-        id: `ref-duplicate:${spec.table}:${list.map((r) => str(r, 'id')).sort().join(',')}`,
-        kind: 'ref-duplicate',
-        level: 'warn',
-        title: `${list.length} записи с одним названием: «${name}»`,
-        details: [
-          `В справочнике ${list.length} ${spec.word} с одинаковым названием — так выходит, когда устройство и облако заполняли справочник по отдельности.`,
-          ...scored.map(
-            (s) =>
-              `- «${str(s.row, 'name')}», заведена ${fmtDateTime(str(s.row, 'created_at'))}, ${usageText(s.usage)}` +
-              (str(s.row, 'note') ? `, примечание «${str(s.row, 'note')}»` : ''),
-          ),
-        ],
-        openTo: '/refs',
-        fix: {
-          label: drop.length === 1 ? 'Слить записи' : `Слить записи (${drop.length})`,
-          what:
-            `Останется ${spec.word} «${name}»${str(keep.row, spec.picture) ? ' с её картинкой' : ''}. ` +
-            'Ссылки с остальных переедут на неё, пустые поля заполнятся из них, а сами записи будут удалены. Вернуть можно кнопкой «Вернуть».',
-          links: [
-            `Остаётся: «${str(keep.row, 'name')}» (${spec.picture === 'icon' ? 'значок' : 'логотип'}: ${keep.picture ? 'есть' : 'нет'}, ${usageText(keep.usage)})`,
-            ...links,
-            ...drop.flatMap((s) => s.usage.flatMap((u) => u.samples)),
-          ],
-          apply: () => {
-            for (const s of drop) {
-              moveLinks(spec.table, s.id, keep.id);
-              const fill: Record<string, unknown> = {};
-              for (const field of [spec.picture, 'note']) {
-                if (str(keep.row, field) === '' && str(s.row, field) !== '') fill[field] = s.row[field];
-              }
-              if (Object.keys(fill).length > 0) updateRow(spec.table, keep.id, fill);
-              softDelete(spec.table, s.id);
-            }
-          },
-        },
-      });
+        entries.find((s) => s.picture && usageTotal(s.usage) > 0) ??
+        entries.find((s) => s.picture) ??
+        [...entries].sort((a, b) => usageTotal(b.usage) - usageTotal(a.usage))[0]!;
+      out.push({ spec, entries, keep, drop: entries.filter((s) => s.id !== keep.id) });
     }
   }
   return out;
+}
+
+/** Сливает одну группу: ссылки переезжают на оставленную запись, лишние убираются */
+function mergeRefGroup(group: RefDupeGroup): number {
+  const { spec, keep, drop } = group;
+  for (const s of drop) {
+    moveLinks(spec.table, s.id, keep.id);
+    const fill: Record<string, unknown> = {};
+    for (const field of [spec.picture, 'note']) {
+      if (str(keep.row, field) === '' && str(s.row, field) !== '') fill[field] = s.row[field];
+    }
+    if (Object.keys(fill).length > 0) updateRow(spec.table, keep.id, fill);
+    softDelete(spec.table, s.id);
+  }
+  return drop.length;
+}
+
+function refDuplicates(): Finding[] {
+  const out: Finding[] = [];
+
+  for (const group of refDupeGroups()) {
+    const { spec, entries, keep, drop } = group;
+    const name = str(keep.row, 'name');
+    const links = drop.flatMap((s) => [
+      `${spec.word} «${str(s.row, 'name')}» (${spec.picture === 'icon' ? 'значок' : 'логотип'}: ${s.picture ? 'есть' : 'нет'}, ${usageText(s.usage)})`,
+    ]);
+
+    out.push({
+      id: `ref-duplicate:${spec.table}:${group.entries.map((e) => e.id).sort().join(',')}`,
+      kind: 'ref-duplicate',
+      level: 'warn',
+      title: `${entries.length} записи с одним названием: «${name}»`,
+      details: [
+        `В справочнике ${entries.length} ${spec.word} с одинаковым названием — так выходит, когда устройство и облако заполняли справочник по отдельности.`,
+        ...entries.map(
+          (s) =>
+            `- «${str(s.row, 'name')}», заведена ${fmtDateTime(str(s.row, 'created_at'))}, ${usageText(s.usage)}` +
+            (str(s.row, 'note') ? `, примечание «${str(s.row, 'note')}»` : ''),
+        ),
+      ],
+      openTo: '/refs',
+      fix: {
+        label: drop.length === 1 ? 'Слить записи' : `Слить записи (${drop.length})`,
+        what:
+          `Останется ${spec.word} «${name}»${str(keep.row, spec.picture) ? ' с её картинкой' : ''}. ` +
+          'Ссылки с остальных переедут на неё, пустые поля заполнятся из них, а сами записи будут удалены. Вернуть можно кнопкой «Вернуть».',
+        links: [
+          `Остаётся: «${str(keep.row, 'name')}» (${spec.picture === 'icon' ? 'значок' : 'логотип'}: ${keep.picture ? 'есть' : 'нет'}, ${usageText(keep.usage)})`,
+          ...links,
+          ...drop.flatMap((s) => s.usage.flatMap((u) => u.samples)),
+        ],
+        apply: () => {
+          mergeRefGroup(group);
+        },
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Сливает дубли записей справочников — те, что завелись дважды, пока устройство
+ * и облако заполняли справочник по отдельности.
+ *
+ * Обмен делает это сам при каждом обмене: иначе дубли, оставшиеся от прежних
+ * версий, так и висели бы в списке. Записи убираются мягко, ссылки (заправки,
+ * перевозки) переезжают на оставленную — вернуть можно кнопкой «Вернуть» на
+ * экране «Проверка данных».
+ *
+ * Смотрим только те таблицы, которые обмен и так сливает по названию: у фирм
+ * «ИП Иванов» и «ООО Иванов» — разные записи, и решать это должен человек.
+ */
+export function mergeRefDuplicates(): number {
+  const groups = refDupeGroups(SAME_BY_NAME);
+  if (groups.length === 0) return 0;
+  const snap = snapshotTables();
+  let merged = 0;
+  for (const group of groups) merged += mergeRefGroup(group);
+  lastFix = {
+    findingId: 'ref-duplicate:sync',
+    title: 'Дубли в справочниках',
+    label: 'Слить записи',
+    at: nowIso(),
+    permanent: false,
+    undo: () => restoreTables(snap),
+  };
+  // Список на экране должен показать новое сразу, а не после следующего захода
+  useApp.getState().touch();
+  return merged;
 }
 
 /* ------------------------------------------------------------------ */

@@ -142,9 +142,11 @@ export default function FinanceDetail() {
         </div>
       </Card>
 
-      <Button variant="primary" block icon="check" onClick={save}>
-        Сохранить
-      </Button>
+      <div className="form-actions">
+        <Button variant="primary" block icon="check" onClick={save}>
+          Сохранить
+        </Button>
+      </div>
 
       <Confirm
         open={confirmDelete}

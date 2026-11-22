@@ -6,7 +6,7 @@ import { saveBinaryFile } from '../db/storage';
 import { DEFAULT_SETTINGS, TABLES, type AppSettings, type TableName } from '../types';
 import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
 import { sameWaybill, summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
-import { normalizeName } from './names';
+import { normalizeName, SAME_BY_NAME } from './names';
 import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
 import { loadTypeLabel } from '../types';
 
@@ -174,9 +174,12 @@ const LOCAL_SETTINGS = new Set([
  */
 export function buildCloudData(): string {
   const tables = dumpAll();
+  // Картинки в облачный файл не кладём: они лежат отдельно, в папке files.
+  // Поле не пишем вовсе: пустое поле значило бы «картинки нет», и при обмене
+  // своя картинка затиралась бы, а потом её пришлось бы качать обратно
   for (const { table, column } of PICTURE_COLUMNS) {
     for (const row of tables[table] ?? []) {
-      if (isEmbeddedPicture(row[column])) row[column] = '';
+      if (isEmbeddedPicture(row[column])) delete row[column];
     }
   }
   const payload = {
@@ -280,8 +283,6 @@ const WAYBILL_LINKS: Partial<Record<TableName, string>> = {
  * оказывалось по две записи «Щебень», «Лукойл» и так далее. Такую запись не
  * удваиваем, а дополняем свою.
  */
-const SAME_BY_NAME: TableName[] = ['cargo_types', 'fuel_stations'];
-
 /** Поля-ссылки на такие справочники: переводим их на свою запись */
 const REF_LINKS: Partial<Record<TableName, Record<string, TableName>>> = {
   companies: { cargo_type_id: 'cargo_types' },

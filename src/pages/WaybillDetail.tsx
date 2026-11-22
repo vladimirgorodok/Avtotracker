@@ -310,34 +310,36 @@ export default function WaybillDetail() {
         )}
       </Card>
 
-      <Button variant="primary" block icon="check" onClick={save}>
-        Сохранить
-      </Button>
-
-      <Button
-        block
-        icon="doc"
-        onClick={async () => {
-          try {
-            const { exportWaybillPdf } = await import('../lib/backup');
-            await exportWaybillPdf(form.id, settings);
-          } catch (e) {
-            notify(e instanceof Error ? e.message : 'Не удалось создать PDF', 'err');
-          }
-        }}
-      >
-        Печать путевого листа (PDF)
-      </Button>
-
-      {form.status === 'open' ? (
-        <Button variant="success" block icon="check" onClick={doClose}>
-          Закрыть путевой лист
+      <div className="form-actions">
+        <Button variant="primary" block icon="check" onClick={save}>
+          Сохранить
         </Button>
-      ) : (
-        <Button variant="ghost" block icon="refresh" onClick={doReopen}>
-          Открыть лист заново
+
+        <Button
+          block
+          icon="doc"
+          onClick={async () => {
+            try {
+              const { exportWaybillPdf } = await import('../lib/backup');
+              await exportWaybillPdf(form.id, settings);
+            } catch (e) {
+              notify(e instanceof Error ? e.message : 'Не удалось создать PDF', 'err');
+            }
+          }}
+        >
+          Печать путевого листа (PDF)
         </Button>
-      )}
+
+        {form.status === 'open' ? (
+          <Button variant="success" block icon="check" onClick={doClose}>
+            Закрыть путевой лист
+          </Button>
+        ) : (
+          <Button variant="ghost" block icon="refresh" onClick={doReopen}>
+            Открыть лист заново
+          </Button>
+        )}
+      </div>
 
       <div className="section-title">
         Поездки <span className="count">{summary.tripsCount}</span>

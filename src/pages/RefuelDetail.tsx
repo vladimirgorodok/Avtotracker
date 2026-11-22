@@ -136,9 +136,11 @@ export default function RefuelDetail() {
         </Field>
       </Card>
 
-      <Button variant="primary" block icon="check" onClick={save}>
-        Сохранить
-      </Button>
+      <div className="form-actions">
+        <Button variant="primary" block icon="check" onClick={save}>
+          Сохранить
+        </Button>
+      </div>
 
       <Card>
         <DocumentsCard ownerTable="refuelings" ownerId={form.id} title="Чек или фото" />
