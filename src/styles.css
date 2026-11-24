@@ -2426,6 +2426,20 @@ body {
   padding-bottom: 0;
 }
 
+/* Заставка на планшете: фура во всю ширину, сколько влезает по высоте */
+[data-view='tablet'] .splash-stage {
+  padding-bottom: 2vh;
+}
+
+[data-view='tablet'] .splash-truck {
+  width: min(94vw, 148vh);
+}
+
+/* Пунктир дороги опускаем ниже подписей, чтобы не перечёркивал их */
+[data-view='tablet'] .splash-dash {
+  top: 62%;
+}
+
 /* Планшетный вид включили на узком экране — рельса делается уже */
 @media (max-width: 620px) {
   [data-view='tablet'] {
