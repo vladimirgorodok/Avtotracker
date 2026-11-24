@@ -1793,7 +1793,7 @@ body {
 }
 
 .splash-truck {
-  width: min(76vw, 330px);
+  width: min(88vw, 430px);
   animation: splash-truck-in 1.05s cubic-bezier(0.18, 0.92, 0.25, 1) both;
 }
 
@@ -1965,7 +1965,7 @@ body {
 }
 
 .exit-truck {
-  width: min(44vw, 180px);
+  width: min(60vw, 260px);
   animation: splash-truck-in 0.9s cubic-bezier(0.18, 0.92, 0.25, 1) both;
   transition: transform 0.9s cubic-bezier(0.5, 0, 0.85, 0.4), opacity 0.9s ease;
 }
