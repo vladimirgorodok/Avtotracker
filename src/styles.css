@@ -2440,6 +2440,20 @@ body {
   top: 62%;
 }
 
+/* Экран закрытия на планшете: фура крупнее — место под неё есть */
+[data-view='tablet'] .exit-stage {
+  padding-bottom: 3vh;
+}
+
+[data-view='tablet'] .exit-truck {
+  width: min(90vw, max(260px, calc((96vh - 470px) * 2.79)));
+}
+
+/* Подписи и шаги занимают всю высоту — бегущий пунктир убираем, он их перечёркивал */
+[data-view='tablet'] .exit-screen .splash-dash {
+  display: none;
+}
+
 /* Планшетный вид включили на узком экране — рельса делается уже */
 @media (max-width: 620px) {
   [data-view='tablet'] {
