@@ -3,7 +3,7 @@
  * Версия хранится в PRAGMA user_version.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const V1 = `
 CREATE TABLE IF NOT EXISTS vehicles (
@@ -218,4 +218,9 @@ const V2 = `
 ALTER TABLE attachments ADD COLUMN thumb_path TEXT NOT NULL DEFAULT '';
 `;
 
-export const MIGRATIONS: string[] = [V1, V2];
+/** v3: отчисление в семью у операции «поступило» — без даты, только сумма */
+const V3 = `
+ALTER TABLE finance_ops ADD COLUMN family REAL NOT NULL DEFAULT 0;
+`;
+
+export const MIGRATIONS: string[] = [V1, V2, V3];

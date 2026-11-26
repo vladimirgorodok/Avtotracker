@@ -705,6 +705,7 @@ export async function buildMonthReportPdf(month: string, settings: AppSettings):
     body: [
       ['Начислено', fmtMoney(finance.charged, settings.currency)],
       ['Оплачено', fmtMoney(finance.paid, settings.currency)],
+      ['В семью', fmtMoney(finance.family, settings.currency)],
       ['Остаток', fmtMoney(finance.balance, settings.currency)],
       ['Путевых листов, шт.', String(waybills.length)],
       ['Перевозок, шт.', String(monthTrips.length)],

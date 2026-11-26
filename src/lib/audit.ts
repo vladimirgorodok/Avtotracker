@@ -121,6 +121,7 @@ function opNote(op: FinanceOp): string {
   const note = String(op.note ?? '').trim();
   const tail: string[] = [];
   if (op.pay_month) tail.push(`месяц ${op.pay_month}`);
+  if (Number(op.family) > 0) tail.push(`в семью ${money(Number(op.family))}`);
   if (note) tail.push(`примечание «${note}»`);
   const created = (op.created_at || '').slice(0, 10);
   return (
@@ -845,7 +846,7 @@ function empties(): Finding[] {
   }
 
   for (const op of financeRepo.list()) {
-    if (Number(op.amount) !== 0 || String(op.note ?? '').trim() !== '') continue;
+    if (Number(op.amount) !== 0 || Number(op.family) !== 0 || String(op.note ?? '').trim() !== '') continue;
     if (!older(today, op.created_at)) continue;
     out.push({
       id: `empty-finance:${op.id}`,

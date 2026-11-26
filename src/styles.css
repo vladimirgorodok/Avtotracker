@@ -395,6 +395,12 @@ body {
   gap: 8px;
 }
 
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
 /* Поля */
 .field {
   display: flex;
@@ -2352,7 +2358,8 @@ body {
 
 /* Ряд показателей — во всю ширину */
 [data-view='tablet'] .page-body > .grid-2,
-[data-view='tablet'] .page-body > .grid-3 {
+[data-view='tablet'] .page-body > .grid-3,
+[data-view='tablet'] .page-body > .grid-4 {
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }

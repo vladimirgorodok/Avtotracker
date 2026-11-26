@@ -59,6 +59,12 @@ export default function Finance() {
           <StatCard label="Начислено" tone="ok" icon="money" value={fmtMoney(totals.charged, settings.currency)} />
           <StatCard label="Оплачено" tone="info" icon="check" value={fmtMoney(totals.paid, settings.currency)} />
           <StatCard
+            label="В семью"
+            tone="warn"
+            icon="family"
+            value={fmtMoney(totals.family, settings.currency)}
+          />
+          <StatCard
             label="Остаток"
             tone={totals.balance > 0 ? 'err' : 'ok'}
             icon="money"
@@ -109,6 +115,9 @@ export default function Finance() {
                     </span>
                     <span className="li-sub">
                       {fmtDate(o.date)} · {o.note || (from ? `${from} → ${to}` : 'Без описания')}
+                      {o.kind === 'payment' && Number(o.family) > 0
+                        ? ` · в семью ${fmtMoney(Number(o.family), settings.currency)}`
+                        : ''}
                     </span>
                   </span>
                   {o.auto ? <Icon name="ai" size={16} /> : null}

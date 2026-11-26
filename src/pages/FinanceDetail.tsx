@@ -40,6 +40,7 @@ export default function FinanceDetail() {
         pay_month: today.slice(0, 7),
         note: '',
         auto: 0,
+        family: 0,
       });
       touch();
       setOpId(newId);
@@ -86,6 +87,7 @@ export default function FinanceDetail() {
       pay_month: form.pay_month,
       trip_id: form.trip_id,
       note: form.note,
+      family: form.kind === 'payment' ? Number(form.family) || 0 : 0,
     });
     touch();
     notify('Операция сохранена', 'ok');
@@ -124,6 +126,17 @@ export default function FinanceDetail() {
         <Field label={form.kind === 'charge' ? 'Сумма начислено' : 'Сумма поступило'} required>
           <NumberInput value={form.amount} onValue={(v) => setForm({ ...form, amount: v ?? 0 })} />
         </Field>
+        {form.kind === 'payment' ? (
+          <Field
+            label="В семью"
+            hint="Отчисление из этого поступления; своей даты у него нет"
+          >
+            <NumberInput
+              value={form.family}
+              onValue={(v) => setForm({ ...form, family: v ?? 0 })}
+            />
+          </Field>
+        ) : null}
         <Field label="Месяц оплаты" hint="К какому месяцу относится зарплата">
           <Select
             value={form.pay_month}

@@ -167,7 +167,10 @@ export function buildDataContext(): string {
       `${m}: начислено ${fmtMoney(f.charged, settings.currency)}, получено ${fmtMoney(
         f.paid,
         settings.currency,
-      )}, остаток ${fmtMoney(f.balance, settings.currency)}.`,
+      )}, в семью ${fmtMoney(f.family, settings.currency)}, остаток ${fmtMoney(
+        f.balance,
+        settings.currency,
+      )}.`,
     );
   }
   const allTime = summarizeFinance(null);
@@ -175,7 +178,10 @@ export function buildDataContext(): string {
     `За всё время: начислено ${fmtMoney(allTime.charged, settings.currency)}, получено ${fmtMoney(
       allTime.paid,
       settings.currency,
-    )}, остаток ${fmtMoney(allTime.balance, settings.currency)}.`,
+    )}, в семью ${fmtMoney(allTime.family, settings.currency)}, остаток ${fmtMoney(
+      allTime.balance,
+      settings.currency,
+    )}.`,
   );
 
   if (trips.length > 0) {
@@ -405,10 +411,10 @@ function financeBlock(): string {
   const rows: string[] = [];
   for (const m of [thisMonth, shiftMonth(thisMonth, -1)]) {
     const f = summarizeFinance(m);
-    rows.push(`${m}: начислено ${fmtMoney(f.charged, settings.currency)}, получено ${fmtMoney(f.paid, settings.currency)}, остаток ${fmtMoney(f.balance, settings.currency)}.`);
+    rows.push(`${m}: начислено ${fmtMoney(f.charged, settings.currency)}, получено ${fmtMoney(f.paid, settings.currency)}, в семью ${fmtMoney(f.family, settings.currency)}, остаток ${fmtMoney(f.balance, settings.currency)}.`);
   }
   const all = summarizeFinance(null);
-  rows.push(`За всё время: начислено ${fmtMoney(all.charged, settings.currency)}, получено ${fmtMoney(all.paid, settings.currency)}, остаток ${fmtMoney(all.balance, settings.currency)}.`);
+  rows.push(`За всё время: начислено ${fmtMoney(all.charged, settings.currency)}, получено ${fmtMoney(all.paid, settings.currency)}, в семью ${fmtMoney(all.family, settings.currency)}, остаток ${fmtMoney(all.balance, settings.currency)}.`);
   return rows.join('\n');
 }
 

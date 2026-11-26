@@ -171,7 +171,7 @@ function financeHits(needle: string): SearchHit[] {
     .list()
     .filter((o) => {
       const label = FINANCE_KINDS.find((k) => k.value === o.kind)?.label ?? '';
-      return matches(join([o.note, o.date, o.pay_month, label, o.amount], ' '), needle);
+      return matches(join([o.note, o.date, o.pay_month, label, o.amount, o.family], ' '), needle);
     })
     .map((o) => {
       const label = FINANCE_KINDS.find((k) => k.value === o.kind)?.label ?? '';

@@ -180,6 +180,7 @@ function CreateSheet({
       pay_month: todayIso().slice(0, 7),
       note: '',
       auto: 0,
+      family: 0,
     });
     touch();
     onClose();

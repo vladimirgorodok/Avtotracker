@@ -202,17 +202,23 @@ export interface FinanceSummary {
   charged: number;
   paid: number;
   balance: number;
+  /** Отчисления в семью: только по операциям «поступило», идут отдельной строкой */
+  family: number;
 }
 
 export function summarizeFinance(month: string | null): FinanceSummary {
   const ops = month ? financeRepo.byMonth(month) : financeRepo.list();
   let charged = 0;
   let paid = 0;
+  let family = 0;
   for (const o of ops) {
     if (o.kind === 'charge') charged += o.amount;
-    else paid += o.amount;
+    else {
+      paid += o.amount;
+      family += Number(o.family) || 0;
+    }
   }
-  return { charged, paid, balance: charged - paid };
+  return { charged, paid, balance: charged - paid, family };
 }
 
 /** Данные для автоподстановки при открытии нового путевого листа */

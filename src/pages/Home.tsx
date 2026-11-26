@@ -35,6 +35,9 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     const financeOps = month ? financeRepo.byMonth(month) : financeRepo.list();
     const charged = financeOps.filter((o) => o.kind === 'charge').reduce((s, o) => s + o.amount, 0);
     const paid = financeOps.filter((o) => o.kind === 'payment').reduce((s, o) => s + o.amount, 0);
+    const family = financeOps
+      .filter((o) => o.kind === 'payment')
+      .reduce((s, o) => s + (Number(o.family) || 0), 0);
 
     const trips = sortTrips(tripRepo.all().map(summarizeTrip));
     const current = trips.find((t) => !t.completed && t.nextPoint) ?? null;
@@ -45,7 +48,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
       return key === month;
     });
 
-    return { openWaybill, lastWaybill, openSummary, charged, paid, trips: filtered, current };
+    return { openWaybill, lastWaybill, openSummary, charged, paid, family, trips: filtered, current };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, month]);
 
@@ -164,9 +167,10 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           </Card>
         )}
 
-        <div className="grid-3">
+        <div className="grid-4">
           <StatCard label="Начислено" tone="ok" icon="money" value={fmtMoney(data.charged, settings.currency)} />
           <StatCard label="Оплачено" tone="info" icon="check" value={fmtMoney(data.paid, settings.currency)} />
+          <StatCard label="В семью" tone="warn" icon="family" value={fmtMoney(data.family, settings.currency)} />
           <StatCard
             label="Остаток"
             tone={data.charged - data.paid > 0 ? 'err' : 'ok'}

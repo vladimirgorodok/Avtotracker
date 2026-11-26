@@ -622,7 +622,8 @@ export type IconName =
   | 'clock'
   | 'undo'
   | 'eye'
-  | 'power';
+  | 'power'
+  | 'family';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   back: <path d="M15 5l-7 7 7 7" />,
@@ -658,6 +659,9 @@ const PATHS: Record<IconName, React.ReactNode> = {
   undo: <path d="M4 10h11a5 5 0 010 10h-4M4 10l4-4M4 10l4 4" />,
   eye: <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6zM14.5 12a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />,
   power: <path d="M12 3v9M18.4 6.6a9 9 0 11-12.8 0" />,
+  family: (
+    <path d="M8 11a3 3 0 100-6 3 3 0 000 6zM16 11a3 3 0 100-6 3 3 0 000 6zM2 20v-1a5 5 0 015-5h2a5 5 0 015 5v1M14 14h1a5 5 0 015 5v1" />
+  ),
 };
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {

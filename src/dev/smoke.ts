@@ -146,7 +146,7 @@ async function main() {
   useApp.getState().init();
 
   console.log('\n1. Схема и справочники');
-  eq('версия схемы', db.schemaVersion(), 2);
+  eq('версия схемы', db.schemaVersion(), 3);
   check('настройки созданы', repo.countRows('settings') > 0);
   check('грузы созданы', repo.countRows('cargo_types') >= 10);
   check('АЗС созданы', repo.countRows('fuel_stations') >= 8);
@@ -334,12 +334,26 @@ async function main() {
 
   console.log('\n8. Финансы за месяц');
   const month = todayIso().slice(0, 7);
-  repo.insertRow('finance_ops', { date: todayIso(), kind: 'payment', amount: 5000, pay_month: month, trip_id: null, waybill_id: null, note: 'Зарплата', auto: 0 });
+  repo.insertRow('finance_ops', { date: todayIso(), kind: 'payment', amount: 5000, pay_month: month, trip_id: null, waybill_id: null, note: 'Зарплата', auto: 0, family: 1000 });
   const { summarizeFinance } = await import('../lib/calc');
   const fin = summarizeFinance(month);
   eq('начислено за месяц', fin.charged, 12000);
   eq('оплачено за месяц', fin.paid, 5000);
   eq('остаток', fin.balance, 7000);
+  eq('отчисление в семью отдельной строкой', fin.family, 1000);
+
+  // Отчисление в семью живёт только у «поступило»: у начисления оно ноль
+  const chargeOp = repo.financeRepo.byTrip(tripId)[0];
+  eq('у начисления нет отчисления в семью', Number(chargeOp.family), 0);
+
+  // Новая операция заводится с нулевым отчислением: поле всегда есть
+  const freshOp = repo.insertRow('finance_ops', { date: todayIso(), kind: 'payment', amount: 800, pay_month: month, trip_id: null, waybill_id: null, note: '', auto: 0, family: 0 });
+  eq('у новой операции отчисление ноль', Number(repo.financeRepo.get(freshOp)!.family), 0);
+  repo.updateRow('finance_ops', freshOp, { family: 250 });
+  eq('отчисление можно поменять', Number(repo.financeRepo.get(freshOp)!.family), 250);
+  eq('сумма отчислений за месяц растёт', summarizeFinance(month).family, 1250);
+  repo.softDelete('finance_ops', freshOp);
+  eq('после удаления операции отчисление не считается', summarizeFinance(month).family, 1000);
 
   console.log('\n9. Резервная копия: выгрузка и импорт');
   const dump = dumpAll();
@@ -3753,6 +3767,46 @@ async function main() {
     const backupSource = readFileSync('src/lib/backup.ts', 'utf8');
     check('картинка не уходит в облако пустым полем', backupSource.includes('delete row[column]'));
     check('про это сказано в коде', backupSource.includes('пустое поле значило бы'));
+  }
+
+  console.log('\n36. Отчисление в семью: только у «поступило», отдельной строкой');
+  {
+    const { readFileSync } = await import('node:fs');
+    const schemaSource = readFileSync('src/db/schema.ts', 'utf8');
+    const typesSource = readFileSync('src/types.ts', 'utf8');
+    const detailSource = readFileSync('src/pages/FinanceDetail.tsx', 'utf8');
+
+    // Поле живёт в схеме базы: у старых записей оно ноль, миграция ничего не теряет
+    check('поле family есть в схеме', schemaSource.includes('ADD COLUMN family REAL NOT NULL DEFAULT 0'));
+    check('схема поднята до версии 3', schemaSource.includes('SCHEMA_VERSION = 3'));
+    check('в типе операции есть family', typesSource.includes('family: number;'));
+    // Поле показываем только у «поступило»: у начисления отчисления нет
+    check('поле «В семью» видно у поступившего', detailSource.includes('label="В семью"'));
+    check('оно появляется по типу операции', detailSource.includes("form.kind === 'payment' ? ("));
+    check('у начисления отчисление обнуляется', detailSource.includes("form.kind === 'payment' ? Number(form.family) || 0 : 0"));
+
+    // Сводка: отдельная строка, остаток не меняется
+    const { summarizeFinance } = await import('../lib/calc');
+    const opId = repo.insertRow('finance_ops', {
+      date: '2026-04-01',
+      kind: 'payment',
+      amount: 30000,
+      pay_month: '2026-04',
+      trip_id: null,
+      waybill_id: null,
+      note: 'Проверка семьи',
+      auto: 0,
+      family: 4000,
+    });
+    const s = summarizeFinance('2026-04');
+    eq('отчисления видны отдельной строкой', s.family, 4000);
+    eq('поступление целиком', s.paid, 30000);
+    eq('остаток отчисление не уменьшает', s.balance, s.charged - 30000);
+
+    // Отчисление правится в любой момент: сумма меняется, а не добавляется
+    repo.updateRow('finance_ops', opId, { family: 5500 });
+    eq('сумму отчисления можно поменять', summarizeFinance('2026-04').family, 5500);
+    repo.softDelete('finance_ops', opId);
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
