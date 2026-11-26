@@ -1,9 +1,9 @@
 /** Действия над данными: закрытие листа, начисления, статусы перевозок. */
 
-import { financeRepo, insertRow, nowIso, refs, softDelete, softDeleteWhere, tripRepo, updateRow, waybillRepo } from '../db/repo';
+import { financeRepo, insertRow, nowIso, refuelRepo, refs, softDelete, softDeleteWhere, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
 import { autoTripAmount, chargeNoteText } from './calc';
 import { todayIso } from './format';
-import type { AppSettings, Id, Trip } from '../types';
+import type { AppSettings, Id, Refueling, Trip, Waybill } from '../types';
 
 /** Пересчитать статус перевозки по её точкам. Все точки выполнены → 'done'. */
 export function refreshTripStatus(tripId: Id): Trip | null {
@@ -122,6 +122,77 @@ export function reopenWaybill(waybillId: Id): void {
   }
 }
 
+/**
+ * Закрыть смену одним движением: дату сдачи ставим сегодняшнюю, одометр и топливо
+ * при сдаче берём с прошлой закрытой смены (за день проезжают примерно столько же).
+ * Если чего-то не хватает или цифры не сходятся — вернём подсказку, и закрытие
+ * продолжится уже в карточке листа.
+ */
+export function closeShiftToday(waybillId: Id, settings: AppSettings): CloseResult {
+  const wb = waybillRepo.get(waybillId);
+  if (!wb) return { ok: false, message: 'Путевой лист не найден', charged: 0 };
+  const prev = waybillRepo.lastClosed(wb.vehicle_id ?? null);
+  const patch: Partial<Waybill> = { date_in: todayIso() };
+
+  if (wb.odometer_in === null && prev) {
+    // Пробег прошлой смены прибавляем к нынешнему выезду — так одометр растёт
+    const step =
+      prev.odometer_in !== null && prev.odometer_out !== null ? prev.odometer_in - prev.odometer_out : null;
+    patch.odometer_in =
+      step !== null && step > 0 ? (wb.odometer_out ?? prev.odometer_in ?? 0) + step : prev.odometer_in;
+  }
+  if (wb.fuel_in === null && prev) patch.fuel_in = prev.fuel_in;
+
+  updateRow('waybills', waybillId, patch);
+  return closeWaybill(waybillId, settings);
+}
+
+/**
+ * Быстрая заправка из открытой смены: дата — сейчас, источник — как в прошлый раз
+ * (обычно бочка), лист — открытый. Водителю остаётся ввести только литры.
+ */
+export function quickRefuel(waybillId: Id | null, volume: number, kind: Refueling['kind'] = 'barrel'): Id {
+  const id = uid();
+  insertRow('refuelings', {
+    id,
+    waybill_id: waybillId,
+    date: nowIso(),
+    volume,
+    kind,
+    station_id: null,
+    note: '',
+  });
+  return id;
+}
+
+/** Последний источник топлива: подсказываем его в быстрой заправке */
+export function lastRefuelKind(): Refueling['kind'] {
+  const list = refuelRepo.list();
+  return list[0]?.kind ?? 'barrel';
+}
+
+/**
+ * Быстрое поступление денег: только сумма и отчисление в семью, дата — сегодня,
+ * месяц оплаты — текущий. Начислять ничего не нужно, это «пришли деньги».
+ */
+export function quickPayment(amount: number, family = 0, waybillId: Id | null = null): Id {
+  const date = todayIso();
+  const id = uid();
+  insertRow('finance_ops', {
+    id,
+    date,
+    kind: 'payment',
+    amount,
+    pay_month: date.slice(0, 7),
+    trip_id: null,
+    waybill_id: waybillId,
+    note: '',
+    auto: 0,
+    family,
+  });
+  return id;
+}
+
 /** Удалить перевозку вместе с точками */
 export function deleteTrip(tripId: Id): void {
   softDeleteWhere('trip_points', 'trip_id = ?', [tripId]);
@@ -130,8 +201,7 @@ export function deleteTrip(tripId: Id): void {
 }
 
 /** Пересчитать номера точек по порядку */
-export function renumberPoints(tripId: Id): void {
-  const points = tripRepo.points(tripId);
+export function renumberPoints(tripId: Id): void {  const points = tripRepo.points(tripId);
   points.forEach((p, i) => {
     if (p.seq !== i + 1) updateRow('trip_points', p.id, { seq: i + 1 });
   });

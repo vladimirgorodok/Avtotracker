@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, MonthPicker, SearchBar, Tabs } from '../ui/components';
+import { Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { refs, tripRepo, waybillRepo } from '../db/repo';
 import { summarizeTrip, sortTrips } from '../lib/calc';
@@ -13,7 +13,7 @@ type Tab = 'all' | 'planned' | 'done' | 'charged';
 export default function Trips() {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
-  const [month, setMonth] = useState<string>('');
+  const [month, setMonth] = useState<string>(() => defaultFilterMonth());
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<Tab>('all');
 

@@ -4,18 +4,23 @@ import {
   Badge,
   Button,
   Card,
+  defaultFilterMonth,
   Empty,
   Icon,
+  Modal,
   MonthPicker,
+  NumberInput,
   SearchEntry,
   StatCard,
+  StatGrid,
+  TextInput,
 } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo, updateRow, waybillRepo } from '../db/repo';
 import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../lib/format';
 import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
-import { refreshTripStatus } from '../lib/actions';
+import { closeShiftToday, lastRefuelKind, quickPayment, quickRefuel, refreshTripStatus } from '../lib/actions';
 import type { TripPoint } from '../types';
 import { SaveBadge } from '../ui/SaveBadge';
 
@@ -23,9 +28,14 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
   const settings = useApp((s) => s.settings);
-  const [month, setMonth] = useState<string>(() => monthKey(new Date().toISOString()));
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
+  const [quick, setQuick] = useState<'refuel' | 'money' | null>(null);
+  const [fuelVolume, setFuelVolume] = useState<number | null>(null);
+  const [moneyAmount, setMoneyAmount] = useState<number | null>(null);
+  const [moneyFamily, setMoneyFamily] = useState<number | null>(null);
+  const [moneyNote, setMoneyNote] = useState('');
+  const [month, setMonth] = useState<string>(() => defaultFilterMonth());
 
   const data = useMemo(() => {
     const openWaybill = waybillRepo.open()[0] ?? null;
@@ -48,9 +58,52 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
       return key === month;
     });
 
-    return { openWaybill, lastWaybill, openSummary, charged, paid, family, trips: filtered, current };
+    return { openWaybill, lastWaybill, openSummary, charged, paid, family, onHand: paid - family, trips: filtered, current };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, month]);
+
+  /** Быстрая заправка: литры, остальное подставляем — источник как в прошлый раз */
+  function saveQuickRefuel() {
+    const volume = Number(fuelVolume) || 0;
+    if (volume <= 0) {
+      notify('Укажите объём', 'err');
+      return;
+    }
+    const wbId = data.openWaybill?.id ?? null;
+    quickRefuel(wbId, volume, lastRefuelKind());
+    touch();
+    setQuick(null);
+    setFuelVolume(null);
+    notify(`Заправлено ${fmtNumber(volume)} л`, 'ok');
+  }
+
+  /** Быстрое поступление: сумма и отчисление в семью, дата — сегодня */
+  function saveQuickMoney() {
+    const amount = Number(moneyAmount) || 0;
+    if (amount <= 0) {
+      notify('Укажите сумму', 'err');
+      return;
+    }
+    const id = quickPayment(amount, Number(moneyFamily) || 0, data.openWaybill?.id ?? null);
+    if (moneyNote.trim()) updateRow('finance_ops', id, { note: moneyNote.trim() });
+    touch();
+    setQuick(null);
+    setMoneyAmount(null);
+    setMoneyFamily(null);
+    setMoneyNote('');
+    notify(`Поступило ${fmtMoney(amount, settings.currency)}`, 'ok');
+  }
+
+  /** Закрыть смену одним движением: дату, одометр и топливо подставляем сами */
+  function saveCloseShift() {
+    const wb = data.openWaybill;
+    if (!wb) return;
+    const res = closeShiftToday(wb.id, settings);
+    touch();
+    notify(res.message, res.ok ? 'ok' : 'err');
+    if (res.ok && res.charged > 0) notify(`Начислено ${fmtMoney(res.charged, settings.currency)}`, 'ok');
+    if (!res.ok) navigate(`/waybills/${wb.id}`);
+  }
 
   /** Закрыть точку «сегодня»; после последней точки открываем карточку поездки для начисления. */
   function completePoint(point: TripPoint, tripId: string) {
@@ -88,6 +141,24 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
         </div>
         <SearchEntry text="Поиск по всему: листы, поездки, справочники" onClick={() => navigate('/search')} />
 
+        <div className="quick-actions">
+          <Button variant="soft" icon="fuel" onClick={() => setQuick('refuel')}>
+            Заправился
+          </Button>
+          <Button variant="soft" icon="money" onClick={() => setQuick('money')}>
+            Пришли деньги
+          </Button>
+          {data.openWaybill ? (
+            <Button variant="success" icon="check" onClick={saveCloseShift}>
+              Закрыть смену
+            </Button>
+          ) : (
+            <Button variant="primary" icon="plus" onClick={onCreate}>
+              Открыть смену
+            </Button>
+          )}
+        </div>
+
         {data.current?.nextPoint ? (
           <NextPointCard
             summary={data.current}
@@ -108,26 +179,19 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
                 {vehicle.logo ? <img src={vehicle.logo} alt="" /> : <Icon name="car" />}
               </span>
               <div className="li-main">
-                <div className="li-title">{vehicle.name}</div>
-                <div className="li-sub">{vehicle.plate}</div>
+                <div className="li-title">
+                  {vehicle.name}
+                  {trailer ? ` + ${trailer.name}` : ''}
+                </div>
+                <div className="li-sub">
+                  {[vehicle.plate, trailer?.plate].filter(Boolean).join(' · ')}
+                </div>
               </div>
-              <Badge>Тягач</Badge>
+              <Badge>{trailer ? 'Тягач и прицеп' : 'Тягач'}</Badge>
             </div>
           ) : (
             <div className="muted small">Автомобиль ещё не добавлен</div>
           )}
-          {trailer ? (
-            <div className="row">
-              <span className="avatar">
-                {trailer.logo ? <img src={trailer.logo} alt="" /> : <Icon name="box" />}
-              </span>
-              <div className="li-main">
-                <div className="li-title">{trailer.name}</div>
-                <div className="li-sub">{trailer.plate}</div>
-              </div>
-              <Badge>Прицеп</Badge>
-            </div>
-          ) : null}
         </Card>
 
         {data.openSummary ? (
@@ -167,17 +231,43 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           </Card>
         )}
 
-        <div className="grid-4">
-          <StatCard label="Начислено" tone="ok" icon="money" value={fmtMoney(data.charged, settings.currency)} />
-          <StatCard label="Оплачено" tone="info" icon="check" value={fmtMoney(data.paid, settings.currency)} />
-          <StatCard label="В семью" tone="warn" icon="family" value={fmtMoney(data.family, settings.currency)} />
+        <StatGrid>
+          <StatCard
+            label="Начислено"
+            tone="ok"
+            icon="money"
+            value={fmtMoney(data.charged, settings.currency)}
+            onClick={() => navigate('/finance')}
+          />
+          <StatCard
+            label="Оплачено"
+            tone="info"
+            icon="check"
+            value={fmtMoney(data.paid, settings.currency)}
+            onClick={() => navigate('/finance')}
+          />
+          <StatCard
+            label="В семью"
+            tone="warn"
+            icon="family"
+            value={fmtMoney(data.family, settings.currency)}
+            onClick={() => navigate('/finance')}
+          />
+          <StatCard
+            label="На руках"
+            tone="ok"
+            icon="money"
+            value={fmtMoney(data.onHand, settings.currency)}
+            onClick={() => navigate('/finance')}
+          />
           <StatCard
             label="Остаток"
             tone={data.charged - data.paid > 0 ? 'err' : 'ok'}
             icon="money"
             value={fmtMoney(data.charged - data.paid, settings.currency)}
+            onClick={() => navigate('/finance')}
           />
-        </div>
+        </StatGrid>
 
         <div className="section-title">
           Перевозки <span className="count">{data.trips.length}</span>
@@ -197,6 +287,56 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           </div>
         )}
       </div>
+
+      <Modal
+        open={quick === 'refuel'}
+        title="Заправился"
+        onClose={() => setQuick(null)}
+        footer={
+          <>
+            <Button onClick={() => setQuick(null)}>Отмена</Button>
+            <Button variant="primary" icon="check" onClick={saveQuickRefuel}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <div className="small muted">
+          Источник подставим как в прошлый раз, дата — сегодня. Нужен только объём.
+        </div>
+        <label className="field">
+          <span className="field-label">Объём, л</span>
+          <NumberInput value={fuelVolume} onValue={setFuelVolume} steppers step={10} />
+        </label>
+      </Modal>
+
+      <Modal
+        open={quick === 'money'}
+        title="Пришли деньги"
+        onClose={() => setQuick(null)}
+        footer={
+          <>
+            <Button onClick={() => setQuick(null)}>Отмена</Button>
+            <Button variant="primary" icon="check" onClick={saveQuickMoney}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <label className="field">
+          <span className="field-label">Сумма поступило</span>
+          <NumberInput value={moneyAmount} onValue={setMoneyAmount} steppers step={500} />
+        </label>
+        <label className="field">
+          <span className="field-label">В семью</span>
+          <NumberInput value={moneyFamily} onValue={setMoneyFamily} steppers step={500} />
+          <span className="field-hint">Отчисление из этого поступления; можно оставить нулём</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Примечание</span>
+          <TextInput value={moneyNote} onChange={(e) => setMoneyNote(e.target.value)} />
+        </label>
+      </Modal>
     </div>
   );
 }

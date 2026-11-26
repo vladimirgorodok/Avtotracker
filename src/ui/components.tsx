@@ -16,6 +16,17 @@ function safeUsedMonths(): string[] {
   }
 }
 
+/**
+ * Месяц для фильтра по умолчанию — один и тот же порядок во всех списках:
+ * текущий месяц, если в нём уже что-то есть; иначе показываем всё.
+ * Так после сдачи смены список не выглядит пустым из-за пустого месяца.
+ */
+export function defaultFilterMonth(): string {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return safeUsedMonths().includes(cur) ? cur : '';
+}
+
 export function Page({
   title,
   actions,
@@ -122,14 +133,23 @@ export function TextArea(props: TextAreaProps) {
 export function NumberInput({
   value,
   onValue,
+  steppers,
+  step = 1,
   ...rest
-}: { value: number | null; onValue: (v: number | null) => void } & Omit<InputProps, 'value' | 'onChange'>) {
+}: {
+  value: number | null;
+  onValue: (v: number | null) => void;
+  /** Кнопки «−/+» рядом с полем — удобно вводить одной рукой, без клавиатуры */
+  steppers?: boolean;
+  /** Шаг кнопок */
+  step?: number;
+} & Omit<InputProps, 'value' | 'onChange'>) {
   const [text, setText] = useState(value === null || value === undefined ? '' : String(value));
   useEffect(() => {
     const next = value === null || value === undefined ? '' : String(value);
     setText((prev) => (Number(prev.replace(',', '.')) === value ? prev : next));
   }, [value]);
-  return (
+  const input = (
     <input
       {...rest}
       className={`input ${rest.className ?? ''}`}
@@ -150,6 +170,23 @@ export function NumberInput({
         setText(cleaned === '' ? '' : String(Number(cleaned)));
       }}
     />
+  );
+  if (!steppers) return input;
+
+  const bump = (dir: -1 | 1) => {
+    const base = value === null || value === undefined || Number.isNaN(value) ? 0 : value;
+    onValue(Math.max(0, Math.round((base + dir * step) * 100) / 100));
+  };
+  return (
+    <div className="num-stepper">
+      <button type="button" className="num-step" onClick={() => bump(-1)} aria-label="Меньше">
+        −
+      </button>
+      {input}
+      <button type="button" className="num-step" onClick={() => bump(1)} aria-label="Больше">
+        +
+      </button>
+    </div>
   );
 }
 
@@ -424,21 +461,39 @@ export function StatCard({
   value,
   tone = 'neutral',
   icon,
+  onClick,
 }: {
   label: string;
   value: React.ReactNode;
   tone?: 'neutral' | 'ok' | 'warn' | 'err' | 'info';
   icon?: IconName;
+  onClick?: () => void;
 }) {
-  return (
-    <div className={`stat stat-${tone}`}>
+  const inner = (
+    <>
       <div className="stat-head">
         <span>{label}</span>
         {icon ? <Icon name={icon} /> : null}
       </div>
       <div className="stat-value">{value}</div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className={`stat stat-${tone} stat-clickable`} onClick={onClick}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={`stat stat-${tone}`}>{inner}</div>;
+}
+
+/**
+ * Ряд показателей. Число столбцов подбирается по ширине само: на телефоне две
+ * плашки в строку и крупные цифры, на планшете — сколько поместится.
+ */
+export function StatGrid({ children }: { children: React.ReactNode }) {
+  return <div className="stat-grid">{children}</div>;
 }
 
 export function SearchBar({

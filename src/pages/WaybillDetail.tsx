@@ -202,7 +202,6 @@ export default function WaybillDetail() {
       actions={
         <>
           <Button variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} />
-          <Button variant="ghost" icon="close" onClick={() => navigate('/waybills')} />
         </>
       }
     >

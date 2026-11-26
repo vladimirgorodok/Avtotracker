@@ -204,6 +204,8 @@ export interface FinanceSummary {
   balance: number;
   /** Отчисления в семью: только по операциям «поступило», идут отдельной строкой */
   family: number;
+  /** Осталось на руках: поступило минус отданное в семью */
+  onHand: number;
 }
 
 export function summarizeFinance(month: string | null): FinanceSummary {
@@ -218,7 +220,7 @@ export function summarizeFinance(month: string | null): FinanceSummary {
       family += Number(o.family) || 0;
     }
   }
-  return { charged, paid, balance: charged - paid, family };
+  return { charged, paid, balance: charged - paid, family, onHand: paid - family };
 }
 
 /** Данные для автоподстановки при открытии нового путевого листа */

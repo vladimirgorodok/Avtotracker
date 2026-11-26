@@ -395,9 +395,10 @@ body {
   gap: 8px;
 }
 
-.grid-4 {
+/* Ряд крупных показателей: на телефоне два в строку, шире — сколько влезет */
+.stat-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -740,8 +741,9 @@ button.save-badge {
 }
 
 .stat-value {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
 }
 
 .stat-ok {
@@ -818,6 +820,70 @@ button.save-badge {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* Частые действия на Главной: две кнопки в строку, главное действие — во всю ширину */
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.quick-actions > *:last-child {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 560px) {
+  .quick-actions {
+    grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  }
+  .quick-actions > *:last-child {
+    grid-column: auto;
+  }
+}
+
+.quick-actions .btn {
+  justify-content: center;
+}
+
+/* Поле с кнопками «−/+»: набирать на ходу неудобно, ступеньки помогают */
+.num-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.num-stepper .input {
+  text-align: center;
+  flex: 1;
+}
+
+.num-step {
+  flex: 0 0 46px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 10px;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.num-step:active {
+  background: var(--brand-soft);
+}
+
+/* Плашку можно нажать — сразу открывается раздел */
+.stat-clickable {
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+
+.stat-clickable:active {
+  transform: scale(0.995);
 }
 
 .month-picker {
@@ -1642,6 +1708,12 @@ body {
   color: var(--brand);
 }
 
+/* В тёмной теме светлый градиент делал белую подпись нечитаемой:
+   берём более глубокий синий — так кнопка видна, а надпись читается */
+[data-theme='dark'] .btn-primary {
+  background: linear-gradient(135deg, #1f5f8f 0%, #3583c1 100%);
+}
+
 /* Плитки статистики: цвет слева и мягкий перелив */
 .stat {
   background: linear-gradient(120deg, var(--card) 40%, var(--bg-soft) 100%);
@@ -2358,10 +2430,13 @@ body {
 
 /* Ряд показателей — во всю ширину */
 [data-view='tablet'] .page-body > .grid-2,
-[data-view='tablet'] .page-body > .grid-3,
-[data-view='tablet'] .page-body > .grid-4 {
+[data-view='tablet'] .page-body > .grid-3 {
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+
+[data-view='tablet'] .page-body > .stat-grid {
+  grid-column: 1 / -1;
 }
 
 /* Заголовок раздела — над своим списком, во всю ширину */
@@ -2395,6 +2470,7 @@ body {
 
 /* Управление списком — поиск, вкладки, счётчик с кнопкой — во всю ширину */
 [data-view='tablet'] .page-body > .searchbar,
+[data-view='tablet'] .page-body > .quick-actions,
 [data-view='tablet'] .page-body > .filters,
 [data-view='tablet'] .page-body > .tabs,
 [data-view='tablet'] .page-body > .row,

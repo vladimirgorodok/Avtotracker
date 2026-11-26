@@ -37,6 +37,7 @@ export default function TripDetail() {
   const [editPoint, setEditPoint] = useState<TripPoint | null>(null);
   const [pointDraft, setPointDraft] = useState<TripPoint | null>(null);
   const [pointCompany, setPointCompany] = useState<Id | null>(null);
+  const [pointMore, setPointMore] = useState(false);
   const [pickerFor, setPickerFor] = useState<'draft' | null>(null);
 
   useEffect(() => {
@@ -216,7 +217,6 @@ export default function TripDetail() {
       actions={
         <>
           <Button variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} />
-          <Button variant="ghost" icon="close" onClick={() => navigate('/trips')} />
         </>
       }
     >
@@ -253,7 +253,7 @@ export default function TripDetail() {
           <NumberInput value={form.weight} onValue={(v) => set('weight', v)} />
         </Field>
         <Field label="Начисление" required hint={`Автоматически по точкам: ${fmtMoney(autoAmount, settings.currency)}`}>
-          <NumberInput value={form.amount} onValue={(v) => set('amount', v)} />
+          <NumberInput value={form.amount} onValue={(v) => set('amount', v)} steppers step={500} />
         </Field>
         <Field label="Примечания">
           <textarea
@@ -483,12 +483,6 @@ export default function TripDetail() {
                 </Button>
               </div>
             </Field>
-            <Field label="Плановая дата">
-              <DateInput
-                value={pointDraft.plan_date}
-                onChange={(v) => setPointDraft({ ...pointDraft, plan_date: v })}
-              />
-            </Field>
             <Field label="Фактическая дата" hint="Если указана — точка считается выполненной">
               <DateInput
                 value={pointDraft.fact_date}
@@ -501,41 +495,56 @@ export default function TripDetail() {
                 }
               />
             </Field>
-            <Field label="Статус">
-              <Select
-                value={pointDraft.status}
-                onChange={(v) => setPointDraft({ ...pointDraft, status: (v ?? 'planned') as 'planned' | 'done' })}
-                options={[
-                  { value: 'planned', label: 'В плане' },
-                  { value: 'done', label: 'Выполнено' },
-                ]}
-                placeholder="В плане"
-              />
-            </Field>
-            <Field label="Тип загрузки">
-              <Select
-                value={pointDraft.load_type}
-                onChange={(v) => setPointDraft({ ...pointDraft, load_type: v })}
-                options={LOAD_TYPES}
-                placeholder="Не выбран"
-              />
-            </Field>
-            <Field label="Груз">
-              <Select
-                value={pointDraft.cargo_type_id}
-                onChange={(v) => setPointDraft({ ...pointDraft, cargo_type_id: v })}
-                options={cargoTypes.map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
-                placeholder="Не выбран"
-              />
-            </Field>
-            <Field label="Примечания">
-              <textarea
-                className="input"
-                rows={2}
-                value={pointDraft.note}
-                onChange={(e) => setPointDraft({ ...pointDraft, note: e.target.value })}
-              />
-            </Field>
+            {pointMore ? (
+              <>
+                <Field label="Плановая дата">
+                  <DateInput
+                    value={pointDraft.plan_date}
+                    onChange={(v) => setPointDraft({ ...pointDraft, plan_date: v })}
+                  />
+                </Field>
+                <Field label="Статус">
+                  <Select
+                    value={pointDraft.status}
+                    onChange={(v) =>
+                      setPointDraft({ ...pointDraft, status: (v ?? 'planned') as 'planned' | 'done' })
+                    }
+                    options={[
+                      { value: 'planned', label: 'В плане' },
+                      { value: 'done', label: 'Выполнено' },
+                    ]}
+                    placeholder="В плане"
+                  />
+                </Field>
+                <Field label="Тип загрузки">
+                  <Select
+                    value={pointDraft.load_type}
+                    onChange={(v) => setPointDraft({ ...pointDraft, load_type: v })}
+                    options={LOAD_TYPES}
+                    placeholder="Не выбран"
+                  />
+                </Field>
+                <Field label="Груз">
+                  <Select
+                    value={pointDraft.cargo_type_id}
+                    onChange={(v) => setPointDraft({ ...pointDraft, cargo_type_id: v })}
+                    options={cargoTypes.map((c) => ({ value: c.id, label: c.name, logo: c.icon }))}
+                    placeholder="Не выбран"
+                  />
+                </Field>
+                <Field label="Примечания">
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={pointDraft.note}
+                    onChange={(e) => setPointDraft({ ...pointDraft, note: e.target.value })}
+                  />
+                </Field>
+              </>
+            ) : null}
+            <Button icon={pointMore ? 'up' : 'down'} onClick={() => setPointMore(!pointMore)}>
+              {pointMore ? 'Меньше полей' : 'Ещё поля'}
+            </Button>
           </>
         ) : null}
       </Modal>

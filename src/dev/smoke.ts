@@ -1616,12 +1616,13 @@ async function main() {
     const html = renderToString(
       createElement(MemoryRouter, { initialEntries: ['/more'] }, createElement(moreMod.default as never)) as never,
     );
-    check('виден переключатель разделов', html.includes('Данные') && html.includes('Сервисы'));
+    check('виден переключатель разделов', html.includes('Учёт') && html.includes('Сервисы'));
     check(
       'сначала показаны записи учёта со справочниками',
       html.includes('Путевые листы') && html.includes('Автомобили') && html.includes('Справочники'),
     );
-    check('подсказка раздела на месте', html.includes('Поиск по всему, путевые листы, поездки'));
+    check('финансы стоят в учёте и видны сразу', html.includes('Финансы'));
+    check('подсказка раздела на месте', html.includes('Финансы, поиск по всему'));
     check(
       'сервисы убраны во вторую половину',
       !html.includes('Обмен данными') && !html.includes('Значки и логотипы') && !html.includes('Настройки'),
@@ -3783,7 +3784,7 @@ async function main() {
     // Поле показываем только у «поступило»: у начисления отчисления нет
     check('поле «В семью» видно у поступившего', detailSource.includes('label="В семью"'));
     check('оно появляется по типу операции', detailSource.includes("form.kind === 'payment' ? ("));
-    check('у начисления отчисление обнуляется', detailSource.includes("form.kind === 'payment' ? Number(form.family) || 0 : 0"));
+    check('у начисления отчисление обнуляется', detailSource.includes("f.kind === 'payment' ? Number(f.family) || 0 : 0"));
 
     // Сводка: отдельная строка, остаток не меняется
     const { summarizeFinance } = await import('../lib/calc');
@@ -3807,6 +3808,82 @@ async function main() {
     repo.updateRow('finance_ops', opId, { family: 5500 });
     eq('сумму отчисления можно поменять', summarizeFinance('2026-04').family, 5500);
     repo.softDelete('finance_ops', opId);
+  }
+
+  console.log('\n37. Быстрые действия: меньше движений водителю');
+  {
+    const { readFileSync } = await import('node:fs');
+    const { closeShiftToday, quickPayment, quickRefuel, lastRefuelKind } = await import('../lib/actions');
+    const { summarizeFinance } = await import('../lib/calc');
+
+    // Быстрая заправка: только литры, дата — сегодня, лист — открытый
+    const openWb = repo.insertRow('waybills', {
+      date_out: '2026-05-01',
+      odometer_out: 100000,
+      fuel_out: 200,
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'open',
+      name: '2026-05-01 — открыт',
+    });
+    const refuelId = quickRefuel(openWb, 250, 'barrel');
+    const refuel = repo.refuelRepo.get(refuelId)!;
+    eq('быстрая заправка: объём', refuel.volume, 250);
+    eq('быстрая заправка: привязана к открытому листу', refuel.waybill_id, openWb);
+    check('быстрая заправка: дата сегодняшняя', refuel.date.slice(0, 10) === todayIso());
+    eq('источник по умолчанию — бочка', refuel.kind, 'barrel');
+    check('последний источник запоминается', lastRefuelKind() === 'barrel');
+
+    // Быстрое поступление: сумма и отчисление, без начисления
+    const payId = quickPayment(40000, 6000, openWb);
+    const pay = repo.financeRepo.get(payId)!;
+    eq('быстрое поступление: вид — поступило', pay.kind, 'payment');
+    eq('быстрое поступление: сумма', pay.amount, 40000);
+    eq('быстрое поступление: в семью', Number(pay.family), 6000);
+    const payMonth = todayIso().slice(0, 7);
+    const may = summarizeFinance(payMonth);
+    check('в итогах видно отчисление', may.family >= 6000);
+    eq('на руках = поступило минус в семью', may.onHand, may.paid - may.family);
+
+    // Закрытие смены одним движением: дату и одометр подставляем с прошлой смены
+    const prev = repo.insertRow('waybills', {
+      date_out: '2026-04-28',
+      date_in: '2026-04-28',
+      odometer_out: 99000,
+      odometer_in: 99500,
+      fuel_out: 210,
+      fuel_in: 180,
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'closed',
+      name: '2026-04-28 — сдано',
+    });
+    const res = closeShiftToday(openWb, repo.getSettings());
+    const closed = repo.waybillRepo.get(openWb)!;
+    eq('смена закрыта', res.ok, true);
+    eq('дата сдачи — сегодня', closed.date_in, todayIso());
+    eq('одометр при сдаче достроен по прошлой смене', closed.odometer_in, 100500);
+    eq('статус листа — закрыт', closed.status, 'closed');
+    eq('прошлая смена не тронута', repo.waybillRepo.get(prev)!.status, 'closed');
+
+    // Всё это видно на Главной: три кнопки и пять плашек
+    const homeSource = readFileSync('src/pages/Home.tsx', 'utf8');
+    check('на Главной есть «Заправился»', homeSource.includes('Заправился'));
+    check('на Главной есть «Пришли деньги»', homeSource.includes('Пришли деньги'));
+    check('на Главной есть «Закрыть смену»', homeSource.includes('Закрыть смену'));
+    check('показатель «На руках» на Главной', homeSource.includes('label="На руках"'));
+    check('плашки ведут в финансы', homeSource.includes("onClick={() => navigate('/finance')}"));
+
+    // Единый порядок периода: все списки стартуют одинаково — «текущий месяц или все»
+    for (const page of ['Home', 'Finance', 'Trips', 'Waybills', 'Refuelings']) {
+      const src = readFileSync(`src/pages/${page}.tsx`, 'utf8');
+      check(`${page}: период начинается одинаково`, src.includes('useState<string>(() => defaultFilterMonth())'));
+    }
+    const compSource = readFileSync('src/ui/components.tsx', 'utf8');
+    check('пустой месяц не выбран зря', compSource.includes('export function defaultFilterMonth'));
+
+    // Кнопка «Вернуть» у быстрых правок не сломалась
+    check('правки всё ещё можно отменить', readFileSync('src/lib/audit.ts', 'utf8').includes('undo: () => restoreTables(snap)'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);

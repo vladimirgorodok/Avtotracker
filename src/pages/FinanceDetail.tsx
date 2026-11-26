@@ -78,20 +78,37 @@ export default function FinanceDetail() {
 
   const trips = tripRepo.all();
 
+  /** Что сохранить у операции — одна и та же запись и для кнопки, и при правке поля */
+  function payload(f: FinanceOp) {
+    return {
+      date: f.date,
+      kind: f.kind,
+      amount: f.amount,
+      pay_month: f.pay_month,
+      trip_id: f.trip_id,
+      note: f.note,
+      family: f.kind === 'payment' ? Number(f.family) || 0 : 0,
+    };
+  }
+
   function save() {
     if (!form) return;
-    updateRow('finance_ops', form.id, {
-      date: form.date,
-      kind: form.kind,
-      amount: form.amount,
-      pay_month: form.pay_month,
-      trip_id: form.trip_id,
-      note: form.note,
-      family: form.kind === 'payment' ? Number(form.family) || 0 : 0,
-    });
+    updateRow('finance_ops', form.id, payload(form));
     touch();
     notify('Операция сохранена', 'ok');
     navigate('/finance');
+  }
+
+  /**
+   * Изменить поле и сразу записать. Кнопка «Сохранить» остаётся для наглядности,
+   * но правка не потеряется, даже если закрыть карточку сразу после ввода.
+   */
+  function edit(patch: Partial<FinanceOp>) {
+    if (!form) return;
+    const next = { ...form, ...patch };
+    setForm(next);
+    updateRow('finance_ops', form.id, payload(next));
+    touch();
   }
 
   return (
@@ -101,7 +118,6 @@ export default function FinanceDetail() {
       actions={
         <>
           <Button variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} />
-          <Button variant="ghost" icon="close" onClick={() => navigate('/finance')} />
         </>
       }
     >
@@ -111,20 +127,20 @@ export default function FinanceDetail() {
             value={form.date}
             onChange={(v) => {
               const date = v ?? todayIso();
-              setForm({ ...form, date, pay_month: form.pay_month ?? monthKey(date) });
+              edit({ date, pay_month: form.pay_month ?? monthKey(date) });
             }}
           />
         </Field>
         <Field label="Тип операции" required>
           <Select
             value={form.kind}
-            onChange={(v) => setForm({ ...form, kind: (v ?? 'charge') as FinanceOp['kind'] })}
+            onChange={(v) => edit({ kind: (v ?? 'charge') as FinanceOp['kind'] })}
             options={FINANCE_KINDS}
             placeholder="Начислено"
           />
         </Field>
         <Field label={form.kind === 'charge' ? 'Сумма начислено' : 'Сумма поступило'} required>
-          <NumberInput value={form.amount} onValue={(v) => setForm({ ...form, amount: v ?? 0 })} />
+          <NumberInput value={form.amount} onValue={(v) => edit({ amount: v ?? 0 })} steppers step={500} />
         </Field>
         {form.kind === 'payment' ? (
           <Field
@@ -133,14 +149,16 @@ export default function FinanceDetail() {
           >
             <NumberInput
               value={form.family}
-              onValue={(v) => setForm({ ...form, family: v ?? 0 })}
+              onValue={(v) => edit({ family: v ?? 0 })}
+              steppers
+              step={500}
             />
           </Field>
         ) : null}
         <Field label="Месяц оплаты" hint="К какому месяцу относится зарплата">
           <Select
             value={form.pay_month}
-            onChange={(v) => setForm({ ...form, pay_month: v })}
+            onChange={(v) => edit({ pay_month: v })}
             options={payMonths.map((m) => ({ value: m, label: monthLabel(m) }))}
             placeholder="Не указан"
           />
@@ -148,7 +166,7 @@ export default function FinanceDetail() {
         <Field label="Перевозка" hint="Необязательно">
           <Select
             value={form.trip_id}
-            onChange={(v) => setForm({ ...form, trip_id: v })}
+            onChange={(v) => edit({ trip_id: v })}
             options={trips.map((t) => {
               const pts = tripRepo.points(t.id);
               const from = refs.place(pts[0]?.place_id ?? null)?.name ?? '—';
@@ -159,11 +177,12 @@ export default function FinanceDetail() {
           />
         </Field>
         <Field label="Примечания">
-          <TextInput value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          <TextInput value={form.note} onChange={(e) => edit({ note: e.target.value })} />
         </Field>
         <div className="small muted">
           Создано: {fmtDate(form.created_at.slice(0, 10))}
           {form.auto ? ' · автоматически при начислении' : ''}
+          {' · правки сохраняются сами'}
         </div>
       </Card>
 

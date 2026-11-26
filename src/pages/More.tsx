@@ -20,8 +20,8 @@ type MoreTab = 'data' | 'services';
 const TABS: { id: MoreTab; label: string; hint: string }[] = [
   {
     id: 'data',
-    label: 'Данные',
-    hint: 'Поиск по всему, путевые листы, поездки, заправки, финансы, техника и справочники',
+    label: 'Учёт',
+    hint: 'Финансы, поиск по всему, путевые листы, поездки, заправки, техника и справочники',
   },
   { id: 'services', label: 'Сервисы', hint: 'Яндекс Диск, обмен данными, помощник, значки и настройки' },
 ];
@@ -35,11 +35,11 @@ export default function MorePage() {
   const auditSub = useMemo(() => auditSummary(), [revision]);
 
   const dataItems: { to: string; title: string; sub: string; icon: IconName }[] = [
+    { to: '/finance', title: 'Финансы', sub: `${countRows('finance_ops')} операций · начислено, поступило, в семью`, icon: 'money' },
     { to: '/search', title: 'Поиск по всему', sub: 'Найти запись в любом разделе', icon: 'search' },
     { to: '/waybills', title: 'Путевые листы', sub: `${countRows('waybills')} записей`, icon: 'doc' },
     { to: '/trips', title: 'Поездки', sub: `${countRows('trips')} перевозок`, icon: 'route' },
     { to: '/refuelings', title: 'Заправки', sub: `${countRows('refuelings')} записей`, icon: 'fuel' },
-    { to: '/finance', title: 'Финансы', sub: `${countRows('finance_ops')} операций`, icon: 'money' },
     { to: '/vehicles', title: 'Автомобили', sub: `${countRows('vehicles')} единиц техники`, icon: 'car' },
     { to: '/refs', title: 'Справочники', sub: 'Фирмы, места, грузы, АЗС', icon: 'pin' },
   ];

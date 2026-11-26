@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, MonthPicker, SearchBar, Badge, Icon } from '../ui/components';
+import { Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar, Badge, Icon } from '../ui/components';
 import { useApp } from '../store';
 import { refs, waybillRepo } from '../db/repo';
 import { summarizeWaybill } from '../lib/calc';
@@ -11,7 +11,7 @@ export default function Waybills() {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
   const settings = useApp((s) => s.settings);
-  const [month, setMonth] = useState<string>('');
+  const [month, setMonth] = useState<string>(() => defaultFilterMonth());
   const [search, setSearch] = useState('');
 
   const items = useMemo(() => {

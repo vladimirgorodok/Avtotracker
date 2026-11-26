@@ -89,7 +89,6 @@ export default function RefuelDetail() {
       actions={
         <>
           <Button variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} />
-          <Button variant="ghost" icon="close" onClick={() => navigate('/refuelings')} />
         </>
       }
     >
@@ -109,7 +108,7 @@ export default function RefuelDetail() {
           <DateTimeInput value={form.date} onChange={(v) => setForm({ ...form, date: v ?? new Date().toISOString() })} />
         </Field>
         <Field label="Объём, л" required>
-          <NumberInput value={form.volume} onValue={(v) => setForm({ ...form, volume: v ?? 0 })} />
+          <NumberInput value={form.volume} onValue={(v) => setForm({ ...form, volume: v ?? 0 })} steppers step={10} />
         </Field>
         <Field label="Источник топлива" required>
           <Select

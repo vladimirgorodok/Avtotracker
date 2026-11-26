@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, Icon, MonthPicker, SearchBar, Tabs } from '../ui/components';
+import { Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { refs, refuelRepo } from '../db/repo';
 import { fmtDateTime, fmtNumber, monthKey, plural } from '../lib/format';
@@ -10,7 +10,7 @@ import { SaveBadge } from '../ui/SaveBadge';
 export default function Refuelings() {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
-  const [month, setMonth] = useState('');
+  const [month, setMonth] = useState<string>(() => defaultFilterMonth());
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState<'all' | 'barrel' | 'station'>('all');
 

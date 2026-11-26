@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, Icon, MonthPicker, SearchBar, StatCard, Tabs } from '../ui/components';
+import { Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, StatCard, StatGrid, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo } from '../db/repo';
 import { fmtDate, fmtMoney, monthKey, plural } from '../lib/format';
@@ -12,7 +12,7 @@ export default function Finance() {
   const navigate = useNavigate();
   const revision = useApp((s) => s.revision);
   const settings = useApp((s) => s.settings);
-  const [month, setMonth] = useState(() => monthKey(new Date().toISOString()));
+  const [month, setMonth] = useState<string>(() => defaultFilterMonth());
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState<'all' | 'charge' | 'payment'>('all');
 
@@ -55,7 +55,7 @@ export default function Finance() {
         </div>
         <SearchBar value={search} onChange={setSearch} />
 
-        <div className="stack-sm">
+        <StatGrid>
           <StatCard label="Начислено" tone="ok" icon="money" value={fmtMoney(totals.charged, settings.currency)} />
           <StatCard label="Оплачено" tone="info" icon="check" value={fmtMoney(totals.paid, settings.currency)} />
           <StatCard
@@ -65,12 +65,18 @@ export default function Finance() {
             value={fmtMoney(totals.family, settings.currency)}
           />
           <StatCard
+            label="На руках"
+            tone="ok"
+            icon="money"
+            value={fmtMoney(totals.onHand, settings.currency)}
+          />
+          <StatCard
             label="Остаток"
             tone={totals.balance > 0 ? 'err' : 'ok'}
             icon="money"
             value={fmtMoney(totals.balance, settings.currency)}
           />
-        </div>
+        </StatGrid>
 
         <Tabs
           value={kind}
