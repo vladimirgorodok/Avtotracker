@@ -160,6 +160,24 @@ export default function SettingsPage() {
         </Button>
       </Card>
 
+      <Card title="Обновление приложения" actions={<Icon name="download" />}>
+        <div className="small muted">
+          Приложение умеет проверять, нет ли на GitHub сборки новее, скачивать её и передавать системному
+          установщику. Проверка идёт при запуске (не чаще раза в сутки) или вручную.
+        </div>
+        <Button icon="download" block onClick={() => navigate('/update')}>
+          Проверить обновление
+        </Button>
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={Number(settings.update_auto) === 1}
+            onChange={(e) => saveSetting('update_auto', e.target.checked ? 1 : 0)}
+          />
+          <span>Проверять обновления при запуске</span>
+        </label>
+      </Card>
+
       <Card title="Настройки в файле" actions={<Icon name="doc" />}>
         <div className="small muted">
           В файл попадает всё, что вы вводили руками: ставки, оформление, адрес и ключ ИИ-помощника,

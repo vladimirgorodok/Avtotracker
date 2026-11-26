@@ -46,6 +46,7 @@ export default function MorePage() {
 
   const serviceItems: { to: string; title: string; sub: string; icon: IconName }[] = [
     { to: '/yadisk', title: 'Яндекс Диск', sub: diskSub(), icon: 'upload' },
+    { to: '/update', title: 'Обновление', sub: 'Проверить новую версию на GitHub', icon: 'download' },
     { to: '/data', title: 'Обмен данными', sub: 'Экспорт, импорт, резервные копии', icon: 'share' },
     { to: '/audit', title: 'Проверка данных', sub: auditSub, icon: 'check' },
     { to: '/assistant', title: 'ИИ-помощник', sub: 'Разбор заявок и расчёты', icon: 'ai' },

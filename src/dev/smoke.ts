@@ -661,6 +661,7 @@ async function main() {
     { label: 'Ещё', route: '/more', url: '/more', load: () => import('../pages/More') },
     { label: 'Поиск по всему', route: '/search', url: '/search', load: () => import('../pages/Search') },
     { label: 'Настройки', route: '/settings', url: '/settings', load: () => import('../pages/Settings') },
+    { label: 'Обновление', route: '/update', url: '/update', load: () => import('../pages/Update') },
     { label: 'ИИ-помощник', route: '/assistant', url: '/assistant', load: () => import('../pages/Assistant') },
   ];
 
@@ -1596,6 +1597,7 @@ async function main() {
 
   console.log('\n22. Экран «Ещё»: разделы переключателем');
   {
+    const { readFileSync } = await import('node:fs');
     const moreMod = await import('../pages/More');
     const html = renderToString(
       createElement(MemoryRouter, { initialEntries: ['/more'] }, createElement(moreMod.default as never)) as never,
@@ -1611,6 +1613,112 @@ async function main() {
       !html.includes('Обмен данными') && !html.includes('Значки и логотипы') && !html.includes('Настройки'),
     );
     check('в данных есть вход в общий поиск', html.includes('Поиск по всему'));
+
+    // Проверка обновлений живёт в сервисах рядом с Диском
+    const moreSource = readFileSync('src/pages/More.tsx', 'utf8');
+    check('на экране «Ещё» есть вход в обновление', moreSource.includes("to: '/update'"));
+    check('он подписан понятно', moreSource.includes('Проверить новую версию на GitHub'));
+  }
+
+  console.log('\n22б. Обновления: проверка сборки на GitHub');
+  {
+    const { readFileSync } = await import('node:fs');
+    const upd = await import('../lib/update');
+
+    // --- сравнение версий по частям: 1.0.10 новее 1.0.9
+    check('версия по частям сравнивается верно', upd.compareVersions('1.0.10', '1.0.9') > 0);
+    check('старшая часть важнее младшей', upd.compareVersions('1.1.0', '1.0.99') > 0);
+    eq('одинаковые версии равны', upd.compareVersions('1.0.50', '1.0.50'), 0);
+    check('короткая версия не старше длинной', upd.compareVersions('1.0', '1.0.0') === 0);
+
+    // --- разбор ответа GitHub: версия и контрольная сумма берутся из ответа
+    const release = {
+      tag_name: 'latest',
+      body: 'Автоматическая сборка из ветки main, коммит 36eb275, версия 1.0.50. Ставится поверх предыдущей версии.',
+      published_at: '2026-11-26T06:44:01Z',
+      assets: [
+        { name: 'notes.txt', browser_download_url: 'https://example.com/notes.txt', size: 10 },
+        {
+          name: 'avtobaza-debug.apk',
+          browser_download_url:
+            'https://github.com/vladimirgorodok/Avtotracker/releases/download/latest/avtobaza-debug.apk',
+          size: 7415397,
+          digest: 'sha256:35089a69a0ca0f4d9c0712033092738974e826f9bd99c55137ca43f3d1e8678c',
+        },
+      ],
+    };
+    const info = upd.parseRelease(release);
+    check('сборка разобрана', info !== null);
+    eq('версия взята из заметок', info?.version, '1.0.50');
+    eq('коммит прочитан', info?.commit, '36eb275');
+    eq('ссылка ведёт на файл приложения', String(info?.apkUrl).endsWith('.apk'), true);
+    eq('размер файла прочитан', info?.size, 7415397);
+    eq(
+      'контрольная сумма без приставки',
+      info?.sha256,
+      '35089a69a0ca0f4d9c0712033092738974e826f9bd99c55137ca43f3d1e8678c',
+    );
+    eq('сборка без файла приложения не разбирается', upd.parseRelease({ tag_name: 'latest', assets: [] }), null);
+    eq(
+      'заметки без версии — берём имя метки',
+      upd.parseRelease({ tag_name: 'v2', assets: [{ name: 'a.apk', browser_download_url: 'x' }] })?.version,
+      'v2',
+    );
+
+    // --- новее ли сборка установленной
+    check('сборка новее — предлагаем обновиться', upd.isNewer(info!, '1.0.49'));
+    check('та же версия — обновлять нечего', !upd.isNewer(info!, '1.0.50'));
+    check('старая сборка не предлагается', !upd.isNewer(info!, '1.1.0'));
+
+    // --- размер файла понятен человеку
+    check('размер показан в мегабайтах', upd.fileSize(7415397).includes('МБ'));
+    eq('пустой размер ни о чём не говорит', upd.fileSize(0), '');
+
+    // --- страница сборки ведёт в правильный репозиторий
+    check(
+      'ссылка на страницу сборки верна',
+      upd.releasePageUrl().includes('vladimirgorodok/Avtotracker/releases/latest'),
+    );
+
+    // --- экран «Обновление» собирается и всё рассказывает
+    const updateHtml = renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/update'] },
+        createElement((await import('../pages/Update')).default as never),
+      ) as never,
+    );
+    check('экран обновления собирается', updateHtml.length > 300, `(${updateHtml.length} символов)`);
+    check('видно установленную версию', updateHtml.includes('Установлено'));
+    check('есть кнопка проверки', updateHtml.includes('Проверить обновление'));
+    check('в браузере честно сказано про телефон', updateHtml.includes('Установка доступна в приложении на телефоне'));
+    check('есть переключатель проверки при запуске', updateHtml.includes('Проверять обновления при запуске'));
+
+    // --- запрос к GitHub: адрес и разбор ответа
+    eq('репозиторий обновлений назван верно', upd.UPDATE_REPO, 'vladimirgorodok/Avtotracker');
+    const updateSource = readFileSync('src/lib/update.ts', 'utf8');
+    check('адрес запроса собирается из репозитория', updateSource.includes('/releases/tags/latest'));
+    check('о новой версии сообщаем весточкой', updateSource.includes('checkUpdateQuietly'));
+    check('проверка при запуске не чаще раза в сутки', updateSource.includes('CHECK_EVERY_MS'));
+    check('нативное скачивание подключено', updateSource.includes('registerPlugin<AppUpdateNative>'));
+
+    // --- сборка и нативная часть: скачивание с проверкой суммы и установка
+    const appUpdateJava = readFileSync('android/app/src/main/java/ru/avtobaza/app/AppUpdatePlugin.java', 'utf8');
+    check('обработчик обновления на месте', appUpdateJava.includes('@CapacitorPlugin(name = "AppUpdate")'));
+    check('сборка проверяется по контрольной сумме', appUpdateJava.includes('MessageDigest.getInstance("SHA-256")'));
+    check('несовпавшая сборка удаляется', appUpdateJava.includes('контрольная сумма не совпала'));
+    check('установщику файл идёт через FileProvider', appUpdateJava.includes('FileProvider.getUriForFile'));
+    check('сборка ставится системным окном', appUpdateJava.includes('Intent.ACTION_VIEW'));
+    check('есть запрос разрешения на установку', appUpdateJava.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'));
+    const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
+    check('в манифесте есть разрешение ставить сборки', manifest.includes('android.permission.REQUEST_INSTALL_PACKAGES'));
+    const mainJava = readFileSync('android/app/src/main/java/ru/avtobaza/app/MainActivity.java', 'utf8');
+    check('обработчик обновления подключён', mainJava.includes('registerPlugin(AppUpdatePlugin.class)'));
+    const viteSource = readFileSync('vite.config.ts', 'utf8');
+    check('версия зашивается при сборке', viteSource.includes('__APP_VERSION__'));
+    const appSourceU = readFileSync('src/App.tsx', 'utf8');
+    check('проверка при запуске подключена', appSourceU.includes('checkUpdateQuietly()'));
+    check('маршрут обновления добавлен', appSourceU.includes('path="/update"'));
   }
 
   console.log('\n23. Поиск по всему');

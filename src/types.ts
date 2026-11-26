@@ -217,6 +217,10 @@ export interface AppSettings {
   yadisk_dirty: number;
   /** Текст последней ошибки обмена с Диском */
   yadisk_last_error: string;
+  /** Проверять обновления на GitHub при запуске (1 — включено) */
+  update_auto: number;
+  /** Когда последний раз проверяли обновления, ISO */
+  update_last_at: string;
   last_vehicle_id: string;
   last_trailer_id: string;
 }
@@ -243,6 +247,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   yadisk_icons_meta: '',
   yadisk_dirty: 0,
   yadisk_last_error: '',
+  update_auto: 1,
+  update_last_at: '',
   last_vehicle_id: '',
   last_trailer_id: '',
 };

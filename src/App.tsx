@@ -29,11 +29,13 @@ import Assistant from './pages/Assistant';
 import OrderFromFiles from './pages/OrderFromFiles';
 import PictureFinder from './pages/PictureFinder';
 import Search from './pages/Search';
+import UpdatePage from './pages/Update';
 import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
 import { todayIso } from './lib/format';
 import { autoFillForNewWaybill, sameWaybill } from './lib/calc';
 import { autoSyncWanted, startAutoSync } from './lib/yadisk-auto';
+import { checkUpdateQuietly } from './lib/update';
 
 function BottomNav({ onCreate }: { onCreate: () => void }) {
   const loc = useLocation();
@@ -345,6 +347,14 @@ export default function App() {
   }, [ready]);
 
   useEffect(() => {
+    // Проверка обновлений при запуске: тихо, не чаще раза в сутки.
+    // Ждём конца заставки и окна обмена — иначе весточку о новой версии
+    // закрыли бы собой заставка или окно обмена.
+    if (!ready || !splashDone || startPhase === 'show') return;
+    void checkUpdateQuietly();
+  }, [ready, splashDone, startPhase]);
+
+  useEffect(() => {
     const onHide = () => {
       void getDb().then((db) => db.flush());
     };
@@ -414,6 +424,7 @@ export default function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/yadisk" element={<YandexDisk />} />
+              <Route path="/update" element={<UpdatePage />} />
               <Route path="/audit" element={<Audit />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/assistant/order" element={<OrderFromFiles />} />

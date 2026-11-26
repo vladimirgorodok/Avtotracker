@@ -165,6 +165,8 @@ const LOCAL_SETTINGS = new Set([
   'yadisk_last_icons',
   'yadisk_last_error',
   'yadisk_icons_meta',
+  // Когда последний раз проверяли обновления — своё у каждого устройства
+  'update_last_at',
 ]);
 
 /**

@@ -32,6 +32,9 @@ jobs:
         run: npm run smoke
 
       - name: Build web
+        env:
+          AVTOBAZA_VERSION_CODE: ${{ github.run_number }}
+          AVTOBAZA_VERSION_NAME: 1.0.${{ github.run_number }}
         run: npm run build
 
       - name: Sync Capacitor
