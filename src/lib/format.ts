@@ -66,15 +66,6 @@ export function monthLabel(key: string): string {
   return `${name} ${y} г.`;
 }
 
-export function monthOptions(fromYear = 2020, toYear?: number): string[] {
-  const end = toYear ?? new Date().getFullYear() + 1;
-  const out: string[] = [];
-  for (let y = end; y >= fromYear; y--) {
-    for (let m = 12; m >= 1; m--) out.push(`${y}-${String(m).padStart(2, '0')}`);
-  }
-  return out;
-}
-
 /**
  * Месяцы для фильтра: только те, где есть данные, плюс текущий и выбранный.
  * Пустые месяцы прошлых лет в списке не нужны.
@@ -84,6 +75,20 @@ export function monthChoices(withData: string[] = [], selected = ''): string[] {
   const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const set = new Set(withData.filter((m) => /^\d{4}-\d{2}$/.test(m)));
   set.add(cur);
+  if (/^\d{4}-\d{2}$/.test(selected)) set.add(selected);
+  return [...set].sort((a, b) => b.localeCompare(a));
+}
+
+/**
+ * Месяцы для поля «Месяц оплаты»: месяцы с данными, текущий, прошлый и выбранный.
+ * Пустые будущие месяцы (следующий год) в списке не нужны — их не показываем.
+ */
+export function payMonthChoices(withData: string[] = [], selected = ''): string[] {
+  const now = new Date();
+  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const set = new Set(withData.filter((m) => /^\d{4}-\d{2}$/.test(m)));
+  set.add(key(now)); // текущий месяц — подставляется в новую операцию
+  set.add(key(new Date(now.getFullYear(), now.getMonth() - 1, 1))); // зарплата за прошлый месяц
   if (/^\d{4}-\d{2}$/.test(selected)) set.add(selected);
   return [...set].sort((a, b) => b.localeCompare(a));
 }

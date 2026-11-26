@@ -136,7 +136,7 @@ async function main() {
   const { closeWaybill, chargeTrip } = await import('../lib/actions');
   const { dumpAll, importJson } = await import('../lib/backup');
   const { buildWaybillPdf, buildMonthReportPdf } = await import('../lib/backup');
-  const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel } = await import('../lib/format');
+  const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel, payMonthChoices } = await import('../lib/format');
   const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
   const { audit, auditText, auditSummary, applyFinding, undoLastFix, lastAppliedFix, loadHidden, saveHidden } = await import('../lib/audit');
 
@@ -403,6 +403,18 @@ async function main() {
   eq('координаты', JSON.stringify(parseCoords('56.001765,37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('координаты с пробелом', JSON.stringify(parseCoords('56.001765 37.531211')), JSON.stringify({ lat: 56.001765, lon: 37.531211 }));
   eq('название месяца', monthLabel('2026-11'), 'Ноябрь 2026 г.');
+  {
+    const now = new Date();
+    const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const nextYear = `${now.getFullYear() + 1}-01`;
+    const pay = payMonthChoices();
+    const payData = payMonthChoices(['2024-03']);
+    check('в «месяце оплаты» нет пустых месяцев будущего года', !pay.some((m) => m >= nextYear), `(${pay.join(', ')})`);
+    check('текущий месяц есть в «месяце оплаты»', pay.includes(curKey));
+    check('месяц прошлого месяца есть в «месяце оплаты»', pay.length >= 2);
+    check('месяцы с данными сохранены в «месяце оплаты»', payData.includes('2024-03'));
+    check('выбранный месяц остаётся в «месяце оплаты»', payMonthChoices([], '2023-05').includes('2023-05'));
+  }
   eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
   eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
 

@@ -117,7 +117,8 @@ export function usedMonths(): string[] {
      UNION SELECT substr(plan_date, 1, 7) FROM trip_points WHERE deleted = 0 AND length(plan_date) >= 7
      UNION SELECT substr(fact_date, 1, 7) FROM trip_points WHERE deleted = 0 AND length(fact_date) >= 7
      UNION SELECT substr(date, 1, 7) FROM refuelings WHERE deleted = 0 AND length(date) >= 7
-     UNION SELECT substr(date, 1, 7) FROM finance_ops WHERE deleted = 0 AND length(date) >= 7`,
+     UNION SELECT substr(date, 1, 7) FROM finance_ops WHERE deleted = 0 AND length(date) >= 7
+     UNION SELECT substr(pay_month, 1, 7) FROM finance_ops WHERE deleted = 0 AND length(pay_month) >= 7`,
   );
   return rows
     .map((r) => r.m)

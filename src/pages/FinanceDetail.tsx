@@ -13,8 +13,8 @@ import {
   TextInput,
 } from '../ui/components';
 import { useApp } from '../store';
-import { financeRepo, insertRow, refs, softDelete, tripRepo, uid, updateRow } from '../db/repo';
-import { fmtDate, monthLabel, monthKey, todayIso } from '../lib/format';
+import { financeRepo, insertRow, refs, softDelete, tripRepo, uid, updateRow, usedMonths } from '../db/repo';
+import { fmtDate, monthLabel, monthKey, payMonthChoices, todayIso } from '../lib/format';
 import { FINANCE_KINDS, type FinanceOp } from '../types';
 
 export default function FinanceDetail() {
@@ -54,6 +54,18 @@ export default function FinanceDetail() {
   useEffect(() => {
     if (row) setForm({ ...row });
   }, [row?.id, revision]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Список месяцев для поля «Месяц оплаты» — по данным базы, без пустых
+  // будущих месяцев: зарплату за ещё не наступивший год не начисляют.
+  const payMonths = useMemo(() => {
+    let withData: string[] = [];
+    try {
+      withData = usedMonths();
+    } catch {
+      withData = [];
+    }
+    return payMonthChoices(withData, form?.pay_month ?? '');
+  }, [form?.pay_month, revision]);
 
   if (!form) {
     return (
@@ -116,7 +128,7 @@ export default function FinanceDetail() {
           <Select
             value={form.pay_month}
             onChange={(v) => setForm({ ...form, pay_month: v })}
-            options={monthOptions().map((m) => ({ value: m, label: monthLabel(m) }))}
+            options={payMonths.map((m) => ({ value: m, label: monthLabel(m) }))}
             placeholder="Не указан"
           />
         </Field>
@@ -162,14 +174,4 @@ export default function FinanceDetail() {
       />
     </Page>
   );
-}
-
-function monthOptions(): string[] {
-  const out: string[] = [];
-  const now = new Date();
-  for (let i = -24; i <= 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return out.reverse();
 }
