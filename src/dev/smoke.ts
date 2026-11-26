@@ -3813,7 +3813,10 @@ async function main() {
   console.log('\n37. Быстрые действия: меньше движений водителю');
   {
     const { readFileSync } = await import('node:fs');
-    const { closeShiftToday, quickPayment, quickRefuel, lastRefuelKind } = await import('../lib/actions');
+    const { closeShiftToday, closeShiftPreview, quickPayment, quickRefuel, lastRefuelKind } = await import(
+      '../lib/actions'
+    );
+    const { prevMonthKey } = await import('../lib/format');
     const { summarizeFinance } = await import('../lib/calc');
 
     // Быстрая заправка: только литры, дата — сегодня, лист — открытый
@@ -3834,13 +3837,16 @@ async function main() {
     eq('источник по умолчанию — бочка', refuel.kind, 'barrel');
     check('последний источник запоминается', lastRefuelKind() === 'barrel');
 
-    // Быстрое поступление: сумма и отчисление, без начисления
+    // Быстрое поступление: сумма и отчисление, без начисления.
+    // Месяц оплаты по умолчанию — прошлый: деньги приходят за уже отработанный месяц.
     const payId = quickPayment(40000, 6000, openWb);
     const pay = repo.financeRepo.get(payId)!;
     eq('быстрое поступление: вид — поступило', pay.kind, 'payment');
     eq('быстрое поступление: сумма', pay.amount, 40000);
     eq('быстрое поступление: в семью', Number(pay.family), 6000);
-    const payMonth = todayIso().slice(0, 7);
+    eq('месяц оплаты по умолчанию — прошлый', pay.pay_month, prevMonthKey());
+    check('прошлый месяц — не текущий', prevMonthKey() !== todayIso().slice(0, 7));
+    const payMonth = prevMonthKey();
     const may = summarizeFinance(payMonth);
     check('в итогах видно отчисление', may.family >= 6000);
     eq('на руках = поступило минус в семью', may.onHand, may.paid - may.family);
@@ -3865,6 +3871,24 @@ async function main() {
     eq('одометр при сдаче достроен по прошлой смене', closed.odometer_in, 100500);
     eq('статус листа — закрыт', closed.status, 'closed');
     eq('прошлая смена не тронута', repo.waybillRepo.get(prev)!.status, 'closed');
+
+    // Перед закрытием показываем те же цифры, что и запишем
+    const open2 = repo.insertRow('waybills', {
+      date_out: '2026-05-02',
+      odometer_out: 100500,
+      fuel_out: 200,
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'open',
+      name: '2026-05-02 — открыт',
+    });
+    const preview = closeShiftPreview(open2)!;
+    eq('в вопросе — дата сдачи сегодня', preview.dateIn, todayIso());
+    eq('в вопросе — тот же одометр, что запишем', preview.odometerIn, 101000);
+    check(
+      'вопрос о закрытии на Главной',
+      readFileSync('src/pages/Home.tsx', 'utf8').includes('Закрыть смену?'),
+    );
 
     // Всё это видно на Главной: три кнопки и пять плашек
     const homeSource = readFileSync('src/pages/Home.tsx', 'utf8');

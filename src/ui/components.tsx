@@ -602,6 +602,7 @@ export function Confirm({
   onCancel,
   onConfirm,
   confirmLabel = 'Удалить',
+  confirmVariant = 'danger',
 }: {
   open: boolean;
   title: string;
@@ -609,6 +610,7 @@ export function Confirm({
   onCancel: () => void;
   onConfirm: () => void;
   confirmLabel?: string;
+  confirmVariant?: 'danger' | 'primary' | 'success';
 }) {
   return (
     <Modal
@@ -618,7 +620,7 @@ export function Confirm({
       footer={
         <>
           <Button onClick={onCancel}>Отмена</Button>
-          <Button variant="danger" onClick={onConfirm}>
+          <Button variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </>

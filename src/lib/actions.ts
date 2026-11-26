@@ -2,7 +2,7 @@
 
 import { financeRepo, insertRow, nowIso, refuelRepo, refs, softDelete, softDeleteWhere, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
 import { autoTripAmount, chargeNoteText } from './calc';
-import { todayIso } from './format';
+import { prevMonthKey, todayIso } from './format';
 import type { AppSettings, Id, Refueling, Trip, Waybill } from '../types';
 
 /** Пересчитать статус перевозки по её точкам. Все точки выполнены → 'done'. */
@@ -123,25 +123,39 @@ export function reopenWaybill(waybillId: Id): void {
 }
 
 /**
+ * Что подставим при закрытии смены: дату сдачи, одометр и топливо. Вынесено
+ * отдельно, чтобы вопрос перед закрытием показывал ровно те же цифры.
+ */
+export function closeShiftPreview(
+  waybillId: Id,
+): { dateIn: string; odometerIn: number | null; fuelIn: number | null } | null {
+  const wb = waybillRepo.get(waybillId);
+  if (!wb) return null;
+  const prev = waybillRepo.lastClosed(wb.vehicle_id ?? null);
+  let odometerIn = wb.odometer_in;
+  if (odometerIn === null && prev) {
+    // Пробег прошлой смены прибавляем к нынешнему выезду — так одометр растёт
+    const step =
+      prev.odometer_in !== null && prev.odometer_out !== null ? prev.odometer_in - prev.odometer_out : null;
+    odometerIn =
+      step !== null && step > 0 ? (wb.odometer_out ?? prev.odometer_in ?? 0) + step : prev.odometer_in;
+  }
+  const fuelIn = wb.fuel_in !== null ? wb.fuel_in : (prev?.fuel_in ?? null);
+  return { dateIn: todayIso(), odometerIn, fuelIn };
+}
+
+/**
  * Закрыть смену одним движением: дату сдачи ставим сегодняшнюю, одометр и топливо
  * при сдаче берём с прошлой закрытой смены (за день проезжают примерно столько же).
  * Если чего-то не хватает или цифры не сходятся — вернём подсказку, и закрытие
  * продолжится уже в карточке листа.
  */
 export function closeShiftToday(waybillId: Id, settings: AppSettings): CloseResult {
-  const wb = waybillRepo.get(waybillId);
-  if (!wb) return { ok: false, message: 'Путевой лист не найден', charged: 0 };
-  const prev = waybillRepo.lastClosed(wb.vehicle_id ?? null);
-  const patch: Partial<Waybill> = { date_in: todayIso() };
-
-  if (wb.odometer_in === null && prev) {
-    // Пробег прошлой смены прибавляем к нынешнему выезду — так одометр растёт
-    const step =
-      prev.odometer_in !== null && prev.odometer_out !== null ? prev.odometer_in - prev.odometer_out : null;
-    patch.odometer_in =
-      step !== null && step > 0 ? (wb.odometer_out ?? prev.odometer_in ?? 0) + step : prev.odometer_in;
-  }
-  if (wb.fuel_in === null && prev) patch.fuel_in = prev.fuel_in;
+  const preview = closeShiftPreview(waybillId);
+  if (!preview) return { ok: false, message: 'Путевой лист не найден', charged: 0 };
+  const patch: Partial<Waybill> = { date_in: preview.dateIn };
+  if (preview.odometerIn !== null) patch.odometer_in = preview.odometerIn;
+  if (preview.fuelIn !== null) patch.fuel_in = preview.fuelIn;
 
   updateRow('waybills', waybillId, patch);
   return closeWaybill(waybillId, settings);
@@ -173,7 +187,8 @@ export function lastRefuelKind(): Refueling['kind'] {
 
 /**
  * Быстрое поступление денег: только сумма и отчисление в семью, дата — сегодня,
- * месяц оплаты — текущий. Начислять ничего не нужно, это «пришли деньги».
+ * месяц оплаты — предыдущий (деньги обычно приходят за уже отработанный месяц).
+ * Начислять ничего не нужно, это «пришли деньги».
  */
 export function quickPayment(amount: number, family = 0, waybillId: Id | null = null): Id {
   const date = todayIso();
@@ -183,7 +198,7 @@ export function quickPayment(amount: number, family = 0, waybillId: Id | null = 
     date,
     kind: 'payment',
     amount,
-    pay_month: date.slice(0, 7),
+    pay_month: prevMonthKey(),
     trip_id: null,
     waybill_id: waybillId,
     note: '',

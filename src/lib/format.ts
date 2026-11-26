@@ -80,6 +80,16 @@ export function monthChoices(withData: string[] = [], selected = ''): string[] {
 }
 
 /**
+ * Прошлый месяц — «ГГГГ-ММ». Деньги обычно приходят за уже отработанный месяц,
+ * поэтому у поступления месяц оплаты по умолчанию предыдущий.
+ */
+export function prevMonthKey(): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
  * Месяцы для поля «Месяц оплаты»: месяцы с данными, текущий, прошлый и выбранный.
  * Пустые будущие месяцы (следующий год) в списке не нужны — их не показываем.
  */

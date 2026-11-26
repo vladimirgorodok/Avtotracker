@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  Confirm,
   defaultFilterMonth,
   Empty,
   Icon,
@@ -20,7 +21,14 @@ import { financeRepo, refs, tripRepo, updateRow, waybillRepo } from '../db/repo'
 import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../lib/format';
 import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
-import { closeShiftToday, lastRefuelKind, quickPayment, quickRefuel, refreshTripStatus } from '../lib/actions';
+import {
+  closeShiftPreview,
+  closeShiftToday,
+  lastRefuelKind,
+  quickPayment,
+  quickRefuel,
+  refreshTripStatus,
+} from '../lib/actions';
 import type { TripPoint } from '../types';
 import { SaveBadge } from '../ui/SaveBadge';
 
@@ -35,6 +43,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const [moneyAmount, setMoneyAmount] = useState<number | null>(null);
   const [moneyFamily, setMoneyFamily] = useState<number | null>(null);
   const [moneyNote, setMoneyNote] = useState('');
+  const [closeConfirm, setCloseConfirm] = useState(false);
   const [month, setMonth] = useState<string>(() => defaultFilterMonth());
 
   const data = useMemo(() => {
@@ -98,12 +107,16 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   function saveCloseShift() {
     const wb = data.openWaybill;
     if (!wb) return;
+    setCloseConfirm(false);
     const res = closeShiftToday(wb.id, settings);
     touch();
     notify(res.message, res.ok ? 'ok' : 'err');
     if (res.ok && res.charged > 0) notify(`Начислено ${fmtMoney(res.charged, settings.currency)}`, 'ok');
     if (!res.ok) navigate(`/waybills/${wb.id}`);
   }
+
+  // Что именно запишем при закрытии смены — показываем это в вопросе
+  const closePreview = data.openWaybill ? closeShiftPreview(data.openWaybill.id) : null;
 
   /** Закрыть точку «сегодня»; после последней точки открываем карточку поездки для начисления. */
   function completePoint(point: TripPoint, tripId: string) {
@@ -149,7 +162,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
             Пришли деньги
           </Button>
           {data.openWaybill ? (
-            <Button variant="success" icon="check" onClick={saveCloseShift}>
+            <Button variant="success" icon="check" onClick={() => setCloseConfirm(true)}>
               Закрыть смену
             </Button>
           ) : (
@@ -336,7 +349,24 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           <span className="field-label">Примечание</span>
           <TextInput value={moneyNote} onChange={(e) => setMoneyNote(e.target.value)} />
         </label>
+        <div className="small muted">Месяц оплаты — прошлый; его можно поменять в операции.</div>
       </Modal>
+
+      <Confirm
+        open={closeConfirm}
+        title="Закрыть смену?"
+        confirmLabel="Закрыть смену"
+        confirmVariant="success"
+        text={
+          closePreview
+            ? `Дата сдачи — ${fmtDate(closePreview.dateIn)}, одометр при сдаче — ${
+                closePreview.odometerIn === null ? 'не указан' : fmtNumber(closePreview.odometerIn)
+              }. Если цифры не сойдутся, откроем карточку листа.`
+            : 'Закрыть открытую смену?'
+        }
+        onCancel={() => setCloseConfirm(false)}
+        onConfirm={saveCloseShift}
+      />
     </div>
   );
 }

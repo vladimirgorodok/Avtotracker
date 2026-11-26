@@ -14,7 +14,7 @@ import {
 } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, insertRow, refs, softDelete, tripRepo, uid, updateRow, usedMonths } from '../db/repo';
-import { fmtDate, monthLabel, monthKey, payMonthChoices, todayIso } from '../lib/format';
+import { fmtDate, monthLabel, monthKey, payMonthChoices, prevMonthKey, todayIso } from '../lib/format';
 import { FINANCE_KINDS, type FinanceOp } from '../types';
 
 export default function FinanceDetail() {
@@ -37,7 +37,8 @@ export default function FinanceDetail() {
         date: today,
         kind: 'payment',
         amount: 0,
-        pay_month: today.slice(0, 7),
+        // Деньги обычно приходят за прошлый месяц — его и подставляем
+        pay_month: prevMonthKey(),
         note: '',
         auto: 0,
         family: 0,

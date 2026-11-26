@@ -32,7 +32,7 @@ import Search from './pages/Search';
 import UpdatePage from './pages/Update';
 import { seedIfEmpty } from './db/seed';
 import { insertRow, uid, waybillRepo } from './db/repo';
-import { todayIso } from './lib/format';
+import { prevMonthKey, todayIso } from './lib/format';
 import { autoFillForNewWaybill, sameWaybill } from './lib/calc';
 import { autoSyncWanted, startAutoSync } from './lib/yadisk-auto';
 import { checkUpdateQuietly } from './lib/update';
@@ -177,7 +177,8 @@ function CreateSheet({
       date: todayIso(),
       kind: 'payment',
       amount: 0,
-      pay_month: todayIso().slice(0, 7),
+      // Деньги обычно приходят за прошлый месяц — его и подставляем
+      pay_month: prevMonthKey(),
       note: '',
       auto: 0,
       family: 0,
