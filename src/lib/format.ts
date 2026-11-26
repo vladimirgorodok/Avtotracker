@@ -4,6 +4,29 @@ export function todayIso(): string {
   return toIsoDate(new Date());
 }
 
+/**
+ * Отметка времени по местным часам с указанием пояса. Нужна там, где дата
+ * важна человеку (заправка, поступление): иначе после полуночи по Москве
+ * запись уходила бы во вчерашний день, ведь UTC ещё не перешагнул полночь.
+ * Хранится как «ГГГГ-ММ-ДДTчч:мм:сс.мсс±чч:мм» — первые 10 знаков дают
+ * местную дату, а разбор через new Date() идёт верно.
+ */
+export function nowLocalIso(d = new Date()): string {
+  const pad = (n: number, w = 2) => String(Math.abs(n)).padStart(w, '0');
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const off = `${sign}${pad(Math.floor(Math.abs(offsetMin) / 60))}:${pad(Math.abs(offsetMin) % 60)}`;
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}${off}`
+  );
+}
+
+/** Текущий месяц по местным часам, 'ГГГГ-ММ'. Ночью по Москве не отстаёт на день. */
+export function todayMonthKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function toIsoDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');

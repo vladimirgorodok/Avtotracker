@@ -2,7 +2,7 @@
 
 import { financeRepo, insertRow, nowIso, refuelRepo, refs, softDelete, softDeleteWhere, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
 import { autoTripAmount, chargeNoteText } from './calc';
-import { prevMonthKey, todayIso } from './format';
+import { nowLocalIso, prevMonthKey, todayIso } from './format';
 import type { AppSettings, Id, Refueling, Trip, Waybill } from '../types';
 
 /** Пересчитать статус перевозки по её точкам. Все точки выполнены → 'done'. */
@@ -177,7 +177,8 @@ export function quickRefuel(waybillId: Id | null, volume: number, kind: Refuelin
   insertRow('refuelings', {
     id,
     waybill_id: waybillId,
-    date: nowIso(),
+    // Дата по местным часам: у водителя «сегодня» — это его календарь, а не UTC
+    date: nowLocalIso(),
     volume,
     kind,
     station_id: null,

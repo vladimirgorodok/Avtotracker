@@ -5,7 +5,7 @@ import { useApp } from '../store';
 import { clearTable, countRows, dbStats } from '../db/repo';
 import { fileToText, pickFile, type BackupInfo } from '../db/storage';
 import { exportJson, exportPdfReport, exportXlsx, importJson, TABLE_TITLES } from '../lib/backup';
-import { fmtDateTime, monthKey } from '../lib/format';
+import { fmtDateTime, todayMonthKey } from '../lib/format';
 import { documentSummary } from '../lib/documents';
 import { getDb } from '../db';
 import type { TableName } from '../types';
@@ -30,7 +30,7 @@ export default function DataPage() {
   const settings = useApp((s) => s.settings);
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
-  const [month, setMonth] = useState(() => monthKey(new Date().toISOString()));
+  const [month, setMonth] = useState(() => todayMonthKey());
   const [busy, setBusy] = useState('');
   const [overwrite, setOverwrite] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);

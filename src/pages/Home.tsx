@@ -16,7 +16,7 @@ import {
 } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo, updateRow, waybillRepo } from '../db/repo';
-import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../lib/format';
+import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayMonthKey, todayIso } from '../lib/format';
 import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
 import { closeShiftPreview, closeShiftToday, refreshTripStatus } from '../lib/actions';
@@ -100,7 +100,7 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           <Button
             variant={month ? 'soft' : 'primary'}
             icon={month ? 'check' : undefined}
-            onClick={() => setMonth(month ? '' : monthKey(new Date().toISOString()))}
+            onClick={() => setMonth(month ? '' : todayMonthKey())}
           >
             {month ? 'Месяц' : 'Все'}
           </Button>

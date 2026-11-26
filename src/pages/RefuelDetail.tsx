@@ -15,7 +15,7 @@ import {
 import { DocumentsCard } from '../ui/Documents';
 import { useApp } from '../store';
 import { insertRow, refs, refuelRepo, softDelete, uid, updateRow, waybillRepo } from '../db/repo';
-import { fmtDate } from '../lib/format';
+import { fmtDate, nowLocalIso } from '../lib/format';
 import { REFUEL_KINDS, type Refueling } from '../types';
 
 export default function RefuelDetail() {
@@ -36,7 +36,7 @@ export default function RefuelDetail() {
       insertRow('refuelings', {
         id: newId,
         waybill_id: openWaybill?.id ?? '',
-        date: new Date().toISOString(),
+        date: nowLocalIso(),
         volume: 0,
         kind: 'barrel',
         station_id: null,
@@ -105,7 +105,7 @@ export default function RefuelDetail() {
           />
         </Field>
         <Field label="Дата и время" required>
-          <DateTimeInput value={form.date} onChange={(v) => setForm({ ...form, date: v ?? new Date().toISOString() })} />
+          <DateTimeInput value={form.date} onChange={(v) => setForm({ ...form, date: v ?? nowLocalIso() })} />
         </Field>
         <Field label="Объём, л" required>
           <NumberInput value={form.volume} onValue={(v) => setForm({ ...form, volume: v ?? 0 })} steppers step={10} />

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, StatCard, StatGrid, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo } from '../db/repo';
-import { fmtDate, fmtMoney, monthKey, plural } from '../lib/format';
+import { fmtDate, fmtMoney, plural, todayMonthKey } from '../lib/format';
 import { summarizeFinance } from '../lib/calc';
 import { FINANCE_KINDS } from '../types';
 import { SaveBadge } from '../ui/SaveBadge';
@@ -47,7 +47,7 @@ export default function Finance() {
           <Button
             variant={month ? 'soft' : 'primary'}
             icon={month ? 'check' : undefined}
-            onClick={() => setMonth(month ? '' : monthKey(new Date().toISOString()))}
+            onClick={() => setMonth(month ? '' : todayMonthKey())}
           >
             {month ? 'Месяц' : 'Все'}
           </Button>

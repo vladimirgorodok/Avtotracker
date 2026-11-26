@@ -4,7 +4,7 @@ import { dbSync } from '../db';
 import { allSettings, insertRow, nowIso, setSetting, updateRow } from '../db/repo';
 import { saveBinaryFile } from '../db/storage';
 import { DEFAULT_SETTINGS, TABLES, type AppSettings, type TableName } from '../types';
-import { fmtDate, fmtMoney, fmtNumber, monthLabel } from './format';
+import { fmtDate, fmtMoney, fmtNumber, monthLabel, todayIso } from './format';
 import { sameWaybill, summarizeFinance, summarizeTrip, summarizeWaybill } from './calc';
 import { normalizeName, SAME_BY_NAME } from './names';
 import { financeRepo, refs, refuelRepo, tripRepo, waybillRepo } from '../db/repo';
@@ -37,7 +37,7 @@ export function dumpAll(): Record<string, Record<string, unknown>[]> {
 }
 
 function stamp(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 /* ------------------------------------------------------------------ */

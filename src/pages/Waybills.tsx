@@ -4,7 +4,7 @@ import { Avatar, Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar
 import { useApp } from '../store';
 import { refs, waybillRepo } from '../db/repo';
 import { summarizeWaybill } from '../lib/calc';
-import { fmtDate, fmtMoney, fmtNumber, monthKey, plural } from '../lib/format';
+import { fmtDate, fmtMoney, fmtNumber, monthKey, todayMonthKey, plural } from '../lib/format';
 import { SaveBadge } from '../ui/SaveBadge';
 
 export default function Waybills() {
@@ -43,7 +43,7 @@ export default function Waybills() {
           <Button
             variant={month ? 'soft' : 'primary'}
             icon={month ? 'check' : undefined}
-            onClick={() => setMonth(month ? '' : monthKey(new Date().toISOString()))}
+            onClick={() => setMonth(month ? '' : todayMonthKey())}
           >
             {month ? 'Месяц' : 'Все'}
           </Button>

@@ -8,12 +8,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Field, Icon, Page, Select } from '../ui/components';
-import { PictureSearch } from '../ui/PictureSearch';
+import { CatalogModal, PictureSearch } from '../ui/PictureSearch';
 import { useApp } from '../store';
 import { refs, updateRow } from '../db/repo';
 import { saveBinaryFile } from '../db/storage';
 import { dataUrlToBytes } from '../lib/files';
-import { PICTURE_KINDS, kindLabel, type PictureHit, type PictureKind } from '../lib/pictures';
+import { PICTURE_KINDS, kindLabel, pictureToDataUrl, type PictureHit, type PictureKind } from '../lib/pictures';
+import { TRACE_REPO } from '../lib/tracelogos';
 import type { TableName } from '../types';
 
 /** Где лежат картинки: таблица, поле и как показать запись */
@@ -51,6 +52,7 @@ export default function PictureFinder() {
   const revision = useApp((s) => s.revision);
   const [kind, setKind] = useState<PictureKind>('company');
   const [targetId, setTargetId] = useState<string | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const targets = useMemo<Target[]>(() => {
@@ -94,6 +96,21 @@ export default function PictureFinder() {
     setTargetId(null);
     // Свою картинку ставим из карточки записи — там её сразу видно и можно поправить
     if (!hit) navigate(cardPath(kind, id));
+  }
+
+  /**
+   * Картинку из каталога сперва скачиваем и пережимаем — в базу она уходит
+   * готовой, как и логотипы из прочих источников. Если сеть подвела, оставляем
+   * ссылку, чтобы запись не осталась вовсе без картинки.
+   */
+  async function applyFromCatalog(hit: PictureHit) {
+    try {
+      const value = await pictureToDataUrl(hit);
+      apply(value, hit);
+    } catch {
+      apply(hit.url, hit);
+      notify('Картинку не удалось скачать — сохранена ссылка на неё', 'info');
+    }
   }
 
   return (
@@ -153,6 +170,9 @@ export default function PictureFinder() {
           <Button icon="pin" onClick={() => navigate('/refs')}>
             Справочники
           </Button>
+          <Button variant="primary" icon="github" onClick={() => setCatalogOpen(true)}>
+            Все картинки каталога
+          </Button>
         </div>
       </Card>
 
@@ -180,11 +200,29 @@ export default function PictureFinder() {
           фирменные логотипы), Викисклад — настоящие логотипы и фотографии, а при известном адресе фирмы —
           значки её сайта. ИИ-помощник, если он настроен, готовит варианты названия: убирает и добавляет
           «ООО», «АО» и подобные формы, пишет название латиницей и подсказывает адрес сайта. Без ключа
-          поиск тоже работает — по названию как есть. Если ничего не подошло, кнопка «Из файла» поставит
-          вашу картинку: на этом экране она сразу уйдёт в запись и откроется её карточка, а в карточке
+          поиск тоже работает — по названию как есть. Кнопка «Поиск в каталоге» ищет в каталоге логотипов
+          Trace Logos (там российские фирмы, банки и марки), а «Все картинки каталога» открывает его
+          целиком — по папкам и подборкам («Логотипы российских банков», «Маркетплейсы», «Нейросети» и
+          другие), где удобно выбирать глазами. Если ничего не подошло, кнопка «Из файла» поставит вашу
+          картинку: на этом экране она сразу уйдёт в запись и откроется её карточка, а в карточке
           справочника встанет в поле логотипа и сохранится вместе с записью.
         </div>
+        <div className="small muted">
+          Каталог:{' '}
+          <a href={TRACE_REPO} target="_blank" rel="noreferrer">
+            {TRACE_REPO.replace('https://', '')}
+          </a>
+        </div>
       </Card>
+
+      <CatalogModal
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        onPick={(hit) => {
+          setCatalogOpen(false);
+          void applyFromCatalog(hit);
+        }}
+      />
     </Page>
   );
 }

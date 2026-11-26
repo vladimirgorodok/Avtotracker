@@ -19,7 +19,7 @@ import { useApp } from '../store';
 import { insertRow, refs, refuelRepo, softDelete, tripRepo, uid, updateRow, waybillRepo } from '../db/repo';
 import { autoFillForNewWaybill, sameWaybill, summarizeWaybill } from '../lib/calc';
 import { closeWaybill, reopenWaybill, vehicleTitle } from '../lib/actions';
-import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, todayIso } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, nowLocalIso, todayIso } from '../lib/format';
 import { refuelKindLabel } from '../types';
 import { TripCard } from './Home';
 import { DocumentsCard } from '../ui/Documents';
@@ -166,7 +166,7 @@ export default function WaybillDetail() {
     insertRow('refuelings', {
       id: newId,
       waybill_id: form!.id,
-      date: new Date().toISOString(),
+      date: nowLocalIso(),
       volume: 0,
       kind: 'barrel',
       station_id: null,

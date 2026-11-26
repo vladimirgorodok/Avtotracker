@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { refs, refuelRepo } from '../db/repo';
-import { fmtDateTime, fmtNumber, monthKey, plural } from '../lib/format';
+import { fmtDateTime, fmtNumber, monthKey, todayMonthKey, plural } from '../lib/format';
 import { refuelKindLabel } from '../types';
 import { SaveBadge } from '../ui/SaveBadge';
 
@@ -42,7 +42,7 @@ export default function Refuelings() {
           <Button
             variant={month ? 'soft' : 'primary'}
             icon={month ? 'check' : undefined}
-            onClick={() => setMonth(month ? '' : monthKey(new Date().toISOString()))}
+            onClick={() => setMonth(month ? '' : todayMonthKey())}
           >
             {month ? 'Месяц' : 'Все'}
           </Button>

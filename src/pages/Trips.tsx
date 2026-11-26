@@ -4,7 +4,7 @@ import { Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar, Tabs }
 import { useApp } from '../store';
 import { refs, tripRepo, waybillRepo } from '../db/repo';
 import { summarizeTrip, sortTrips } from '../lib/calc';
-import { monthKey, plural } from '../lib/format';
+import { monthKey, todayMonthKey, plural } from '../lib/format';
 import { TripCard } from './Home';
 import { SaveBadge } from '../ui/SaveBadge';
 
@@ -59,7 +59,7 @@ export default function Trips() {
           <Button
             variant={month ? 'soft' : 'primary'}
             icon={month ? 'check' : undefined}
-            onClick={() => setMonth(month ? '' : monthKey(new Date().toISOString()))}
+            onClick={() => setMonth(month ? '' : todayMonthKey())}
           >
             {month ? 'Месяц' : 'Все'}
           </Button>

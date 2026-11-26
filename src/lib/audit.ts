@@ -26,7 +26,7 @@ import { summarizeTrip, summarizeWaybill, type TripSummary, type WaybillTotals }
 import { useApp } from '../store';
 import { deleteDocument } from './documents';
 import { deleteBlob, getBlob, putBlob } from './files';
-import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural } from './format';
+import { fmtDate, fmtDateTime, fmtMoney, fmtNumber, plural, todayIso } from './format';
 import { normalizeName, plainName } from './names';
 import type { FinanceOp, Trip, TripPoint, Waybill } from '../types';
 
@@ -759,7 +759,7 @@ function older(today: string, iso: string): boolean {
  */
 function empties(): Finding[] {
   const out: Finding[] = [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
 
   const emptyWaybills = dbSync().all<Record<string, unknown>>(
     `SELECT w.* FROM waybills w

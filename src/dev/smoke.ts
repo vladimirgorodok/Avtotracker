@@ -136,7 +136,7 @@ async function main() {
   const { closeWaybill, chargeTrip } = await import('../lib/actions');
   const { dumpAll, importJson } = await import('../lib/backup');
   const { buildWaybillPdf, buildMonthReportPdf } = await import('../lib/backup');
-  const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel, payMonthChoices } = await import('../lib/format');
+  const { todayIso, fmtDate, fmtDateTime, parseCoords, monthLabel, payMonthChoices, todayMonthKey, nowLocalIso } = await import('../lib/format');
   const { documentSummary, listDocuments: listDocs, countDocuments: countDocs, renameDocument, deleteDocument } = await import('../lib/documents');
   const { audit, auditText, auditSummary, applyFinding, undoLastFix, lastAppliedFix, loadHidden, saveHidden } = await import('../lib/audit');
 
@@ -431,6 +431,20 @@ async function main() {
   }
   eq('дата без времени — без лишних часов', fmtDateTime('2026-11-11'), '11.11.2026');
   eq('дата со временем показывает часы', fmtDateTime('2026-11-11T15:37:00'), '11.11.2026, 15:37');
+  // Даты по местным часам: ночью по Москве UTC ещё «вчера», а у водителя уже сегодня
+  {
+    const local = new Date();
+    const expectDay = `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+    eq('дата по местным часам', nowLocalIso().slice(0, 10), expectDay);
+    eq('сегодняшняя дата — тоже местная', todayIso(), expectDay);
+    eq('текущий месяц по местным часам', todayMonthKey(), expectDay.slice(0, 7));
+    check('разбор местной отметки даёт тот же момент', Math.abs(new Date(nowLocalIso()).getTime() - Date.now()) < 5000);
+    // Ночная разница видна на заведомо известном моменте: 21:30 UTC = 00:30 в Москве
+    const lateUtc = new Date('2026-11-25T21:30:00.000Z');
+    eq('ночью по Москве дата — уже следующий день', nowLocalIso(lateUtc).slice(0, 10), '2026-11-26');
+    eq('в этот же миг UTC ещё во вчерашнем дне (отсюда и была ошибка)', lateUtc.toISOString().slice(0, 10), '2026-11-25');
+    eq('месяц переключается по местным часам', todayMonthKey(new Date('2026-11-30T21:30:00.000Z')), '2026-12');
+  }
 
   console.log('\n14. ИИ-помощник');
   const {
@@ -4045,6 +4059,132 @@ async function main() {
     const wbSource = readFileSync('src/pages/WaybillDetail.tsx', 'utf8');
     check('в листе кнопка закрытия — плавающая в углу', wbSource.includes('className="wb-fab"'));
     check('плавающая кнопка в правом нижнем углу', css.includes('.wb-fab') && css.includes('bottom: calc(var(--nav-h) + 16px)'));
+  }
+
+  console.log('\n39. Каталог Trace Logos: кнопка GitHub, поиск по контексту, все картинки');
+  {
+    const { readFileSync } = await import('node:fs');
+    const trace = await import('../lib/tracelogos');
+
+    // Разбор каталога: чужие данные не ломают показ, заглушки не берём
+    const catalog = trace.parseCatalog({
+      logos: [
+        {
+          name: 'Сбер',
+          name_en: 'Sber',
+          tags: 'сбер сбербанк sber sberbank sber.ru',
+          svgUrl: 'https://trace-logos.ru/assets/logos/svgs/sber.svg',
+          pngUrl: null,
+          categorySlug: 'bank',
+          categoryName: 'Банки',
+        },
+        {
+          name: 'Газпромбанк',
+          name_en: 'Gazprombank',
+          tags: 'газпромбанк газпром gazprombank',
+          svgUrl: 'https://trace-logos.ru/assets/logos/svgs/gazprombank.svg',
+          pngUrl: null,
+          categorySlug: 'bank',
+          categoryName: 'Банки',
+        },
+        {
+          name: 'Детский мир',
+          tags: 'детский мир detmir',
+          svgUrl: 'https://trace-logos.ru/assets/logos/svgs/placeholder.svg',
+          pngUrl: null,
+          comingSoon: true,
+          categorySlug: 'market',
+          categoryName: 'Маркетплейсы и ритейл',
+        },
+        { мусор: true },
+      ],
+    });
+    eq('каталог разобран', catalog.length, 4);
+    eq('имя марки прочитано', catalog[0]?.name, 'Сбер');
+    eq('категория прочитана', catalog[0]?.category, 'Банки');
+    check('заглушка помечена и без картинки', catalog[2]?.soon === true && catalog[2]?.svg === '');
+    check('картинка марки — SVG', (catalog[0]?.svg ?? '').endsWith('sber.svg'));
+    check('превью каталога — уменьшенный PNG', trace.logoThumb(catalog[0]!).endsWith('/assets/logos/search/sber.png'));
+
+    // Поиск по контексту: «Газпром» находит Газпромбанк, форма «ООО» не мешает
+    const find = (q: string) =>
+      trace.searchCatalog(catalog, q, 5).map((l) => l.name);
+    check('по названию находится марка', find('Сбер').includes('Сбер'));
+    check('частичное совпадение тоже годится', find('Газпром').includes('Газпромбанк'));
+    eq('организационная форма не мешает', find('ООО «Сбер»')[0], 'Сбер');
+    eq('английское имя тоже ищется', find('Gazprombank')[0], 'Газпромбанк');
+    eq('заглушка в выдачу не попадает', find('Детский мир').length, 0);
+    eq('чужая запись не сломала поиск', find('мусор').length, 0);
+
+    // Организационная форма не должна цепляться подстрокой: раньше «АО Газпром»
+    // находил что угодно со слогом «ао» внутри слова (например, «ксиаоми»)
+    const tricky = trace.parseCatalog({
+      logos: [
+        { name: 'Сяоми', tags: 'ксиаоми xiaomi смартфоны', svgUrl: 'https://trace-logos.ru/assets/logos/svgs/x.svg' },
+      ],
+    });
+    eq('слог «ао» в слове не считается совпадением', trace.searchCatalog(tricky, 'АО Газпром', 5).length, 0);
+    eq('случайное слабое совпадение отсекает порог', trace.searchCatalog(tricky, 'ксиаоми').length, 1);
+
+    // Разделы каталога: счёт по разделам и весь список
+    const cats = trace.catalogCategories(catalog);
+    check('раздел «Банки» собран', cats.some((c) => c.slug === 'bank' && c.count === 2));
+    eq('все марки каталога видны (заглушки и пустышки отсеяны)', trace.catalogAll(catalog).length, 2);
+    eq('марки раздела идут по алфавиту', trace.catalogByCategory(catalog, 'bank')[0]?.name, 'Газпромбанк');
+
+    // Марка каталога превращается в плитку выбора как у остальных источников
+    const hit = trace.toHit(catalog[0]!);
+    eq('плитка помечена как логотип', hit.kind, 'logo');
+    check('в подписи виден каталог', hit.source.includes('Trace Logos'));
+    check('сохраняется полная картинка', hit.url.endsWith('sber.svg'));
+    check('у плитки есть адрес каталога', hit.site === 'https://trace-logos.ru');
+
+    // Подборки каталога — готовые «папки»: банки, нейросети и т.п.
+    const cols = trace.parseCollections({
+      collections: [
+        {
+          slug: 'russian-banks',
+          title: 'Логотипы российских банков',
+          icon: '🏦',
+          match: ['сбер', 'газпромбанк'],
+        },
+        { slug: 'пусто', title: 'Пустая', match: [] },
+        { мусор: true },
+      ],
+    });
+    eq('подборки разобраны', cols.length, 1);
+    eq('название подборки прочитано', cols[0]?.title, 'Логотипы российских банков');
+    eq('значок подборки прочитан', cols[0]?.icon, '🏦');
+    const bankCol = cols[0]!;
+    check('подборка набирает марки по словам', trace.collectionLogos(catalog, bankCol).map((l) => l.name).join(',') === 'Газпромбанк,Сбер');
+    check('пустая подборка ничего не цепляет', trace.collectionLogos(catalog, { slug: 'x', title: 'x', icon: '', match: ['ао'] }).length <= 2);
+
+    // Кнопка GitHub стоит и в подборе картинки, и на экране «Значки и логотипы»
+    const picSource = readFileSync('src/ui/PictureSearch.tsx', 'utf8');
+    check('в подборе картинки есть кнопка GitHub', picSource.includes('icon="github"'));
+    check('в подборе картинки есть поиск по каталогу', picSource.includes('Поиск в каталоге'));
+    check('в подборе картинки есть окно всех картинок', picSource.includes('<CatalogModal'));
+    check('окно всех картинок показывает сетку', picSource.includes('export function CatalogModal'));
+    check('большой каталог рисуется порциями', picSource.includes('Показать ещё'));
+    check('в окне каталога есть просмотр по папкам', picSource.includes('Папки') && picSource.includes('folder-list'));
+    check('подборки каталога — отдельные папки', picSource.includes('Подборки каталога') && picSource.includes('collectionLogos'));
+    check('подборки каталога скачиваются один раз', readFileSync('src/lib/tracelogos.ts', 'utf8').includes('let collectionsCache'));
+    const finderSource = readFileSync('src/pages/PictureFinder.tsx', 'utf8');
+    check('на экране «Значки и логотипы» кнопка GitHub', finderSource.includes('icon="github"'));
+    check('кнопка открывает окно всех картинок', finderSource.includes('setCatalogOpen(true)'));
+    const traceSource = readFileSync('src/lib/tracelogos.ts', 'utf8');
+    check(
+      'каталог скачивается один раз и живёт в памяти',
+      traceSource.includes('let cache: TraceLogo[] | null = null') &&
+        traceSource.includes('let loading: Promise<TraceLogo[]> | null = null'),
+    );
+    check('каталог берём с сайта, а GitHub — запасной путь', traceSource.includes("`${SITE}/logos.json`") && traceSource.includes("`${RAW}/logos.json`"));
+    const compSource = readFileSync('src/ui/components.tsx', 'utf8');
+    check('есть фирменный знак GitHub', compSource.includes('github: ('));
+    const githubBlock = compSource.slice(compSource.indexOf('github: ('), compSource.indexOf('github: (') + 200);
+    check('знак GitHub виден в тёмной теме (залит цветом текста)', githubBlock.includes('fill="currentColor"'));
+    const css = readFileSync('src/styles.css', 'utf8');
+    check('блок каталога выделен стилем', css.includes('.trace-search'));
   }
 
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
