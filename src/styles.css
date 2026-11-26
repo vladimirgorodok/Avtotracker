@@ -23,6 +23,8 @@
   --err-soft: #fbe5e8;
   --info: #2b5fc4;
   --info-soft: #e4edfc;
+  /* Оттенок каждой второй строки списка — тише фона карточки */
+  --stripe: #f5f8fc;
   --grad-brand: linear-gradient(135deg, #0f4c81 0%, #1e88c7 100%);
   --grad-deep: linear-gradient(155deg, #061a2e 0%, #0f4c81 45%, #1e88c7 100%);
   --grad-accent: linear-gradient(135deg, #d98314 0%, #f0b654 100%);
@@ -68,6 +70,7 @@
   --err-soft: #35191e;
   --info: #7aa9f0;
   --info-soft: #15233a;
+  --stripe: #172433;
   --grad-brand: linear-gradient(135deg, #2b7cb5 0%, #5fbdf0 100%);
   --grad-deep: linear-gradient(155deg, #061a2c 0%, #0d3a5c 50%, #1e6f9e 100%);
   --grad-accent: linear-gradient(135deg, #c9791a 0%, #f0b654 100%);
@@ -822,6 +825,41 @@ button.save-badge {
   align-items: center;
 }
 
+/* Автомобиль и смена: название тише, номер — заметнее */
+.veh-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.veh-plate {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Кнопка закрытия смены — в правом нижнем углу карточки листа */
+.wb-card {
+  position: relative;
+}
+
+.wb-card .shift-finish {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+}
+
+.wb-card .grid-2.tight {
+  padding-bottom: 6px;
+  padding-right: 62px;
+}
+
 /* Кнопка «Закрыть смену» в карточке листа: заметная пиктограмма без подписи */
 .shift-finish {
   flex: none;
@@ -841,6 +879,37 @@ button.save-badge {
 .shift-finish:active {
   transform: translateY(1px);
   box-shadow: 0 3px 10px rgba(31, 143, 80, 0.3);
+}
+
+/* Плавающая кнопка закрытия путевого листа — в правом нижнем углу экрана */
+.wb-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--nav-h) + 16px);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 18px;
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  background: linear-gradient(160deg, #34b46a, #1f8f50);
+  box-shadow: 0 10px 24px rgba(31, 143, 80, 0.4);
+  cursor: pointer;
+}
+
+.wb-fab:active {
+  transform: translateY(1px);
+  box-shadow: 0 5px 14px rgba(31, 143, 80, 0.34);
+}
+
+/* На планшете меню-рельса слева, уводим кнопку от неё */
+[data-view='tablet'] .wb-fab {
+  right: 24px;
+  bottom: 24px;
 }
 
 /* Значения в карточке листа поджаты — рядом с ними живёт кнопка закрытия */
@@ -925,12 +994,69 @@ button.save-badge {
   color: inherit;
 }
 
+/* Лёгкий оттенок через строку — глазу проще вести список, и записи не сливаются */
+.list-item:nth-child(even) {
+  background: var(--stripe);
+}
+
 .list-item:last-child {
   border-bottom: none;
 }
 
 .list-item:active {
   background: var(--brand-soft);
+}
+
+/* Тональные строки: тип записи виден по цвету, как у плашек-итогов */
+.list-item.tone-charge {
+  background: linear-gradient(90deg, var(--ok-soft) 0%, var(--stripe) 60%);
+  box-shadow: inset 4px 0 0 var(--ok);
+}
+
+.list-item.tone-payment {
+  background: linear-gradient(90deg, var(--info-soft) 0%, var(--stripe) 60%);
+  box-shadow: inset 4px 0 0 var(--info);
+}
+
+.list-item.tone-accent {
+  background: linear-gradient(90deg, var(--accent-soft) 0%, var(--stripe) 60%);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.list-item.tone-err {
+  background: linear-gradient(90deg, var(--err-soft) 0%, var(--stripe) 60%);
+  box-shadow: inset 4px 0 0 var(--err);
+}
+
+/* Цветные значки: пиктограмма отвечает за смысл, цвет — за тип */
+.avatar.avatar-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.avatar.avatar-info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.avatar.avatar-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.avatar.avatar-err {
+  background: var(--err-soft);
+  color: var(--err);
+}
+
+.avatar.avatar-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.avatar.avatar-brand {
+  background: var(--brand-soft);
+  color: var(--brand);
 }
 
 .avatar {
@@ -945,6 +1071,13 @@ button.save-badge {
   flex: none;
   overflow: hidden;
   border: 1px solid var(--line);
+}
+
+/* Значок всегда по размеру плашки, а не мелкой точкой внутри неё */
+.avatar .icon,
+.avatar svg {
+  width: 62%;
+  height: 62%;
 }
 
 .avatar img {
@@ -1801,6 +1934,15 @@ body {
   color: var(--brand);
   border-color: transparent;
   box-shadow: inset 0 0 0 1px rgba(var(--brand-rgb), 0.22);
+}
+
+/* Цветной значок: ободок в тон пиктограммы, а не всегда синий */
+.avatar.avatar-ok,
+.avatar.avatar-info,
+.avatar.avatar-warn,
+.avatar.avatar-err,
+.avatar.avatar-accent {
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 /* Предупреждения и подсказки — с цветной полосой слева */

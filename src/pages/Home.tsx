@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -117,30 +118,30 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
 
         <Card
           title="Автомобиль и смена"
-          actions={<Icon name="car" />}
+          actions={<Icon name="truck" />}
           className="clickable"
           onClick={() => navigate('/vehicles')}
         >
           {vehicle ? (
             <div className="stack-sm">
               <div className="row">
-                <span className="avatar">
-                  {vehicle.logo ? <img src={vehicle.logo} alt="" /> : <Icon name="car" />}
-                </span>
+                <Avatar
+                  tone="brand"
+                  logo={vehicle.logo}
+                  icon={vehicle.kind === 'tractor' ? 'truck' : 'box'}
+                />
                 <div className="li-main">
-                  <div className="li-title">{vehicle.name}</div>
-                  <div className="li-sub">{vehicle.plate || 'Номер не указан'}</div>
+                  <div className="veh-name">{vehicle.name}</div>
+                  <div className="veh-plate">{vehicle.plate || 'Номер не указан'}</div>
                 </div>
                 <Badge>Тягач</Badge>
               </div>
               {trailer ? (
                 <div className="row">
-                  <span className="avatar">
-                    {trailer.logo ? <img src={trailer.logo} alt="" /> : <Icon name="box" />}
-                  </span>
+                  <Avatar tone="accent" logo={trailer.logo} icon="box" />
                   <div className="li-main">
-                    <div className="li-title">{trailer.name}</div>
-                    <div className="li-sub">{trailer.plate || 'Номер не указан'}</div>
+                    <div className="veh-name">{trailer.name}</div>
+                    <div className="veh-plate">{trailer.plate || 'Номер не указан'}</div>
                   </div>
                   <Badge>Прицеп</Badge>
                 </div>
@@ -155,25 +156,11 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           <Card
             title="Открытый путевой лист"
             actions={<Badge tone="warn">Открыт</Badge>}
-            className="clickable"
+            className="clickable wb-card"
             onClick={() => navigate(`/waybills/${data.openSummary!.waybill.id}`)}
           >
-            <div className="row">
-              <div className="grow" style={{ fontWeight: 650, fontSize: 17 }}>
-                {fmtDate(data.openSummary.waybill.date_out)} — открыт
-              </div>
-              <button
-                type="button"
-                className="shift-finish"
-                title="Закрыть смену"
-                aria-label="Закрыть смену"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCloseConfirm(true);
-                }}
-              >
-                <Icon name="flag" size={22} />
-              </button>
+            <div style={{ fontWeight: 650, fontSize: 17 }}>
+              {fmtDate(data.openSummary.waybill.date_out)} — открыт
             </div>
             <div className="grid-2 tight">
               <div className="kv">
@@ -195,6 +182,19 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
                 <div className="kv-value mono">{fmtNumber(data.openSummary.refueled)} л</div>
               </div>
             </div>
+            {/* Кнопка закрытия — в правом нижнем углу карточки, как просил водитель */}
+            <button
+              type="button"
+              className="shift-finish"
+              title="Закрыть смену"
+              aria-label="Закрыть смену"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCloseConfirm(true);
+              }}
+            >
+              <Icon name="flag" size={22} />
+            </button>
           </Card>
         ) : (
           <Card title="Путевой лист">
@@ -291,9 +291,7 @@ export function TripCard({ summary, onOpen }: { summary: TripSummary; onOpen: ()
   return (
     <Card className="clickable" onClick={onOpen}>
       <div className="card-head">
-        <span className="avatar">
-          <Icon name="route" />
-        </span>
+        <Avatar tone={statusTone} icon="route" />
         <div className="li-main">
           <div className="li-title">
             {fmtDate(summary.dateLoad ?? wb?.date_out)} · {summary.title}
@@ -374,9 +372,7 @@ export function NextPointCard({
       }
     >
       <div className="row">
-        <span className="avatar">
-          {company?.logo ? <img src={company.logo} alt="" /> : <Icon name="box" />}
-        </span>
+        <Avatar tone={point.kind === 'load' ? 'info' : 'err'} logo={company?.logo} icon="box" />
         <div className="li-main">
           <div className="li-title">{place?.name ?? 'Место не выбрано'}</div>
           <div className="li-sub">{company?.name ?? 'Фирма не указана'}</div>

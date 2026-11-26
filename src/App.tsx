@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { getDb, setSaveErrorHandler } from './db';
 import { applyStatusBarTheme, applyTheme, applyViewMode, useApp } from './store';
-import { Confirm, Icon, type IconName, Modal, Toasts } from './ui/components';
+import { Avatar, Confirm, Icon, type IconName, Modal, Toasts } from './ui/components';
 import { QuickMoneyModal, QuickRefuelModal } from './ui/QuickActions';
 import { Splash } from './ui/Splash';
 import { StartScreen } from './ui/StartScreen';
@@ -185,65 +185,51 @@ function CreateSheet({
   return (
     <Modal open={open} title="Действие" onClose={onClose}>
       <div className="list">
-        <button className="list-item" onClick={newWaybill}>
-          <span className="avatar">
-            <Icon name="doc" />
-          </span>
+        <button className="list-item tone-accent" onClick={newWaybill}>
+          <Avatar tone="warn" icon="doc" />
           <span className="li-main">
             <span className="li-title">Путевой лист</span>
             <span className="li-sub">Дата выезда, одометр, топливо</span>
           </span>
         </button>
-        <button className="list-item" onClick={newTrip}>
-          <span className="avatar">
-            <Icon name="route" />
-          </span>
+        <button className="list-item tone-payment" onClick={newTrip}>
+          <Avatar tone="info" icon="route" />
           <span className="li-main">
             <span className="li-title">Перевозка</span>
             <span className="li-sub">Маршрут из точек погрузки и выгрузки</span>
           </span>
         </button>
-        <button className="list-item" onClick={onQuickRefuel}>
-          <span className="avatar">
-            <Icon name="fuel" />
-          </span>
+        <button className="list-item tone-charge" onClick={onQuickRefuel}>
+          <Avatar tone="ok" icon="fuel" />
           <span className="li-main">
             <span className="li-title">Заправился</span>
             <span className="li-sub">Быстро: только объём, источник как в прошлый раз</span>
           </span>
         </button>
-        <button className="list-item" onClick={onQuickMoney}>
-          <span className="avatar">
-            <Icon name="money" />
-          </span>
+        <button className="list-item tone-payment" onClick={onQuickMoney}>
+          <Avatar tone="info" icon="money" />
           <span className="li-main">
             <span className="li-title">Пришли деньги</span>
             <span className="li-sub">Быстро: сумма и отчисление в семью</span>
           </span>
         </button>
-        <button className="list-item" onClick={newFinance}>
-          <span className="avatar">
-            <Icon name="money" />
-          </span>
+        <button className="list-item tone-err" onClick={newFinance}>
+          <Avatar tone="err" icon="receipt" />
           <span className="li-main">
             <span className="li-title">Финансовая операция</span>
             <span className="li-sub">Поступило или начислено</span>
           </span>
         </button>
-        <button className="list-item" onClick={newPlace}>
-          <span className="avatar">
-            <Icon name="pin" />
-          </span>
+        <button className="list-item tone-accent" onClick={newPlace}>
+          <Avatar tone="warn" icon="pin" />
           <span className="li-main">
             <span className="li-title">Место в справочник</span>
             <span className="li-sub">Адрес, координаты, контакт</span>
           </span>
         </button>
         <div className="divider" />
-        <button className="list-item" onClick={onExit}>
-          <span className="avatar">
-            <Icon name="power" />
-          </span>
+        <button className="list-item tone-err" onClick={onExit}>
+          <Avatar tone="err" icon="power" />
           <span className="li-main">
             <span className="li-title">Закрыть приложение</span>
             <span className="li-sub">Сохранение, обмен с облаком, выход</span>

@@ -329,11 +329,7 @@ export default function WaybillDetail() {
           Печать путевого листа (PDF)
         </Button>
 
-        {form.status === 'open' ? (
-          <Button variant="success" block icon="check" onClick={doClose}>
-            Закрыть путевой лист
-          </Button>
-        ) : (
+        {form.status === 'open' ? null : (
           <Button variant="ghost" block icon="refresh" onClick={doReopen}>
             Открыть лист заново
           </Button>
@@ -411,6 +407,20 @@ export default function WaybillDetail() {
       <Card>
         <DocumentsCard ownerTable="waybills" ownerId={form.id} title="Документы листа" />
       </Card>
+
+      {/* Закрытие листа — плавающей кнопкой в правом нижнем углу экрана */}
+      {form.status === 'open' ? (
+        <button
+          type="button"
+          className="wb-fab"
+          title="Закрыть путевой лист"
+          aria-label="Закрыть путевой лист"
+          onClick={doClose}
+        >
+          <Icon name="flag" size={24} />
+          <span>Закрыть</span>
+        </button>
+      ) : null}
 
       <Confirm
         open={confirmDelete}

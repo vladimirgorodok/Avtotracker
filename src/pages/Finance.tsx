@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, StatCard, StatGrid, Tabs } from '../ui/components';
+import { Avatar, Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, StatCard, StatGrid, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo } from '../db/repo';
 import { fmtDate, fmtMoney, monthKey, plural } from '../lib/format';
@@ -111,10 +111,15 @@ export default function Finance() {
               const from = refs.place(tripPoints[0]?.place_id ?? null)?.name ?? '';
               const to = refs.place(tripPoints[tripPoints.length - 1]?.place_id ?? null)?.name ?? '';
               return (
-                <button key={o.id} className="list-item" onClick={() => navigate(`/finance/${o.id}`)}>
-                  <span className="avatar">
-                    <Icon name={o.kind === 'charge' ? 'money' : 'check'} />
-                  </span>
+                <button
+                  key={o.id}
+                  className={`list-item ${o.kind === 'charge' ? 'tone-charge' : 'tone-payment'}`}
+                  onClick={() => navigate(`/finance/${o.id}`)}
+                >
+                  <Avatar
+                    tone={o.kind === 'charge' ? 'ok' : 'info'}
+                    icon={o.kind === 'charge' ? 'receipt' : 'money'}
+                  />
                   <span className="li-main">
                     <span className="li-title">
                       {label} · {fmtMoney(o.amount, settings.currency)}

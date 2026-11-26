@@ -405,6 +405,30 @@ export function IconButton({ icon, ...rest }: { icon: IconName } & React.ButtonH
   );
 }
 
+export type AvatarTone = 'brand' | 'ok' | 'info' | 'warn' | 'err' | 'accent';
+
+/**
+ * Цветной значок строки: пиктограмма по смыслу, цвет — по типу записи.
+ * Логотип, если он есть, показывается вместо пиктограммы.
+ */
+export function Avatar({
+  tone = 'brand',
+  logo,
+  icon,
+  children,
+}: {
+  tone?: AvatarTone;
+  logo?: string | null;
+  icon?: IconName;
+  children?: React.ReactNode;
+}) {
+  return (
+    <span className={`avatar avatar-${tone}`}>
+      {children ?? (logo ? <img src={logo} alt="" /> : icon ? <Icon name={icon} /> : null)}
+    </span>
+  );
+}
+
 export function Badge({
   children,
   tone = 'neutral',
@@ -681,7 +705,10 @@ export type IconName =
   | 'eye'
   | 'power'
   | 'family'
-  | 'flag';
+  | 'flag'
+  | 'truck'
+  | 'receipt'
+  | 'yadisk';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   back: <path d="M15 5l-7 7 7 7" />,
@@ -725,6 +752,30 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M5 21V4" />
       <path d="M5 4h12l-3 4 3 4H5z" />
+    </>
+  ),
+  // Фура: кабина с прицепом — узнаётся с первого взгляда
+  truck: (
+    <>
+      <path d="M2 7h11v10H2z" />
+      <path d="M13 10h4l3 3v4h-7z" />
+      <circle cx="6.4" cy="17.6" r="1.7" />
+      <circle cx="16.3" cy="17.6" r="1.7" />
+    </>
+  ),
+  // Начисление: документ-квитанция с отрывным низом
+  receipt: (
+    <>
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
+      <path d="M9 8h6M9 12h6" />
+    </>
+  ),
+  // Фирменный знак Яндекс Диска: красный круг с диском
+  yadisk: (
+    <>
+      <circle cx="12" cy="12" r="10.5" fill="#FC3F1D" stroke="none" />
+      <circle cx="12" cy="12" r="5" fill="none" stroke="#ffffff" strokeWidth="2.4" />
+      <circle cx="12" cy="12" r="1.7" fill="#ffffff" stroke="none" />
     </>
   ),
 };

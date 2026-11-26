@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  Avatar,
   Button,
   Card,
   Confirm,
@@ -111,10 +112,8 @@ export default function Refs() {
             {visibleCompanies.map((c) => {
               const placesCount = countRows('places', 'company_id = ?', [c.id]);
               return (
-                <button key={c.id} className="list-item" onClick={() => setEditor({ kind: 'companies', id: c.id })}>
-                  <span className="avatar">
-                    {c.logo ? <img src={c.logo} alt="" /> : <Icon name="box" />}
-                  </span>
+                <button key={c.id} className="list-item tone-payment" onClick={() => setEditor({ kind: 'companies', id: c.id })}>
+                  <Avatar tone="info" logo={c.logo} icon="box" />
                   <span className="li-main">
                     <span className="li-title">{c.name}</span>
                     <span className="li-sub">
@@ -137,10 +136,8 @@ export default function Refs() {
         ) : (
           <div className="list">
             {visiblePlaces.map((p) => (
-              <button key={p.id} className="list-item" onClick={() => setEditor({ kind: 'places', id: p.id })}>
-                <span className="avatar">
-                  <Icon name="pin" />
-                </span>
+              <button key={p.id} className="list-item tone-accent" onClick={() => setEditor({ kind: 'places', id: p.id })}>
+                <Avatar tone="warn" icon="pin" />
                 <span className="li-main">
                   <span className="li-title">{p.name}</span>
                   <span className="li-sub">
@@ -162,10 +159,8 @@ export default function Refs() {
         ) : (
           <div className="list">
             {visibleCargo.map((c) => (
-              <button key={c.id} className="list-item" onClick={() => setEditor({ kind: 'cargo', id: c.id })}>
-                <span className="avatar">
-                  {c.icon ? <img src={c.icon} alt="" /> : <Icon name="box" />}
-                </span>
+              <button key={c.id} className="list-item tone-charge" onClick={() => setEditor({ kind: 'cargo', id: c.id })}>
+                <Avatar tone="ok" logo={c.icon} icon="box" />
                 <span className="li-main">
                   <span className="li-title">{c.name}</span>
                   <span className="li-sub">Груз</span>
@@ -185,10 +180,8 @@ export default function Refs() {
         ) : (
           <div className="list">
             {visibleStations.map((s) => (
-              <button key={s.id} className="list-item" onClick={() => setEditor({ kind: 'stations', id: s.id })}>
-                <span className="avatar">
-                  {s.logo ? <img src={s.logo} alt="" /> : <Icon name="fuel" />}
-                </span>
+              <button key={s.id} className="list-item tone-payment" onClick={() => setEditor({ kind: 'stations', id: s.id })}>
+                <Avatar tone="info" logo={s.logo} icon="fuel" />
                 <span className="li-main">
                   <span className="li-title">{s.name}</span>
                   <span className="li-sub">

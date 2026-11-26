@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Button, Card, Empty, Icon, SearchBar, Tabs } from '../ui/components';
+import { Avatar, Badge, Button, Card, Empty, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { listWhere, vehicleRepo, waybillRepo } from '../db/repo';
 import { fmtDate, plural } from '../lib/format';
@@ -68,9 +68,11 @@ export default function Vehicles() {
               return (
                 <Card key={v.id} className="clickable" onClick={() => navigate(`/vehicles/${v.id}`)}>
                   <div className="card-head">
-                    <span className="avatar">
-                      {v.logo ? <img src={v.logo} alt="" /> : <Icon name={v.kind === 'tractor' ? 'car' : 'box'} />}
-                    </span>
+                    <Avatar
+                      tone={v.kind === 'tractor' ? 'brand' : 'accent'}
+                      logo={v.logo}
+                      icon={v.kind === 'tractor' ? 'truck' : 'box'}
+                    />
                     <div className="li-main">
                       <div className="li-title">{v.name}</div>
                       <div className="li-sub">{v.plate || 'Без госномера'}</div>

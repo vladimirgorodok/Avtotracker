@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, Tabs } from '../ui/components';
+import { Avatar, Button, Card, defaultFilterMonth, Empty, Icon, MonthPicker, SearchBar, Tabs } from '../ui/components';
 import { useApp } from '../store';
 import { refs, refuelRepo } from '../db/repo';
 import { fmtDateTime, fmtNumber, monthKey, plural } from '../lib/format';
@@ -83,10 +83,16 @@ export default function Refuelings() {
             {items.map((r) => {
               const station = refs.station(r.station_id);
               return (
-                <button key={r.id} className="list-item" onClick={() => navigate(`/refuelings/${r.id}`)}>
-                  <span className="avatar">
-                    {station?.logo ? <img src={station.logo} alt="" /> : <Icon name="fuel" />}
-                  </span>
+                <button
+                  key={r.id}
+                  className={`list-item ${r.kind === 'station' ? 'tone-payment' : 'tone-charge'}`}
+                  onClick={() => navigate(`/refuelings/${r.id}`)}
+                >
+                  <Avatar
+                    tone={r.kind === 'station' ? 'info' : 'ok'}
+                    logo={station?.logo}
+                    icon={r.kind === 'station' ? 'fuel' : 'box'}
+                  />
                   <span className="li-main">
                     <span className="li-title">
                       {fmtNumber(r.volume)} л · {station?.name ?? refuelKindLabel(r.kind)}

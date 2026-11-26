@@ -3999,6 +3999,54 @@ async function main() {
     check('правки всё ещё можно отменить', readFileSync('src/lib/audit.ts', 'utf8').includes('undo: () => restoreTables(snap)'));
   }
 
+  console.log('\n38. Вид списков: оттенки через строку, цветные значки, фура');
+  {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('src/styles.css', 'utf8');
+    // Чередование оттенков через строку — списки читаются легче
+    check('строка через одну получает лёгкий оттенок', css.includes('.list-item:nth-child(even)'));
+    check('оттенок строки задан переменной', css.includes('--stripe:'));
+    check('тёмная тема тоже с оттенком строк', /--stripe: #1[0-9a-f]{5};/.test(css));
+
+    // Записи финансов отличаются по цвету типа, как плашки-итоги
+    check('начисление подсвечено цветом', css.includes('.list-item.tone-charge'));
+    check('поступление подсвечено цветом', css.includes('.list-item.tone-payment'));
+    check('плашки строк окрашены мягко', css.includes('.avatar-ok') && css.includes('.avatar-info'));
+    const financeSource = readFileSync('src/pages/Finance.tsx', 'utf8');
+    check('в финансах цвет зависит от типа', financeSource.includes('tone-charge') && financeSource.includes('tone-payment'));
+
+    // Список справочников и сервисов — с оттенками и цветными значками
+    const refsSource = readFileSync('src/pages/Refs.tsx', 'utf8');
+    check('справочники помечены оттенками', refsSource.includes('tone-accent') && refsSource.includes('tone-charge'));
+    const moreSource = readFileSync('src/pages/More.tsx', 'utf8');
+    check('в «Ещё» значки с тонами', moreSource.includes('tone={it.tone}'));
+    check('у Яндекс Диска фирменный логотип', moreSource.includes("icon: 'yadisk'"));
+
+    // Меню «＋» — та же история: чередование и цветные значки
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    check('меню «＋» с оттенками строк', appSource.includes('list-item tone-'));
+    check('значки меню «＋» цветные', appSource.includes('<Avatar tone="'));
+
+    // Значок — по размеру плашки
+    check('значок занимает плашку', css.includes('.avatar .icon'));
+
+    // Автомобиль и смена: фура вместо легкового, имя тише, номер заметнее
+    const compSource = readFileSync('src/ui/components.tsx', 'utf8');
+    check('есть пиктограмма фуры', compSource.includes('truck: ('));
+    check('есть фирменный знак Яндекс Диска', compSource.includes('yadisk: ('));
+    const homeSource = readFileSync('src/pages/Home.tsx', 'utf8');
+    check('в карточке «Автомобиль и смена» фура, а не легковой', homeSource.includes('icon={vehicle.kind === \'tractor\' ? \'truck\' : \'box\'}'));
+    check('название автомобиля тише', homeSource.includes('veh-name'));
+    check('номер выделен заметнее', homeSource.includes('veh-plate'));
+    check('имя тише, номер заметнее — задано стилями', css.includes('.veh-name') && css.includes('.veh-plate'));
+
+    // Кнопка закрытия листа — в правом нижнем углу
+    check('кнопка закрытия в углу карточки', css.includes('.wb-card .shift-finish') && css.includes('bottom: 14px'));
+    const wbSource = readFileSync('src/pages/WaybillDetail.tsx', 'utf8');
+    check('в листе кнопка закрытия — плавающая в углу', wbSource.includes('className="wb-fab"'));
+    check('плавающая кнопка в правом нижнем углу', css.includes('.wb-fab') && css.includes('bottom: calc(var(--nav-h) + 16px)'));
+  }
+
   console.log(`\nПроверок пройдено: ${passed}, ошибок: ${failed}`);
   if (failed > 0) process.exit(1);
 }

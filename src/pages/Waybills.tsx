@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar, Badge, Icon } from '../ui/components';
+import { Avatar, Button, Card, defaultFilterMonth, Empty, MonthPicker, SearchBar, Badge, Icon } from '../ui/components';
 import { useApp } from '../store';
 import { refs, waybillRepo } from '../db/repo';
 import { summarizeWaybill } from '../lib/calc';
@@ -64,9 +64,7 @@ export default function Waybills() {
                 onClick={() => navigate(`/waybills/${it.waybill.id}`)}
               >
                 <div className="card-head">
-                  <span className="avatar">
-                    <Icon name="doc" />
-                  </span>
+                  <Avatar tone={it.waybill.status === 'open' ? 'warn' : 'info'} icon="doc" />
                   <div className="li-main">
                     <div className="li-title">
                       {fmtDate(it.waybill.date_out)} —{' '}
