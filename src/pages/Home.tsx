@@ -8,27 +8,17 @@ import {
   defaultFilterMonth,
   Empty,
   Icon,
-  Modal,
   MonthPicker,
-  NumberInput,
   SearchEntry,
   StatCard,
   StatGrid,
-  TextInput,
 } from '../ui/components';
 import { useApp } from '../store';
 import { financeRepo, refs, tripRepo, updateRow, waybillRepo } from '../db/repo';
 import { fmtDate, fmtMoney, fmtNumber, mapLink, monthKey, todayIso } from '../lib/format';
 import { sortTrips, summarizeTrip, summarizeWaybill } from '../lib/calc';
 import type { TripSummary } from '../lib/calc';
-import {
-  closeShiftPreview,
-  closeShiftToday,
-  lastRefuelKind,
-  quickPayment,
-  quickRefuel,
-  refreshTripStatus,
-} from '../lib/actions';
+import { closeShiftPreview, closeShiftToday, refreshTripStatus } from '../lib/actions';
 import type { TripPoint } from '../types';
 import { SaveBadge } from '../ui/SaveBadge';
 
@@ -38,11 +28,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
   const settings = useApp((s) => s.settings);
   const touch = useApp((s) => s.touch);
   const notify = useApp((s) => s.notify);
-  const [quick, setQuick] = useState<'refuel' | 'money' | null>(null);
-  const [fuelVolume, setFuelVolume] = useState<number | null>(null);
-  const [moneyAmount, setMoneyAmount] = useState<number | null>(null);
-  const [moneyFamily, setMoneyFamily] = useState<number | null>(null);
-  const [moneyNote, setMoneyNote] = useState('');
   const [closeConfirm, setCloseConfirm] = useState(false);
   const [month, setMonth] = useState<string>(() => defaultFilterMonth());
 
@@ -70,38 +55,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
     return { openWaybill, lastWaybill, openSummary, charged, paid, family, onHand: paid - family, trips: filtered, current };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, month]);
-
-  /** Быстрая заправка: литры, остальное подставляем — источник как в прошлый раз */
-  function saveQuickRefuel() {
-    const volume = Number(fuelVolume) || 0;
-    if (volume <= 0) {
-      notify('Укажите объём', 'err');
-      return;
-    }
-    const wbId = data.openWaybill?.id ?? null;
-    quickRefuel(wbId, volume, lastRefuelKind());
-    touch();
-    setQuick(null);
-    setFuelVolume(null);
-    notify(`Заправлено ${fmtNumber(volume)} л`, 'ok');
-  }
-
-  /** Быстрое поступление: сумма и отчисление в семью, дата — сегодня */
-  function saveQuickMoney() {
-    const amount = Number(moneyAmount) || 0;
-    if (amount <= 0) {
-      notify('Укажите сумму', 'err');
-      return;
-    }
-    const id = quickPayment(amount, Number(moneyFamily) || 0, data.openWaybill?.id ?? null);
-    if (moneyNote.trim()) updateRow('finance_ops', id, { note: moneyNote.trim() });
-    touch();
-    setQuick(null);
-    setMoneyAmount(null);
-    setMoneyFamily(null);
-    setMoneyNote('');
-    notify(`Поступило ${fmtMoney(amount, settings.currency)}`, 'ok');
-  }
 
   /** Закрыть смену одним движением: дату, одометр и топливо подставляем сами */
   function saveCloseShift() {
@@ -154,24 +107,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
         </div>
         <SearchEntry text="Поиск по всему: листы, поездки, справочники" onClick={() => navigate('/search')} />
 
-        <div className="quick-actions">
-          <Button variant="soft" icon="fuel" onClick={() => setQuick('refuel')}>
-            Заправился
-          </Button>
-          <Button variant="soft" icon="money" onClick={() => setQuick('money')}>
-            Пришли деньги
-          </Button>
-          {data.openWaybill ? (
-            <Button variant="success" icon="check" onClick={() => setCloseConfirm(true)}>
-              Закрыть смену
-            </Button>
-          ) : (
-            <Button variant="primary" icon="plus" onClick={onCreate}>
-              Открыть смену
-            </Button>
-          )}
-        </div>
-
         {data.current?.nextPoint ? (
           <NextPointCard
             summary={data.current}
@@ -187,20 +122,29 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           onClick={() => navigate('/vehicles')}
         >
           {vehicle ? (
-            <div className="row">
-              <span className="avatar">
-                {vehicle.logo ? <img src={vehicle.logo} alt="" /> : <Icon name="car" />}
-              </span>
-              <div className="li-main">
-                <div className="li-title">
-                  {vehicle.name}
-                  {trailer ? ` + ${trailer.name}` : ''}
+            <div className="stack-sm">
+              <div className="row">
+                <span className="avatar">
+                  {vehicle.logo ? <img src={vehicle.logo} alt="" /> : <Icon name="car" />}
+                </span>
+                <div className="li-main">
+                  <div className="li-title">{vehicle.name}</div>
+                  <div className="li-sub">{vehicle.plate || 'Номер не указан'}</div>
                 </div>
-                <div className="li-sub">
-                  {[vehicle.plate, trailer?.plate].filter(Boolean).join(' · ')}
-                </div>
+                <Badge>Тягач</Badge>
               </div>
-              <Badge>{trailer ? 'Тягач и прицеп' : 'Тягач'}</Badge>
+              {trailer ? (
+                <div className="row">
+                  <span className="avatar">
+                    {trailer.logo ? <img src={trailer.logo} alt="" /> : <Icon name="box" />}
+                  </span>
+                  <div className="li-main">
+                    <div className="li-title">{trailer.name}</div>
+                    <div className="li-sub">{trailer.plate || 'Номер не указан'}</div>
+                  </div>
+                  <Badge>Прицеп</Badge>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="muted small">Автомобиль ещё не добавлен</div>
@@ -214,10 +158,24 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
             className="clickable"
             onClick={() => navigate(`/waybills/${data.openSummary!.waybill.id}`)}
           >
-            <div style={{ fontWeight: 650, fontSize: 17 }}>
-              {fmtDate(data.openSummary.waybill.date_out)} — открыт
+            <div className="row">
+              <div className="grow" style={{ fontWeight: 650, fontSize: 17 }}>
+                {fmtDate(data.openSummary.waybill.date_out)} — открыт
+              </div>
+              <button
+                type="button"
+                className="shift-finish"
+                title="Закрыть смену"
+                aria-label="Закрыть смену"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCloseConfirm(true);
+                }}
+              >
+                <Icon name="flag" size={22} />
+              </button>
             </div>
-            <div className="grid-2">
+            <div className="grid-2 tight">
               <div className="kv">
                 <div className="kv-label">Выезд</div>
                 <div className="kv-value">{fmtDate(data.openSummary.waybill.date_out)}</div>
@@ -301,57 +259,6 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
         )}
       </div>
 
-      <Modal
-        open={quick === 'refuel'}
-        title="Заправился"
-        onClose={() => setQuick(null)}
-        footer={
-          <>
-            <Button onClick={() => setQuick(null)}>Отмена</Button>
-            <Button variant="primary" icon="check" onClick={saveQuickRefuel}>
-              Сохранить
-            </Button>
-          </>
-        }
-      >
-        <div className="small muted">
-          Источник подставим как в прошлый раз, дата — сегодня. Нужен только объём.
-        </div>
-        <label className="field">
-          <span className="field-label">Объём, л</span>
-          <NumberInput value={fuelVolume} onValue={setFuelVolume} steppers step={10} />
-        </label>
-      </Modal>
-
-      <Modal
-        open={quick === 'money'}
-        title="Пришли деньги"
-        onClose={() => setQuick(null)}
-        footer={
-          <>
-            <Button onClick={() => setQuick(null)}>Отмена</Button>
-            <Button variant="primary" icon="check" onClick={saveQuickMoney}>
-              Сохранить
-            </Button>
-          </>
-        }
-      >
-        <label className="field">
-          <span className="field-label">Сумма поступило</span>
-          <NumberInput value={moneyAmount} onValue={setMoneyAmount} steppers step={500} />
-        </label>
-        <label className="field">
-          <span className="field-label">В семью</span>
-          <NumberInput value={moneyFamily} onValue={setMoneyFamily} steppers step={500} />
-          <span className="field-hint">Отчисление из этого поступления; можно оставить нулём</span>
-        </label>
-        <label className="field">
-          <span className="field-label">Примечание</span>
-          <TextInput value={moneyNote} onChange={(e) => setMoneyNote(e.target.value)} />
-        </label>
-        <div className="small muted">Месяц оплаты — прошлый; его можно поменять в операции.</div>
-      </Modal>
-
       <Confirm
         open={closeConfirm}
         title="Закрыть смену?"
@@ -361,7 +268,9 @@ export default function Home({ onCreate }: { onCreate: () => void }) {
           closePreview
             ? `Дата сдачи — ${fmtDate(closePreview.dateIn)}, одометр при сдаче — ${
                 closePreview.odometerIn === null ? 'не указан' : fmtNumber(closePreview.odometerIn)
-              }. Если цифры не сойдутся, откроем карточку листа.`
+              } км. Пробег за лист — примерно 1 000 км на перевозку (${
+                data.openSummary?.tripsCount ?? 0
+              } в листе). Если цифры не сойдутся, откроем карточку листа.`
             : 'Закрыть открытую смену?'
         }
         onCancel={() => setCloseConfirm(false)}

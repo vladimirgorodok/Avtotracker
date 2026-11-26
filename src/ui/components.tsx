@@ -680,7 +680,8 @@ export type IconName =
   | 'undo'
   | 'eye'
   | 'power'
-  | 'family';
+  | 'family'
+  | 'flag';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   back: <path d="M15 5l-7 7 7 7" />,
@@ -718,6 +719,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   power: <path d="M12 3v9M18.4 6.6a9 9 0 11-12.8 0" />,
   family: (
     <path d="M8 11a3 3 0 100-6 3 3 0 000 6zM16 11a3 3 0 100-6 3 3 0 000 6zM2 20v-1a5 5 0 015-5h2a5 5 0 015 5v1M14 14h1a5 5 0 015 5v1" />
+  ),
+  // Финишный флажок — понятный знак «смена окончена»
+  flag: (
+    <>
+      <path d="M5 21V4" />
+      <path d="M5 4h12l-3 4 3 4H5z" />
+    </>
   ),
 };
 

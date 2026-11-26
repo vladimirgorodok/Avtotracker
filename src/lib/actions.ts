@@ -132,23 +132,30 @@ export function closeShiftPreview(
   const wb = waybillRepo.get(waybillId);
   if (!wb) return null;
   const prev = waybillRepo.lastClosed(wb.vehicle_id ?? null);
+  const tripsCount = tripRepo.byWaybill(waybillId).length;
   let odometerIn = wb.odometer_in;
-  if (odometerIn === null && prev) {
-    // Пробег прошлой смены прибавляем к нынешнему выезду — так одометр растёт
-    const step =
-      prev.odometer_in !== null && prev.odometer_out !== null ? prev.odometer_in - prev.odometer_out : null;
-    odometerIn =
-      step !== null && step > 0 ? (wb.odometer_out ?? prev.odometer_in ?? 0) + step : prev.odometer_in;
+  if (odometerIn === null) {
+    if (tripsCount > 0 && wb.odometer_out !== null) {
+      // Пробег за лист считаем по перевозкам: примерно 1000 км на перевозку
+      // (чаще две — тогда около 2000 км). Больше перевозок — больше и пробег.
+      odometerIn = wb.odometer_out + tripsCount * 1000;
+    } else if (prev) {
+      // Перевозок ещё нет — опираемся на пробег прошлой смены
+      const step =
+        prev.odometer_in !== null && prev.odometer_out !== null ? prev.odometer_in - prev.odometer_out : null;
+      odometerIn =
+        step !== null && step > 0 ? (wb.odometer_out ?? prev.odometer_in ?? 0) + step : prev.odometer_in;
+    }
   }
   const fuelIn = wb.fuel_in !== null ? wb.fuel_in : (prev?.fuel_in ?? null);
   return { dateIn: todayIso(), odometerIn, fuelIn };
 }
 
 /**
- * Закрыть смену одним движением: дату сдачи ставим сегодняшнюю, одометр и топливо
- * при сдаче берём с прошлой закрытой смены (за день проезжают примерно столько же).
- * Если чего-то не хватает или цифры не сходятся — вернём подсказку, и закрытие
- * продолжится уже в карточке листа.
+ * Закрыть смену одним движением: дату сдачи ставим сегодняшнюю, одометр при сдаче
+ * считаем по числу перевозок (около 1000 км на перевозку), топливо — как в прошлой
+ * смене. Если чего-то не хватает или цифры не сходятся — вернём подсказку, и
+ * закрытие продолжится уже в карточке листа.
  */
 export function closeShiftToday(waybillId: Id, settings: AppSettings): CloseResult {
   const preview = closeShiftPreview(waybillId);

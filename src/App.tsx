@@ -5,6 +5,7 @@ import { App as CapApp } from '@capacitor/app';
 import { getDb, setSaveErrorHandler } from './db';
 import { applyStatusBarTheme, applyTheme, applyViewMode, useApp } from './store';
 import { Confirm, Icon, type IconName, Modal, Toasts } from './ui/components';
+import { QuickMoneyModal, QuickRefuelModal } from './ui/QuickActions';
 import { Splash } from './ui/Splash';
 import { StartScreen } from './ui/StartScreen';
 import { ExitScreen } from './ui/ExitScreen';
@@ -98,10 +99,14 @@ function CreateSheet({
   open,
   onClose,
   onExit,
+  onQuickRefuel,
+  onQuickMoney,
 }: {
   open: boolean;
   onClose: () => void;
   onExit: () => void;
+  onQuickRefuel: () => void;
+  onQuickMoney: () => void;
 }) {
   const navigate = useNavigate();
   const touch = useApp((s) => s.touch);
@@ -153,23 +158,6 @@ function CreateSheet({
     navigate(`/trips/${id}`);
   }
 
-  function newRefuel() {
-    const id = uid();
-    const openWaybill = waybillRepo.open()[0] ?? null;
-    insertRow('refuelings', {
-      id,
-      waybill_id: openWaybill?.id ?? '',
-      date: new Date().toISOString(),
-      volume: 0,
-      kind: 'barrel',
-      station_id: null,
-      note: '',
-    });
-    touch();
-    onClose();
-    navigate(`/refuelings/${id}`);
-  }
-
   function newFinance() {
     const id = uid();
     insertRow('finance_ops', {
@@ -215,13 +203,22 @@ function CreateSheet({
             <span className="li-sub">Маршрут из точек погрузки и выгрузки</span>
           </span>
         </button>
-        <button className="list-item" onClick={newRefuel}>
+        <button className="list-item" onClick={onQuickRefuel}>
           <span className="avatar">
             <Icon name="fuel" />
           </span>
           <span className="li-main">
-            <span className="li-title">Заправка</span>
-            <span className="li-sub">Бочка или АЗС</span>
+            <span className="li-title">Заправился</span>
+            <span className="li-sub">Быстро: только объём, источник как в прошлый раз</span>
+          </span>
+        </button>
+        <button className="list-item" onClick={onQuickMoney}>
+          <span className="avatar">
+            <Icon name="money" />
+          </span>
+          <span className="li-main">
+            <span className="li-title">Пришли деньги</span>
+            <span className="li-sub">Быстро: сумма и отчисление в семью</span>
           </span>
         </button>
         <button className="list-item" onClick={newFinance}>
@@ -261,6 +258,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [quick, setQuick] = useState<'refuel' | 'money' | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
   const [askExit, setAskExit] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
@@ -437,7 +435,17 @@ export default function App() {
               open={createOpen}
               onClose={() => setCreateOpen(false)}
               onExit={openExit}
+              onQuickRefuel={() => {
+                setCreateOpen(false);
+                setQuick('refuel');
+              }}
+              onQuickMoney={() => {
+                setCreateOpen(false);
+                setQuick('money');
+              }}
             />
+            <QuickRefuelModal open={quick === 'refuel'} onClose={() => setQuick(null)} />
+            <QuickMoneyModal open={quick === 'money'} onClose={() => setQuick(null)} />
             <BackExit onExit={backFromRoot} />
             <Confirm
               open={askExit}

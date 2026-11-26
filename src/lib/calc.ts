@@ -155,7 +155,14 @@ export function summarizeWaybill(waybill: Waybill): WaybillTotals {
   if (waybill.date_in && waybill.date_out && waybill.date_in < waybill.date_out) {
     errors.push('Дата сдачи раньше даты выезда');
   }
-  if (mileage !== null && mileage > 2000) warnings.push('Пробег за лист больше 2000 км — проверьте одометр');
+  // Пробег за лист зависит от числа перевозок: примерно 1000 км на перевозку
+  // (чаще две — тогда около 2000 км). Пустой лист тоже не больше 2000 км.
+  if (mileage !== null) {
+    const mileageLimit = Math.max(2, trips.length) * 1000;
+    if (mileage > mileageLimit) {
+      warnings.push(`Пробег за лист больше ${mileageLimit} км — проверьте одометр`);
+    }
+  }
   if (consumed !== null && consumed < 0) warnings.push('Расход топлива получился отрицательным');
   if (waybill.status === 'closed' && (waybill.odometer_in === null || waybill.fuel_in === null)) {
     warnings.push('Лист закрыт без одометра или топлива при сдаче');

@@ -822,28 +822,35 @@ button.save-badge {
   align-items: center;
 }
 
-/* Частые действия на Главной: две кнопки в строку, главное действие — во всю ширину */
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.quick-actions > *:last-child {
-  grid-column: 1 / -1;
-}
-
-@media (min-width: 560px) {
-  .quick-actions {
-    grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
-  }
-  .quick-actions > *:last-child {
-    grid-column: auto;
-  }
-}
-
-.quick-actions .btn {
+/* Кнопка «Закрыть смену» в карточке листа: заметная пиктограмма без подписи */
+.shift-finish {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: none;
+  color: #fff;
+  background: linear-gradient(160deg, #34b46a, #1f8f50);
+  box-shadow: 0 6px 16px rgba(31, 143, 80, 0.35);
+  cursor: pointer;
+}
+
+.shift-finish:active {
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px rgba(31, 143, 80, 0.3);
+}
+
+/* Значения в карточке листа поджаты — рядом с ними живёт кнопка закрытия */
+.grid-2.tight {
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+
+.grid-2.tight .kv-label {
+  font-size: 12px;
 }
 
 /* Поле с кнопками «−/+»: набирать на ходу неудобно, ступеньки помогают */
@@ -2470,7 +2477,6 @@ body {
 
 /* Управление списком — поиск, вкладки, счётчик с кнопкой — во всю ширину */
 [data-view='tablet'] .page-body > .searchbar,
-[data-view='tablet'] .page-body > .quick-actions,
 [data-view='tablet'] .page-body > .filters,
 [data-view='tablet'] .page-body > .tabs,
 [data-view='tablet'] .page-body > .row,

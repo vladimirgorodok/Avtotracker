@@ -3890,11 +3890,100 @@ async function main() {
       readFileSync('src/pages/Home.tsx', 'utf8').includes('Закрыть смену?'),
     );
 
-    // Всё это видно на Главной: три кнопки и пять плашек
+    // Пробег за лист считаем по перевозкам: около 1000 км на перевозку.
+    // Чаще две — тогда около 2000; если больше, то соответственно больше.
+    const { summarizeWaybill } = await import('../lib/calc');
+    const wbWithTrips = repo.insertRow('waybills', {
+      date_out: '2026-05-03',
+      odometer_out: 100000,
+      fuel_out: 200,
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'open',
+      name: '2026-05-03 — открыт',
+    });
+    for (let i = 0; i < 2; i++) {
+      repo.insertRow('trips', {
+        waybill_id: wbWithTrips,
+        amount: 0,
+        cargo_type_id: null,
+        weight: null,
+        note: '',
+        status: 'planned',
+      });
+    }
+    eq('при двух перевозках пробег ≈ 2000 км', closeShiftPreview(wbWithTrips)!.odometerIn, 102000);
+    repo.insertRow('trips', {
+      waybill_id: wbWithTrips,
+      amount: 0,
+      cargo_type_id: null,
+      weight: null,
+      note: '',
+      status: 'planned',
+    });
+    repo.insertRow('trips', {
+      waybill_id: wbWithTrips,
+      amount: 0,
+      cargo_type_id: null,
+      weight: null,
+      note: '',
+      status: 'planned',
+    });
+    eq('при четырёх перевозках пробег ≈ 4000 км', closeShiftPreview(wbWithTrips)!.odometerIn, 104000);
+
+    // Предупреждение тоже растёт вместе с числом перевозок: 2 перевозки → порог 2000,
+    // 4 перевозки → порог 4000. «Пробег за лист» больше не должен вызывать вопросов.
+    const warnWb = repo.insertRow('waybills', {
+      date_out: '2026-05-04',
+      date_in: '2026-05-05',
+      odometer_out: 1000,
+      odometer_in: 4000,
+      fuel_out: 200,
+      fuel_in: 200,
+      vehicle_id: null,
+      trailer_id: null,
+      status: 'closed',
+      name: '2026-05-04 — сдано',
+    });
+    for (let i = 0; i < 2; i++) {
+      repo.insertRow('trips', {
+        waybill_id: warnWb,
+        amount: 0,
+        cargo_type_id: null,
+        weight: null,
+        note: '',
+        status: 'done',
+      });
+    }
+    const warn2 = summarizeWaybill(repo.waybillRepo.get(warnWb)!).warnings;
+    check('при двух перевозках пробег 3000 км — предупреждение', warn2.some((w) => w.includes('больше 2000 км')));
+    for (let i = 0; i < 2; i++) {
+      repo.insertRow('trips', {
+        waybill_id: warnWb,
+        amount: 0,
+        cargo_type_id: null,
+        weight: null,
+        note: '',
+        status: 'done',
+      });
+    }
+    const warn4 = summarizeWaybill(repo.waybillRepo.get(warnWb)!).warnings;
+    check('при четырёх перевозках тот же пробег — без предупреждения', !warn4.some((w) => w.includes('Пробег за лист')));
+
+    // Быстрые действия переехали в меню «＋», а «Закрыть смену» — в карточку листа
+    const appSource = readFileSync('src/App.tsx', 'utf8');
+    check('в меню «＋» есть «Заправился»', appSource.includes('Заправился'));
+    check('в меню «＋» есть «Пришли деньги»', appSource.includes('Пришли деньги'));
+    check('меню «＋» открывает окно заправки', appSource.includes('<QuickRefuelModal'));
+    check('меню «＋» открывает окно денег', appSource.includes('<QuickMoneyModal'));
+    const quickSource = readFileSync('src/ui/QuickActions.tsx', 'utf8');
+    check('окно заправки собирает только объём', quickSource.includes('Объём, л'));
+
     const homeSource = readFileSync('src/pages/Home.tsx', 'utf8');
-    check('на Главной есть «Заправился»', homeSource.includes('Заправился'));
-    check('на Главной есть «Пришли деньги»', homeSource.includes('Пришли деньги'));
     check('на Главной есть «Закрыть смену»', homeSource.includes('Закрыть смену'));
+    check('закрытие смены — пиктограммой в карточке листа', homeSource.includes('className="shift-finish"'));
+    check('у кнопки закрытия понятный знак-флажок', homeSource.includes('name="flag"'));
+    check('в карточке видно и прицеп со значком', homeSource.includes('Прицеп'));
     check('показатель «На руках» на Главной', homeSource.includes('label="На руках"'));
     check('плашки ведут в финансы', homeSource.includes("onClick={() => navigate('/finance')}"));
 
